@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <!-- Infrastructure: event store + consumer idempotency -->
+    <include file="db/changelog/infrastructure/001-create-event-store.xml"/>
+    <include file="db/changelog/infrastructure/002-create-processed-events.xml"/>
+
+</databaseChangeLog>
