@@ -1,8 +1,8 @@
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/temporal_rift
-    username: temporal_rift
-    password: temporal_rift
+    username: ${SPRING_DATASOURCE_USERNAME:temporal_rift}
+    password: ${SPRING_DATASOURCE_PASSWORD:temporal_rift}
   jpa:
     show-sql: true
   kafka:
