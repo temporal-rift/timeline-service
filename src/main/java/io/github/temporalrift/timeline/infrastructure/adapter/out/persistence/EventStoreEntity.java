@@ -10,6 +10,8 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import io.github.temporalrift.timeline.domain.eventstore.StoredEvent;
+
 @Entity
 @Table(name = "event_store")
 class EventStoreEntity {
@@ -44,54 +46,21 @@ class EventStoreEntity {
         // for JPA
     }
 
-    EventStoreEntity(
-            UUID id,
-            UUID aggregateId,
-            String aggregateType,
-            String eventType,
-            int eventVersion,
-            String payload,
-            Instant occurredAt,
-            long sequenceNr) {
-        this.id = id;
-        this.aggregateId = aggregateId;
-        this.aggregateType = aggregateType;
-        this.eventType = eventType;
-        this.eventVersion = eventVersion;
-        this.payload = payload;
-        this.occurredAt = occurredAt;
-        this.sequenceNr = sequenceNr;
+    static EventStoreEntity fromDomain(StoredEvent event) {
+        var entity = new EventStoreEntity();
+        entity.id = event.id();
+        entity.aggregateId = event.aggregateId();
+        entity.aggregateType = event.aggregateType();
+        entity.eventType = event.eventType();
+        entity.eventVersion = event.eventVersion();
+        entity.payload = event.payload();
+        entity.occurredAt = event.occurredAt();
+        entity.sequenceNr = event.sequenceNr();
+        return entity;
     }
 
-    UUID getId() {
-        return id;
-    }
-
-    UUID getAggregateId() {
-        return aggregateId;
-    }
-
-    String getAggregateType() {
-        return aggregateType;
-    }
-
-    String getEventType() {
-        return eventType;
-    }
-
-    int getEventVersion() {
-        return eventVersion;
-    }
-
-    String getPayload() {
-        return payload;
-    }
-
-    Instant getOccurredAt() {
-        return occurredAt;
-    }
-
-    long getSequenceNr() {
-        return sequenceNr;
+    StoredEvent toDomain() {
+        return new StoredEvent(
+                id, aggregateId, aggregateType, eventType, eventVersion, payload, occurredAt, sequenceNr);
     }
 }
