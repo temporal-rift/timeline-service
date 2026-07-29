@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: timeline-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/temporal_rift
+    username: temporal_rift
+    password: temporal_rift
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  kafka:
+    bootstrap-servers: localhost:9092
+    properties:
+      security.protocol: PLAINTEXT
+    consumer:
+      group-id: timeline-service
+      auto-offset-reset: earliest
+
+logging:
+  level:
+    io.github.temporalrift: DEBUG
