@@ -19,33 +19,13 @@ class JpaEventStoreAdapter implements EventStorePort {
 
     @Override
     public void append(StoredEvent event) {
-        repository.save(new EventStoreEntity(
-                event.id(),
-                event.aggregateId(),
-                event.aggregateType(),
-                event.eventType(),
-                event.eventVersion(),
-                event.payload(),
-                event.occurredAt(),
-                event.sequenceNr()));
+        repository.save(EventStoreEntity.fromDomain(event));
     }
 
     @Override
     public List<StoredEvent> readStream(UUID aggregateId) {
         return repository.findByAggregateIdOrderBySequenceNrAsc(aggregateId).stream()
-                .map(JpaEventStoreAdapter::toDomain)
+                .map(EventStoreEntity::toDomain)
                 .toList();
-    }
-
-    private static StoredEvent toDomain(EventStoreEntity entity) {
-        return new StoredEvent(
-                entity.getId(),
-                entity.getAggregateId(),
-                entity.getAggregateType(),
-                entity.getEventType(),
-                entity.getEventVersion(),
-                entity.getPayload(),
-                entity.getOccurredAt(),
-                entity.getSequenceNr());
     }
 }
