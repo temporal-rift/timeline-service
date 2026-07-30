@@ -2,6 +2,7 @@ package io.github.temporalrift.timeline;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -61,6 +62,11 @@ class TimelineServiceApplicationIT {
 
     @Test
     void kafkaBrokerIsReachable() throws Exception {
-        kafkaTemplate.send("timeline.it-smoke", "k", "v").get(10, TimeUnit.SECONDS);
+        // Producer value-serializer is ByteArraySerializer (pairs with the consumer-side
+        // ByteArrayJacksonJsonMessageConverter — see KafkaConsumerConfig), so a raw String value is no
+        // longer serializable directly; send its bytes instead.
+        kafkaTemplate
+                .send("timeline.it-smoke", "k", "v".getBytes(StandardCharsets.UTF_8))
+                .get(10, TimeUnit.SECONDS);
     }
 }

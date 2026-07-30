@@ -29,10 +29,7 @@ public class ArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAPackage("..infrastructure..")
-            .as("Application layer must not depend on infrastructure")
-            // The application layer has no classes yet (arrives with the resolution use cases in MVP 2);
-            // the rule stands so it enforces the boundary the moment those classes land.
-            .allowEmptyShould(true);
+            .as("Application layer must not depend on infrastructure");
 
     @ArchTest
     static final ArchRule driven_ports_must_only_be_implemented_in_infrastructure = noClasses()
