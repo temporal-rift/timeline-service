@@ -32,11 +32,12 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      # JacksonJsonSerializer (Jackson 3). Type headers off so consumers convert by listener parameter
-      # type, keeping the wire format header-free JSON — matching game-service.
-      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
-      properties:
-        spring.json.add.type.headers: false
+      # ByteArraySerializer pairs with the consumer-side ByteArrayJacksonJsonMessageConverter
+      # (KafkaConsumerConfig): kafkaTemplate.send(Message<?>) already runs the payload through that
+      # converter's RecordMessageConverter#convertPayload (JSON -> byte[]), so the producer's own
+      # serializer must pass bytes straight through. Pairing this with JacksonJsonSerializer instead
+      # double-encodes — the serializer would JSON-serialize the already-JSON byte[] as a base64 string.
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
 
 logging:
   level:

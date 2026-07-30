@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Write-side lookup so ResolutionStarted (gameId, eraNumber only) can find which FutureEvent
+      aggregates to resolve. Not a read-model/projection — event_store remains the only source of
+      truth for FutureEvent state. See design.md Decision 1.
+  -->
+  <changeSet id="001-create-future-event-era-index" author="timeline-service">
+    <createTable tableName="future_event_era_index">
+      <column name="event_id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="era_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="resolved" type="BOOLEAN" defaultValueBoolean="false">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+
+    <createIndex tableName="future_event_era_index" indexName="ix_future_event_era_index_game_era">
+      <column name="game_id"/>
+      <column name="era_number"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>
