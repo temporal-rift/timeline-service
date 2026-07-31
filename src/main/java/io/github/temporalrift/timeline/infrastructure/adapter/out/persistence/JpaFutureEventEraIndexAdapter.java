@@ -17,7 +17,7 @@ class JpaFutureEventEraIndexAdapter implements FutureEventEraIndexPort {
     }
 
     @Override
-    public void record(UUID eventId, UUID gameId, int eraNumber) {
+    public void add(UUID eventId, UUID gameId, int eraNumber) {
         repository.save(new FutureEventEraIndexEntity(eventId, gameId, eraNumber));
     }
 
