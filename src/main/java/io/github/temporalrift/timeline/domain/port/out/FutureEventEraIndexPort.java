@@ -9,7 +9,7 @@ import java.util.UUID;
  */
 public interface FutureEventEraIndexPort {
 
-    void record(UUID eventId, UUID gameId, int eraNumber);
+    void add(UUID eventId, UUID gameId, int eraNumber);
 
     List<UUID> findEventIdsByGameIdAndEraNumber(UUID gameId, int eraNumber);
 }

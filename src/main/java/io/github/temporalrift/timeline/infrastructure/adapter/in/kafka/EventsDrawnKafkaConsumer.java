@@ -48,7 +48,7 @@ class EventsDrawnKafkaConsumer {
                         .map(o -> new Outcome(o.outcomeId(), o.description(), o.initialProbability()))
                         .toList();
                 futureEvents.append(futureEvent.eventId(), new FutureEventDrafted(futureEvent.eventId(), outcomes));
-                eraIndex.record(futureEvent.eventId(), payload.gameId(), payload.eraNumber());
+                eraIndex.add(futureEvent.eventId(), payload.gameId(), payload.eraNumber());
             }
         });
     }

@@ -74,8 +74,8 @@ class EventsDrawnKafkaConsumerTest {
 
         then(futureEvents).should().append(eq(futureEventId1), any(FutureEventDrafted.class));
         then(futureEvents).should().append(eq(futureEventId2), any(FutureEventDrafted.class));
-        then(eraIndex).should().record(futureEventId1, gameId, eraNumber);
-        then(eraIndex).should().record(futureEventId2, gameId, eraNumber);
+        then(eraIndex).should().add(futureEventId1, gameId, eraNumber);
+        then(eraIndex).should().add(futureEventId2, gameId, eraNumber);
     }
 
     @Test
@@ -98,6 +98,6 @@ class EventsDrawnKafkaConsumerTest {
                 new EventsDrawnPayload(UUID.randomUUID(), 1, List.of()), eventId, BINDING_NAME, 1));
 
         then(futureEvents).should(never()).append(any(), any());
-        then(eraIndex).should(never()).record(any(), any(), anyInt());
+        then(eraIndex).should(never()).add(any(), any(), anyInt());
     }
 }
