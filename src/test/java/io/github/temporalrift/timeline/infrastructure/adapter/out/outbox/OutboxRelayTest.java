@@ -65,4 +65,38 @@ class OutboxRelayTest {
         then(kafkaTemplate).should(never()).send(any(Message.class));
         then(repository).should(never()).compareAndSetStatus(id, OutboxStatus.SENDING, OutboxStatus.SENT);
     }
+
+    @Test
+    @DisplayName("building the message fails (bad stored JSON) — reverts to PENDING, not stuck SENDING")
+    void relay_messageBuildFails_revertsToPending() {
+        var id = UUID.randomUUID();
+        var row = OutboxEventEntity.pending(id, "timeline.events", "game-1", "not-json", "{}", Instant.now());
+        given(repository.findByStatusOrderBySeqAsc(OutboxStatus.PENDING)).willReturn(List.of(row));
+        given(repository.compareAndSetStatus(id, OutboxStatus.PENDING, OutboxStatus.SENDING))
+                .willReturn(1);
+
+        relay.relay();
+
+        then(kafkaTemplate).should(never()).send(any(Message.class));
+        then(repository).should().compareAndSetStatus(id, OutboxStatus.SENDING, OutboxStatus.PENDING);
+        then(repository).should(never()).compareAndSetStatus(id, OutboxStatus.SENDING, OutboxStatus.SENT);
+    }
+
+    @Test
+    @DisplayName("an earlier row fails — sweep stops there, a later PENDING row is never attempted")
+    void relay_earlierRowFails_stopsSweepBeforeLaterRow() {
+        var firstId = UUID.randomUUID();
+        var secondId = UUID.randomUUID();
+        var first = OutboxEventEntity.pending(firstId, "timeline.events", "game-1", "not-json", "{}", Instant.now());
+        var second = OutboxEventEntity.pending(secondId, "timeline.events", "game-1", "{}", "{}", Instant.now());
+        given(repository.findByStatusOrderBySeqAsc(OutboxStatus.PENDING)).willReturn(List.of(first, second));
+        given(repository.compareAndSetStatus(firstId, OutboxStatus.PENDING, OutboxStatus.SENDING))
+                .willReturn(1);
+
+        relay.relay();
+
+        then(repository).should().compareAndSetStatus(firstId, OutboxStatus.SENDING, OutboxStatus.PENDING);
+        then(repository).should(never()).compareAndSetStatus(secondId, OutboxStatus.PENDING, OutboxStatus.SENDING);
+        then(kafkaTemplate).should(never()).send(any(Message.class));
+    }
 }

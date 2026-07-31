@@ -48,23 +48,31 @@ class OutboxRelay {
                 } else {
                     // Revert so the next sweep retries, instead of leaving the row stuck SENDING on a
                     // send failure Kafka itself reported (as opposed to a relay crash mid-flight, which
-                    // is the still-accepted stuck-row risk in design.md).
+                    // is the still-accepted stuck-row risk in design.md). Stop this sweep here rather
+                    // than continuing to later rows: seq order is the only thing that keeps
+                    // ProbabilityStateCalculated ahead of its OutcomeApplied, and publishing a later row
+                    // while an earlier one is queued for retry would violate that.
                     repository.compareAndSetStatus(row.id(), OutboxStatus.SENDING, OutboxStatus.PENDING);
+                    return;
                 }
             }
         }
     }
 
-    /** @return true if Kafka confirmed the send within the wait window. */
+    /**
+     * @return true if the row was fully built and Kafka confirmed the send within the wait window.
+     *     Building the message (header/payload deserialization) is inside the same try/catch as the
+     *     send itself — a failure there must also revert the row to PENDING, not leave it stuck SENDING.
+     */
     private boolean send(OutboxEventEntity row) {
-        var headers = objectMapper.readValue(row.headers(), Map.class);
-        var payload = objectMapper.readValue(row.payload(), Object.class);
-        var message = MessageBuilder.withPayload(payload)
-                .copyHeaders(headers)
-                .setHeader(KafkaHeaders.TOPIC, row.topic())
-                .setHeader(KafkaHeaders.KEY, row.messageKey())
-                .build();
         try {
+            var headers = objectMapper.readValue(row.headers(), Map.class);
+            var payload = objectMapper.readValue(row.payload(), Object.class);
+            var message = MessageBuilder.withPayload(payload)
+                    .copyHeaders(headers)
+                    .setHeader(KafkaHeaders.TOPIC, row.topic())
+                    .setHeader(KafkaHeaders.KEY, row.messageKey())
+                    .build();
             kafkaTemplate.send(message).get(10, TimeUnit.SECONDS);
             log.debug("Relayed outbox event {} to {}", row.id(), row.topic());
             return true;
