@@ -9,7 +9,16 @@ import java.util.UUID;
  */
 public record ProbabilityStateCalculated(UUID gameId, int eraNumber, List<EventState> eventStates) {
 
-    public record EventState(UUID eventId, List<OutcomeState> outcomes) {}
+    public ProbabilityStateCalculated {
+        eventStates = List.copyOf(eventStates);
+    }
+
+    public record EventState(UUID eventId, List<OutcomeState> outcomes) {
+
+        public EventState {
+            outcomes = List.copyOf(outcomes);
+        }
+    }
 
     public record OutcomeState(UUID outcomeId, int probability, boolean isAnnihilated, boolean isSealed) {}
 }

@@ -12,7 +12,4 @@ public interface FutureEventEraIndexPort {
     void record(UUID eventId, UUID gameId, int eraNumber);
 
     List<UUID> findEventIdsByGameIdAndEraNumber(UUID gameId, int eraNumber);
-
-    /** Fast-path marker so a future slice can skip loading/replaying already-resolved aggregates. */
-    void markResolved(UUID eventId);
 }

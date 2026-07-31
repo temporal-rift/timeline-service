@@ -79,7 +79,6 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     private OutcomeApplied resolveOne(FutureEvent futureEvent, UUID gameId, int eraNumber) {
         var outcomeApplied = futureEvent.resolve(gameId, eraNumber);
         futureEvents.append(futureEvent.id(), outcomeApplied);
-        eraIndex.markResolved(futureEvent.id());
         return outcomeApplied;
     }
 

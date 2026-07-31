@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.outbox;
 
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,13 +43,20 @@ class OutboxRelay {
     void relay() {
         for (var row : repository.findByStatusOrderBySeqAsc(OutboxStatus.PENDING)) {
             if (repository.compareAndSetStatus(row.id(), OutboxStatus.PENDING, OutboxStatus.SENDING) == 1) {
-                send(row);
-                repository.compareAndSetStatus(row.id(), OutboxStatus.SENDING, OutboxStatus.SENT);
+                if (send(row)) {
+                    repository.compareAndSetStatus(row.id(), OutboxStatus.SENDING, OutboxStatus.SENT);
+                } else {
+                    // Revert so the next sweep retries, instead of leaving the row stuck SENDING on a
+                    // send failure Kafka itself reported (as opposed to a relay crash mid-flight, which
+                    // is the still-accepted stuck-row risk in design.md).
+                    repository.compareAndSetStatus(row.id(), OutboxStatus.SENDING, OutboxStatus.PENDING);
+                }
             }
         }
     }
 
-    private void send(OutboxEventEntity row) {
+    /** @return true if Kafka confirmed the send within the wait window. */
+    private boolean send(OutboxEventEntity row) {
         var headers = objectMapper.readValue(row.headers(), Map.class);
         var payload = objectMapper.readValue(row.payload(), Object.class);
         var message = MessageBuilder.withPayload(payload)
@@ -56,7 +64,17 @@ class OutboxRelay {
                 .setHeader(KafkaHeaders.TOPIC, row.topic())
                 .setHeader(KafkaHeaders.KEY, row.messageKey())
                 .build();
-        kafkaTemplate.send(message);
-        log.debug("Relayed outbox event {} to {}", row.id(), row.topic());
+        try {
+            kafkaTemplate.send(message).get(10, TimeUnit.SECONDS);
+            log.debug("Relayed outbox event {} to {}", row.id(), row.topic());
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted relaying outbox event {} to {} — will retry next sweep", row.id(), row.topic());
+            return false;
+        } catch (Exception e) {
+            log.warn("Failed to relay outbox event {} to {} — will retry next sweep", row.id(), row.topic(), e);
+            return false;
+        }
     }
 }

@@ -27,12 +27,4 @@ class JpaFutureEventEraIndexAdapter implements FutureEventEraIndexPort {
                 .map(FutureEventEraIndexEntity::eventId)
                 .toList();
     }
-
-    @Override
-    public void markResolved(UUID eventId) {
-        repository.findById(eventId).ifPresent(entity -> {
-            entity.markResolved();
-            repository.save(entity);
-        });
-    }
 }

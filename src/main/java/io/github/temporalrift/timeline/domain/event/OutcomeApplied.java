@@ -7,4 +7,9 @@ import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 
 /** Event-sourced fact and source of the {@code OutcomeApplied} wire event (event-schema.md §3.4). */
 public record OutcomeApplied(
-        UUID gameId, int eraNumber, UUID eventId, UUID winningOutcomeId, List<Outcome> finalOutcomes) {}
+        UUID gameId, int eraNumber, UUID eventId, UUID winningOutcomeId, List<Outcome> finalOutcomes) {
+
+    public OutcomeApplied {
+        finalOutcomes = List.copyOf(finalOutcomes);
+    }
+}
