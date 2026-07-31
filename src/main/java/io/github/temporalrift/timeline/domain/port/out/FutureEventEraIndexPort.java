@@ -9,7 +9,10 @@ import java.util.UUID;
  */
 public interface FutureEventEraIndexPort {
 
-    void add(UUID eventId, UUID gameId, int eraNumber);
+    void add(UUID eventId, UUID gameId, int eraNumber, int revealIndex);
 
-    List<UUID> findEventIdsByGameIdAndEraNumber(UUID gameId, int eraNumber);
+    /** Ordered by {@code revealIndex} ascending — the {@code EventsDrawn.events} reveal order. */
+    List<IndexedEventId> findByGameIdAndEraNumber(UUID gameId, int eraNumber);
+
+    record IndexedEventId(UUID eventId, int revealIndex) {}
 }

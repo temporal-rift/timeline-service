@@ -3,15 +3,20 @@ package io.github.temporalrift.timeline.application.command;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
+import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
+import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
+import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
@@ -46,9 +51,13 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
 
     @Override
     public void resolve(UUID gameId, int eraNumber) {
+        var indexedEventIds = eraIndex.findByGameIdAndEraNumber(gameId, eraNumber);
+        var revealIndexByEventId = indexedEventIds.stream()
+                .collect(Collectors.toMap(IndexedEventId::eventId, IndexedEventId::revealIndex));
+
         var resolutions = new ArrayList<OutcomeApplied>();
-        for (var eventId : eraIndex.findEventIdsByGameIdAndEraNumber(gameId, eraNumber)) {
-            var futureEvent = futureEvents.findById(eventId);
+        for (var indexedEventId : indexedEventIds) {
+            var futureEvent = futureEvents.findById(indexedEventId.eventId());
             if (futureEvent.resolved()) {
                 continue;
             }
@@ -74,6 +83,13 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                     outcomeApplied,
                     clock));
         }
+        publisher.publish(TimelineEventEnvelope.create(
+                gameId,
+                ERA_AGGREGATE_TYPE,
+                gameId,
+                TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                toEraResolutionCompleted(gameId, eraNumber, resolutions, revealIndexByEventId),
+                clock));
     }
 
     private OutcomeApplied resolveOne(FutureEvent futureEvent, UUID gameId, int eraNumber) {
@@ -93,5 +109,17 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                                 .toList()))
                 .toList();
         return new ProbabilityStateCalculated(gameId, eraNumber, eventStates);
+    }
+
+    private static EraResolutionCompleted toEraResolutionCompleted(
+            UUID gameId, int eraNumber, List<OutcomeApplied> resolutions, Map<UUID, Integer> revealIndexByEventId) {
+        var terminalResolutions = resolutions.stream()
+                .map(r -> new TerminalResolution(
+                        r.eventId(),
+                        revealIndexByEventId.get(r.eventId()),
+                        TerminalResolution.TerminalState.OUTCOME_APPLIED,
+                        r.winningOutcomeId()))
+                .toList();
+        return new EraResolutionCompleted(gameId, eraNumber, terminalResolutions);
     }
 }

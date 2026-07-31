@@ -17,14 +17,14 @@ class JpaFutureEventEraIndexAdapter implements FutureEventEraIndexPort {
     }
 
     @Override
-    public void add(UUID eventId, UUID gameId, int eraNumber) {
-        repository.save(new FutureEventEraIndexEntity(eventId, gameId, eraNumber));
+    public void add(UUID eventId, UUID gameId, int eraNumber, int revealIndex) {
+        repository.save(new FutureEventEraIndexEntity(eventId, gameId, eraNumber, revealIndex));
     }
 
     @Override
-    public List<UUID> findEventIdsByGameIdAndEraNumber(UUID gameId, int eraNumber) {
-        return repository.findByGameIdAndEraNumber(gameId, eraNumber).stream()
-                .map(FutureEventEraIndexEntity::eventId)
+    public List<IndexedEventId> findByGameIdAndEraNumber(UUID gameId, int eraNumber) {
+        return repository.findByGameIdAndEraNumberOrderByRevealIndexAsc(gameId, eraNumber).stream()
+                .map(entity -> new IndexedEventId(entity.eventId(), entity.revealIndex()))
                 .toList();
     }
 }
