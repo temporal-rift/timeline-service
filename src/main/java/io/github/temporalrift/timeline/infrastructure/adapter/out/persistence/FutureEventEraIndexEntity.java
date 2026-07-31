@@ -21,9 +21,6 @@ class FutureEventEraIndexEntity {
     @Column(name = "era_number", nullable = false)
     private int eraNumber;
 
-    @Column(name = "resolved", nullable = false)
-    private boolean resolved;
-
     protected FutureEventEraIndexEntity() {
         // for JPA
     }
@@ -32,14 +29,9 @@ class FutureEventEraIndexEntity {
         this.eventId = eventId;
         this.gameId = gameId;
         this.eraNumber = eraNumber;
-        this.resolved = false;
     }
 
     UUID eventId() {
         return eventId;
-    }
-
-    void markResolved() {
-        this.resolved = true;
     }
 }
