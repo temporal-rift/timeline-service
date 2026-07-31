@@ -2,6 +2,7 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.kafka;
 
 import org.springframework.stereotype.Component;
 
+import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
@@ -40,6 +41,11 @@ class TimelineEventPublisherAdapter implements TimelineEventPublisher {
                         mapper.toWire(e),
                         TimelineEventHeaders.populate(
                                 new DefaultServiceEventsProducer.OutcomeAppliedPayloadHeaders(), event));
+            case EraResolutionCompleted e ->
+                producer.publishEraResolutionCompleted(
+                        mapper.toWire(e),
+                        TimelineEventHeaders.populate(
+                                new DefaultServiceEventsProducer.EraResolutionCompletedPayloadHeaders(), event));
             default ->
                 throw new IllegalArgumentException(
                         "Unsupported timeline event payload: " + event.payload().getClass());

@@ -43,12 +43,14 @@ class EventsDrawnKafkaConsumer {
     public void handle(Message<Object> message) {
         GameEventIngestion.accept(message, SPEC, processedEvents).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), EventsDrawnPayload.class);
-            for (var futureEvent : payload.events()) {
+            var events = payload.events();
+            for (int revealIndex = 0; revealIndex < events.size(); revealIndex++) {
+                var futureEvent = events.get(revealIndex);
                 var outcomes = futureEvent.outcomes().stream()
                         .map(o -> new Outcome(o.outcomeId(), o.description(), o.initialProbability()))
                         .toList();
                 futureEvents.append(futureEvent.eventId(), new FutureEventDrafted(futureEvent.eventId(), outcomes));
-                eraIndex.add(futureEvent.eventId(), payload.gameId(), payload.eraNumber());
+                eraIndex.add(futureEvent.eventId(), payload.gameId(), payload.eraNumber(), revealIndex);
             }
         });
     }

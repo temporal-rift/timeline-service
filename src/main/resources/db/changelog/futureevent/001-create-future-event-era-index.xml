@@ -21,11 +21,20 @@
       <column name="era_number" type="INT">
         <constraints nullable="false"/>
       </column>
+      <!--
+          0-based position in the source EventsDrawn.events list — the game-rule reveal order.
+          EraResolutionCompleted must be built from this, never from query/Kafka delivery order.
+          See design.md (timeline-mvp2-era-resolution-completed) Decision 1.
+      -->
+      <column name="reveal_index" type="INT">
+        <constraints nullable="false"/>
+      </column>
     </createTable>
 
     <createIndex tableName="future_event_era_index" indexName="ix_future_event_era_index_game_era">
       <column name="game_id"/>
       <column name="era_number"/>
+      <column name="reveal_index"/>
     </createIndex>
   </changeSet>
 

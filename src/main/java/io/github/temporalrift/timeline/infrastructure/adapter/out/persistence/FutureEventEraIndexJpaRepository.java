@@ -7,5 +7,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 interface FutureEventEraIndexJpaRepository extends JpaRepository<FutureEventEraIndexEntity, UUID> {
 
-    List<FutureEventEraIndexEntity> findByGameIdAndEraNumber(UUID gameId, int eraNumber);
+    List<FutureEventEraIndexEntity> findByGameIdAndEraNumberOrderByRevealIndexAsc(UUID gameId, int eraNumber);
 }

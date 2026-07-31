@@ -21,17 +21,25 @@ class FutureEventEraIndexEntity {
     @Column(name = "era_number", nullable = false)
     private int eraNumber;
 
+    @Column(name = "reveal_index", nullable = false)
+    private int revealIndex;
+
     protected FutureEventEraIndexEntity() {
         // for JPA
     }
 
-    FutureEventEraIndexEntity(UUID eventId, UUID gameId, int eraNumber) {
+    FutureEventEraIndexEntity(UUID eventId, UUID gameId, int eraNumber, int revealIndex) {
         this.eventId = eventId;
         this.gameId = gameId;
         this.eraNumber = eraNumber;
+        this.revealIndex = revealIndex;
     }
 
     UUID eventId() {
         return eventId;
+    }
+
+    int revealIndex() {
+        return revealIndex;
     }
 }

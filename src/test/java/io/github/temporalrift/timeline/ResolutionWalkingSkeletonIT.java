@@ -38,6 +38,7 @@ class ResolutionWalkingSkeletonIT {
     private static final String PROBABILITY_STATE_CALCULATED_BINDING =
             "Timelinepublish-probability-state-calculated-out";
     private static final String OUTCOME_APPLIED_BINDING = "Timelinepublish-outcome-applied-out";
+    private static final String ERA_RESOLUTION_COMPLETED_BINDING = "Timelinepublish-era-resolution-completed-out";
 
     @Autowired
     KafkaTemplate<Object, Object> kafkaTemplate;
@@ -74,19 +75,37 @@ class ResolutionWalkingSkeletonIT {
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(bindingsOf(collector.received))
-                        .contains(PROBABILITY_STATE_CALCULATED_BINDING, OUTCOME_APPLIED_BINDING));
+                        .contains(
+                                PROBABILITY_STATE_CALCULATED_BINDING,
+                                OUTCOME_APPLIED_BINDING,
+                                ERA_RESOLUTION_COMPLETED_BINDING));
 
         var probabilityIndex = indexOfBinding(collector.received, PROBABILITY_STATE_CALCULATED_BINDING);
         var outcomeIndex = indexOfBinding(collector.received, OUTCOME_APPLIED_BINDING);
+        var eraResolutionCompletedIndex = indexOfBinding(collector.received, ERA_RESOLUTION_COMPLETED_BINDING);
         assertThat(probabilityIndex).isLessThan(outcomeIndex);
+        assertThat(outcomeIndex).isLessThan(eraResolutionCompletedIndex);
 
         var outcomePayload = collector.received.get(outcomeIndex).payload();
         assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(winnerOutcomeId.toString());
         assertThat(outcomePayload.get("eventId")).isEqualTo(futureEventId.toString());
+
+        var eraResolutionCompletedPayload =
+                collector.received.get(eraResolutionCompletedIndex).payload();
+        assertThat((List<?>) eraResolutionCompletedPayload.get("terminalResolutions"))
+                .singleElement()
+                .satisfies(entry -> {
+                    @SuppressWarnings("unchecked")
+                    var terminalResolution = (Map<?, ?>) entry;
+                    assertThat(terminalResolution.get("eventId")).isEqualTo(futureEventId.toString());
+                    assertThat(terminalResolution.get("revealIndex")).isEqualTo(0);
+                    assertThat(terminalResolution.get("terminalState")).isEqualTo("OUTCOME_APPLIED");
+                    assertThat(terminalResolution.get("winningOutcomeId")).isEqualTo(winnerOutcomeId.toString());
+                });
     }
 
     @Test
-    void redeliveredResolutionStarted_doesNotDoubleResolve() {
+    void redeliveredResolutionStarted_doesNotDoubleResolveOrDuplicateEraResolutionCompleted() {
         var gameId = UUID.randomUUID();
         var eraNumber = 1;
         var futureEventId = UUID.randomUUID();
@@ -100,7 +119,8 @@ class ResolutionWalkingSkeletonIT {
         publishResolutionStarted(gameId, eraNumber, resolutionEventId);
 
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(bindingsOf(collector.received)).contains(OUTCOME_APPLIED_BINDING));
+                .untilAsserted(() -> assertThat(bindingsOf(collector.received))
+                        .contains(OUTCOME_APPLIED_BINDING, ERA_RESOLUTION_COMPLETED_BINDING));
         var countAfterFirstDelivery = collector.received.size();
 
         // Same envelope eventId — must be claimed-and-skipped, not re-resolved.
@@ -109,6 +129,9 @@ class ResolutionWalkingSkeletonIT {
         await().pollDelay(Duration.ofSeconds(5))
                 .atMost(Duration.ofSeconds(10))
                 .untilAsserted(() -> assertThat(collector.received).hasSize(countAfterFirstDelivery));
+        assertThat(bindingsOf(collector.received))
+                .filteredOn(ERA_RESOLUTION_COMPLETED_BINDING::equals)
+                .hasSize(1);
     }
 
     private void awaitFutureEventIndexed(UUID gameId, int eraNumber) {
