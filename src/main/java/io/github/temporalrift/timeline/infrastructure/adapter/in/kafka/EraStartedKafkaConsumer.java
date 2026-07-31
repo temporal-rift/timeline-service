@@ -1,7 +1,5 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.in.kafka;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
@@ -16,10 +14,9 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 @Component
 class EraStartedKafkaConsumer {
 
-    private static final Logger log = LoggerFactory.getLogger(EraStartedKafkaConsumer.class);
-    private static final String BINDING_NAME = "Sessionpublish-era-started-out";
     private static final String CONSUMER = "futureevent.era-started";
-    private static final int SUPPORTED_VERSION = 1;
+    private static final GameEventIngestion.Spec SPEC =
+            new GameEventIngestion.Spec("Sessionpublish-era-started-out", "EraStarted", CONSUMER, 1);
 
     private final ProcessedEventPort processedEvents;
 
@@ -29,27 +26,6 @@ class EraStartedKafkaConsumer {
 
     @KafkaListener(topics = "game.events", groupId = "timeline-service." + CONSUMER)
     public void handle(Message<Object> message) {
-        var envelope = GameEventEnvelope.from(message);
-        if (!BINDING_NAME.equals(envelope.bindingName())) {
-            return;
-        }
-        if (envelope.eventId() == null) {
-            log.warn("Malformed EraStarted envelope (missing eventId) — discarding");
-            return;
-        }
-        if (!isSupportedVersion(envelope.version())) {
-            log.warn(
-                    "Unsupported EraStarted envelope version {} for event {} — skipping",
-                    envelope.version(),
-                    envelope.eventId());
-            return;
-        }
-        if (!processedEvents.claim(envelope.eventId(), CONSUMER)) {
-            log.debug("Duplicate EraStarted event {} ignored", envelope.eventId());
-        }
-    }
-
-    private static boolean isSupportedVersion(Integer version) {
-        return version != null && version == SUPPORTED_VERSION;
+        GameEventIngestion.accept(message, SPEC, processedEvents);
     }
 }
