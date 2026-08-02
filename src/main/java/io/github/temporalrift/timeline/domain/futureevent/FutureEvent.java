@@ -30,9 +30,12 @@ public final class FutureEvent {
     public static FutureEvent replay(UUID id, List<Object> history) {
         FutureEvent state = null;
         for (var event : history) {
-            if (state == null && (event instanceof OutcomeApplied || event instanceof ProbabilityShifted)) {
-                throw new IllegalStateException(
-                        event.getClass().getSimpleName() + " replayed before FutureEventDrafted for " + id);
+            if (event instanceof FutureEventDrafted && state != null) {
+                throw new IllegalStateException("FutureEventDrafted replayed after initialization for " + id);
+            }
+            if ((event instanceof OutcomeApplied || event instanceof ProbabilityShifted)
+                    && (state == null || state.resolved())) {
+                throw new IllegalStateException("Event replayed outside the drafted and unresolved state for " + id);
             }
             state = switch (event) {
                 case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), false);
