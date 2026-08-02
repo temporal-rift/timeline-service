@@ -1,3 +1,14 @@
+game:
+  rules:
+    probability:
+      # Same numeric values as game-service's game.rules.scoring.card-shifts/swing-shift — kept in sync
+      # manually, no shared config source exists between independently-deployed services.
+      push-shift: 20
+      suppress-shift: -20
+      swing-shift: 30
+      floor: 0
+      ceiling: 90
+
 spring:
   application:
     name: timeline-service
