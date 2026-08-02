@@ -3,6 +3,7 @@ package io.github.temporalrift.timeline.domain.futureevent;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
@@ -29,16 +30,14 @@ public final class FutureEvent {
     public static FutureEvent replay(UUID id, List<Object> history) {
         FutureEvent state = null;
         for (var event : history) {
+            if (state == null && (event instanceof OutcomeApplied || event instanceof ProbabilityShifted)) {
+                throw new IllegalStateException(
+                        event.getClass().getSimpleName() + " replayed before FutureEventDrafted for " + id);
+            }
             state = switch (event) {
                 case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), false);
-                case OutcomeApplied e -> {
-                    requireDrafted(state, id);
-                    yield new FutureEvent(id, e.finalOutcomes(), true);
-                }
-                case ProbabilityShifted e -> {
-                    requireDrafted(state, id);
-                    yield new FutureEvent(id, e.outcomes(), false);
-                }
+                case OutcomeApplied e -> new FutureEvent(id, e.finalOutcomes(), true);
+                case ProbabilityShifted e -> new FutureEvent(id, e.outcomes(), false);
                 default -> throw new IllegalArgumentException("Unknown FutureEvent domain event: " + event.getClass());
             };
         }
@@ -46,12 +45,6 @@ public final class FutureEvent {
             throw new FutureEventNotFoundException(id);
         }
         return state;
-    }
-
-    private static void requireDrafted(FutureEvent state, UUID id) {
-        if (state == null) {
-            throw new IllegalStateException("OutcomeApplied replayed before FutureEventDrafted for " + id);
-        }
     }
 
     /**
@@ -125,7 +118,7 @@ public final class FutureEvent {
 
     /** Direct transfer between two named outcomes; the third outcome is untouched (GDD §3 Swing). */
     private List<Outcome> swing(UUID sourceOutcomeId, UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
-        if (sourceOutcomeId.equals(targetOutcomeId)) {
+        if (Objects.equals(sourceOutcomeId, targetOutcomeId)) {
             throw new IllegalArgumentException("SWING requires distinct source and target outcomes");
         }
         var source = outcomeById(sourceOutcomeId);

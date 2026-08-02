@@ -108,6 +108,18 @@ class CardPlayedKafkaConsumerTest {
     }
 
     @Test
+    @DisplayName("null card type — claims the event but never applies a shift, no NullPointerException")
+    void handle_nullCardType_claimsButDoesNotApply() {
+        var eventId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(
+                payload(UUID.randomUUID(), null, null, UUID.randomUUID()), eventId, BINDING_NAME, 1));
+
+        then(applyProbabilityShift).should(never()).apply(any(), any());
+    }
+
+    @Test
     @DisplayName("unrelated binding — ignored")
     void handle_unrelatedBinding_ignored() {
         consumer.handle(KafkaTestMessages.withHeaders(
