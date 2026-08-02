@@ -74,6 +74,14 @@ class FutureEventTest {
     }
 
     @Test
+    void replay_probabilityShiftedBeforeDrafted_throwsIllegalState() {
+        var id = UUID.randomUUID();
+        var shifted = new ProbabilityShifted(id, List.of());
+
+        assertThatThrownBy(() -> FutureEvent.replay(id, List.of(shifted))).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void replay_draftedThenApplied_reconstructsResolvedState() {
         var id = UUID.randomUUID();
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);
@@ -242,6 +250,18 @@ class FutureEventTest {
 
         assertThatThrownBy(() -> event.applyShift(new ProbabilityShift.Swing(a.outcomeId(), a.outcomeId()), 30, 0, 90))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void applyShift_swing_nullSourceOutcomeId_throwsUnknownOutcomeNotNpe() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        assertThatThrownBy(() -> event.applyShift(new ProbabilityShift.Swing(null, a.outcomeId()), 30, 0, 90))
+                .isInstanceOf(UnknownOutcomeException.class);
     }
 
     @Test

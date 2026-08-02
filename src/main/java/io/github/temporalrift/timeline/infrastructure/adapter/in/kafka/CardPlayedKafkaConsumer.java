@@ -54,7 +54,7 @@ class CardPlayedKafkaConsumer {
             case "SUPPRESS" -> Optional.of(new ProbabilityShift.Suppress(payload.targetOutcomeId()));
             case "SWING" ->
                 Optional.of(new ProbabilityShift.Swing(payload.sourceOutcomeId(), payload.targetOutcomeId()));
-            default -> Optional.empty();
+            case null, default -> Optional.empty();
         };
     }
 }
