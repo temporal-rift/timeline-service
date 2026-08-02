@@ -82,6 +82,28 @@ class FutureEventTest {
     }
 
     @Test
+    void replay_probabilityShiftedAfterOutcomeApplied_throwsIllegalState() {
+        var id = UUID.randomUUID();
+        var outcome = new Outcome(UUID.randomUUID(), "only", 100);
+        var drafted = new FutureEventDrafted(id, List.of(outcome));
+        var applied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, outcome.outcomeId(), List.of(outcome));
+        var shifted = new ProbabilityShifted(id, List.of(outcome));
+
+        assertThatThrownBy(() -> FutureEvent.replay(id, List.of(drafted, applied, shifted)))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void replay_duplicateFutureEventDrafted_throwsIllegalState() {
+        var id = UUID.randomUUID();
+        var outcome = new Outcome(UUID.randomUUID(), "only", 100);
+        var drafted = new FutureEventDrafted(id, List.of(outcome));
+
+        assertThatThrownBy(() -> FutureEvent.replay(id, List.of(drafted, drafted)))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void replay_draftedThenApplied_reconstructsResolvedState() {
         var id = UUID.randomUUID();
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);
