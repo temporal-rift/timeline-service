@@ -5,6 +5,7 @@ import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -134,6 +135,48 @@ class ResolutionWalkingSkeletonIT {
                 .hasSize(1);
     }
 
+    @Test
+    void pushCardPlayedBeforeResolution_flipsTheWinningOutcome() {
+        var gameId = UUID.randomUUID();
+        var eraNumber = 1;
+        var futureEventId = UUID.randomUUID();
+        var initialWinnerOutcomeId = UUID.randomUUID();
+        var pushedOutcomeId = UUID.randomUUID();
+        var thirdOutcomeId = UUID.randomUUID();
+
+        publishEraStarted(gameId, eraNumber);
+        publishEventsDrawnThreeOutcomes(
+                gameId, eraNumber, futureEventId, initialWinnerOutcomeId, 50, pushedOutcomeId, 35, thirdOutcomeId, 15);
+        awaitFutureEventIndexed(gameId, eraNumber);
+
+        // Configured push-shift is +20 (application.yml game.rules.probability.push-shift): 35 + 20 = 55,
+        // enough to overtake the initial 50-probability winner.
+        publishCardPlayed(gameId, eraNumber, futureEventId, "PUSH", null, pushedOutcomeId);
+        // CardPlayedKafkaConsumer and ResolutionStartedKafkaConsumer are independent consumer groups with
+        // no ordering guarantee relative to each other (design.md Decision 3) — wait for the shift to be
+        // durably applied (event_store has both FutureEventDrafted and ProbabilityShifted rows) before
+        // publishing ResolutionStarted, the same way awaitFutureEventIndexed synchronizes on EventsDrawn.
+        awaitProbabilityShiftApplied(futureEventId);
+
+        publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
+
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(bindingsOf(collector.received)).contains(OUTCOME_APPLIED_BINDING));
+
+        var outcomeIndex = indexOfBinding(collector.received, OUTCOME_APPLIED_BINDING);
+        var outcomePayload = collector.received.get(outcomeIndex).payload();
+        assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(pushedOutcomeId.toString());
+    }
+
+    private void awaitProbabilityShiftApplied(UUID futureEventId) {
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
+                                "SELECT COUNT(*) FROM event_store WHERE aggregate_id = ?",
+                                Integer.class,
+                                futureEventId))
+                        .isEqualTo(2));
+    }
+
     private void awaitFutureEventIndexed(UUID gameId, int eraNumber) {
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
@@ -199,6 +242,77 @@ class ResolutionWalkingSkeletonIT {
                                                 "loser",
                                                 "initialProbability",
                                                 loserProbability))))));
+    }
+
+    private void publishEventsDrawnThreeOutcomes(
+            UUID gameId,
+            int eraNumber,
+            UUID futureEventId,
+            UUID outcomeId1,
+            int probability1,
+            UUID outcomeId2,
+            int probability2,
+            UUID outcomeId3,
+            int probability3) {
+        publish(
+                gameId,
+                "Sessionpublish-events-drawn-out",
+                Map.of(
+                        "gameId",
+                        gameId,
+                        "eraNumber",
+                        eraNumber,
+                        "events",
+                        List.of(Map.of(
+                                "eventId",
+                                futureEventId,
+                                "title",
+                                "Test Future Event",
+                                "isCascaded",
+                                false,
+                                "outcomes",
+                                List.of(
+                                        Map.of(
+                                                "outcomeId",
+                                                outcomeId1,
+                                                "description",
+                                                "first",
+                                                "initialProbability",
+                                                probability1),
+                                        Map.of(
+                                                "outcomeId",
+                                                outcomeId2,
+                                                "description",
+                                                "second",
+                                                "initialProbability",
+                                                probability2),
+                                        Map.of(
+                                                "outcomeId",
+                                                outcomeId3,
+                                                "description",
+                                                "third",
+                                                "initialProbability",
+                                                probability3))))));
+    }
+
+    private void publishCardPlayed(
+            UUID gameId,
+            int eraNumber,
+            UUID targetEventId,
+            String cardType,
+            UUID sourceOutcomeId,
+            UUID targetOutcomeId) {
+        var payload = new HashMap<String, Object>();
+        payload.put("gameId", gameId);
+        payload.put("eraNumber", eraNumber);
+        payload.put("roundNumber", 1);
+        payload.put("playerId", UUID.randomUUID());
+        payload.put("cardInstanceId", UUID.randomUUID());
+        payload.put("cardType", cardType);
+        payload.put("targetEventId", targetEventId);
+        payload.put("sourceOutcomeId", sourceOutcomeId);
+        payload.put("targetOutcomeId", targetOutcomeId);
+        publish(gameId, "Actionpublish-card-played-out", payload);
     }
 
     private void publishResolutionStarted(UUID gameId, int eraNumber, UUID eventId) {

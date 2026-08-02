@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
+import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
 
 class FutureEventTest {
 
@@ -88,5 +89,211 @@ class FutureEventTest {
 
     private static FutureEvent drafted(UUID id, Outcome... outcomes) {
         return FutureEvent.replay(id, List.of(new FutureEventDrafted(id, List.of(outcomes))));
+    }
+
+    @Test
+    void applyShift_push_increasesTargetAndRedistributesProportionally() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(70);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(18);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(12);
+        assertThat(sum(event)).isEqualTo(100);
+    }
+
+    @Test
+    void applyShift_suppress_decreasesTargetAndRedistributesProportionally() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Suppress(b.outcomeId()), -20, 0, 90);
+
+        assertThat(byId(event, b.outcomeId())).isEqualTo(10);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(64);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(26);
+        assertThat(sum(event)).isEqualTo(100);
+    }
+
+    @Test
+    void applyShift_push_clampedAtCeiling() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 85);
+        var b = new Outcome(UUID.randomUUID(), "b", 10);
+        var c = new Outcome(UUID.randomUUID(), "c", 5);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(90);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(7);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(3);
+        assertThat(sum(event)).isEqualTo(100);
+    }
+
+    @Test
+    void applyShift_suppress_clampedAtFloor() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 15);
+        var b = new Outcome(UUID.randomUUID(), "b", 45);
+        var c = new Outcome(UUID.randomUUID(), "c", 40);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Suppress(a.outcomeId()), -20, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(0);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(53);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(47);
+        assertThat(sum(event)).isEqualTo(100);
+    }
+
+    @Test
+    void applyShift_push_noOpWhenTargetAlreadyAtCeiling() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 90);
+        var b = new Outcome(UUID.randomUUID(), "b", 5);
+        var c = new Outcome(UUID.randomUUID(), "c", 5);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        assertThat(event.outcomes()).containsExactly(a, b, c);
+    }
+
+    @Test
+    void applyShift_redistribution_clampExchangeEdgeCase() {
+        // Target is suppressed to the floor while one of the other two outcomes is already at the
+        // ceiling — its naive proportional share would push it past 90, so the exchange must redirect
+        // the overflow to the third outcome (design.md Risks).
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 5);
+        var b = new Outcome(UUID.randomUUID(), "b", 90);
+        var c = new Outcome(UUID.randomUUID(), "c", 5);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Suppress(a.outcomeId()), -20, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(0);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(90);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(10);
+        assertThat(sum(event)).isEqualTo(100);
+    }
+
+    @Test
+    void applyShift_swing_movesMagnitudeLeavingThirdOutcomeUntouched() {
+        var id = UUID.randomUUID();
+        var source = new Outcome(UUID.randomUUID(), "source", 50);
+        var target = new Outcome(UUID.randomUUID(), "target", 30);
+        var other = new Outcome(UUID.randomUUID(), "other", 20);
+        var event = drafted(id, source, target, other);
+
+        event.applyShift(new ProbabilityShift.Swing(source.outcomeId(), target.outcomeId()), 30, 0, 90);
+
+        assertThat(byId(event, source.outcomeId())).isEqualTo(20);
+        assertThat(byId(event, target.outcomeId())).isEqualTo(60);
+        assertThat(byId(event, other.outcomeId())).isEqualTo(20);
+    }
+
+    @Test
+    void applyShift_swing_clampedBySourceFloor() {
+        var id = UUID.randomUUID();
+        var source = new Outcome(UUID.randomUUID(), "source", 10);
+        var target = new Outcome(UUID.randomUUID(), "target", 30);
+        var other = new Outcome(UUID.randomUUID(), "other", 60);
+        var event = drafted(id, source, target, other);
+
+        event.applyShift(new ProbabilityShift.Swing(source.outcomeId(), target.outcomeId()), 30, 0, 90);
+
+        assertThat(byId(event, source.outcomeId())).isEqualTo(0);
+        assertThat(byId(event, target.outcomeId())).isEqualTo(40);
+        assertThat(byId(event, other.outcomeId())).isEqualTo(60);
+    }
+
+    @Test
+    void applyShift_swing_clampedByTargetCeiling() {
+        var id = UUID.randomUUID();
+        var source = new Outcome(UUID.randomUUID(), "source", 10);
+        var target = new Outcome(UUID.randomUUID(), "target", 85);
+        var other = new Outcome(UUID.randomUUID(), "other", 5);
+        var event = drafted(id, source, target, other);
+
+        event.applyShift(new ProbabilityShift.Swing(source.outcomeId(), target.outcomeId()), 30, 0, 90);
+
+        assertThat(byId(event, source.outcomeId())).isEqualTo(5);
+        assertThat(byId(event, target.outcomeId())).isEqualTo(90);
+        assertThat(byId(event, other.outcomeId())).isEqualTo(5);
+    }
+
+    @Test
+    void applyShift_swing_sameSourceAndTarget_throws() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        assertThatThrownBy(() -> event.applyShift(new ProbabilityShift.Swing(a.outcomeId(), a.outcomeId()), 30, 0, 90))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void applyShift_unknownOutcomeId_throws() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        assertThatThrownBy(() -> event.applyShift(new ProbabilityShift.Push(UUID.randomUUID()), 20, 0, 90))
+                .isInstanceOf(UnknownOutcomeException.class);
+    }
+
+    @Test
+    void applyShift_alreadyResolved_throws() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.resolve(GAME_ID, ERA_NUMBER);
+
+        assertThatThrownBy(() -> event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90))
+                .isInstanceOf(FutureEventAlreadyResolvedException.class);
+    }
+
+    @Test
+    void replay_probabilityShiftedFoldsOutcomes() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var drafted = new FutureEventDrafted(id, List.of(a, b, c));
+        var shifted = new ProbabilityShifted(
+                id, List.of(new Outcome(a.outcomeId(), "a", 70), new Outcome(b.outcomeId(), "b", 18), c));
+
+        var event = FutureEvent.replay(id, List.of(drafted, shifted));
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(70);
+        assertThat(event.resolved()).isFalse();
+    }
+
+    private static int byId(FutureEvent event, UUID outcomeId) {
+        return event.outcomes().stream()
+                .filter(o -> o.outcomeId().equals(outcomeId))
+                .findFirst()
+                .orElseThrow()
+                .probability();
+    }
+
+    private static int sum(FutureEvent event) {
+        return event.outcomes().stream().mapToInt(Outcome::probability).sum();
     }
 }

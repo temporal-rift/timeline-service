@@ -8,6 +8,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
+import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
 import io.github.temporalrift.timeline.domain.eventstore.StoredEvent;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.port.out.EventStorePort;
@@ -56,6 +57,7 @@ class JpaFutureEventRepository implements FutureEventRepository {
         return switch (stored.eventType()) {
             case "FutureEventDrafted" -> objectMapper.readValue(stored.payload(), FutureEventDrafted.class);
             case "OutcomeApplied" -> objectMapper.readValue(stored.payload(), OutcomeApplied.class);
+            case "ProbabilityShifted" -> objectMapper.readValue(stored.payload(), ProbabilityShifted.class);
             default -> throw new IllegalStateException("Unknown FutureEvent event type: " + stored.eventType());
         };
     }
