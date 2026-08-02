@@ -155,9 +155,11 @@ public final class FutureEvent {
      * Splits a fixed {@code a + b} between two box-constrained values in one step: each variable's bound
      * accounts for the other's constraint (e.g. {@code a}'s lower bound is raised to {@code sum - ceiling}
      * so {@code b = sum - a} cannot exceed the ceiling), so both results land in {@code [floor, ceiling]}
-     * with no further iteration — valid whenever {@code sum} itself is within {@code [2*floor, 2*ceiling]},
-     * which always holds here since {@code sum = 100 - desiredTarget} and {@code desiredTarget} is already
-     * clamped to {@code [floor, ceiling]} with {@code floor=0, ceiling=90}.
+     * with no further iteration — valid whenever {@code sum} itself is within {@code [2*floor, 2*ceiling]}.
+     * Here {@code sum = 100 - desiredTarget} for a {@code desiredTarget} already clamped to
+     * {@code [floor, ceiling]}, so the precondition holds for every possible {@code desiredTarget} exactly
+     * when {@code floor + 2*ceiling >= 100 and 2*floor + ceiling <= 100} — enforced at startup by
+     * {@code TimelineRulesProperties}, not re-checked here.
      */
     private static int[] clampPairPreservingSum(int a, int b, int floor, int ceiling) {
         int sum = a + b;
