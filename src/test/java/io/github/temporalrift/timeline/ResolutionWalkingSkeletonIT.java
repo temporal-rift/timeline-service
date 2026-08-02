@@ -150,14 +150,12 @@ class ResolutionWalkingSkeletonIT {
         awaitFutureEventIndexed(gameId, eraNumber);
 
         // Configured push-shift is +20 (application.yml game.rules.probability.push-shift): 35 + 20 = 55,
-        // enough to overtake the initial 50-probability winner.
+        // enough to overtake the initial 50-probability winner. Published immediately followed by
+        // ResolutionStarted with no synchronization in between — CardPlayedAndResolutionKafkaConsumer
+        // handles both binding names on the same consumer group/partition, so Kafka's in-partition
+        // ordering alone (not a test-only wait) guarantees the shift is applied before resolution runs
+        // (design.md Decision 1/3, revised after PR #25 review).
         publishCardPlayed(gameId, eraNumber, futureEventId, "PUSH", null, pushedOutcomeId);
-        // CardPlayedKafkaConsumer and ResolutionStartedKafkaConsumer are independent consumer groups with
-        // no ordering guarantee relative to each other (design.md Decision 3) — wait for the shift to be
-        // durably applied (event_store has both FutureEventDrafted and ProbabilityShifted rows) before
-        // publishing ResolutionStarted, the same way awaitFutureEventIndexed synchronizes on EventsDrawn.
-        awaitProbabilityShiftApplied(futureEventId);
-
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
@@ -166,15 +164,6 @@ class ResolutionWalkingSkeletonIT {
         var outcomeIndex = indexOfBinding(collector.received, OUTCOME_APPLIED_BINDING);
         var outcomePayload = collector.received.get(outcomeIndex).payload();
         assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(pushedOutcomeId.toString());
-    }
-
-    private void awaitProbabilityShiftApplied(UUID futureEventId) {
-        await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
-                                "SELECT COUNT(*) FROM event_store WHERE aggregate_id = ?",
-                                Integer.class,
-                                futureEventId))
-                        .isEqualTo(2));
     }
 
     private void awaitFutureEventIndexed(UUID gameId, int eraNumber) {
