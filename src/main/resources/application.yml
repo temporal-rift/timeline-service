@@ -30,6 +30,8 @@ spring:
     change-log: classpath:db/changelog/db.changelog-master.xml
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    listener:
+      observation-enabled: true
     properties:
       security.protocol: ${KAFKA_SECURITY_PROTOCOL}
       sasl.mechanism: ${KAFKA_SASL_MECHANISM:}
@@ -49,6 +51,16 @@ spring:
       # serializer must pass bytes straight through. Pairing this with JacksonJsonSerializer instead
       # double-encodes — the serializer would JSON-serialize the already-JSON byte[] as a base64 string.
       value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+    template:
+      observation-enabled: true
+
+management:
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+    export:
+      zipkin:
+        endpoint: ${ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
 
 logging:
   level:
