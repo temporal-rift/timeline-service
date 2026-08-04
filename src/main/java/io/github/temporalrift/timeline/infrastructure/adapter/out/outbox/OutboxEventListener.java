@@ -4,6 +4,8 @@ import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.UUID;
 
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -33,11 +35,17 @@ class OutboxEventListener {
     private final OutboxEventJpaRepository repository;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final ObservationRegistry observationRegistry;
 
-    OutboxEventListener(OutboxEventJpaRepository repository, ObjectMapper objectMapper, Clock clock) {
+    OutboxEventListener(
+            OutboxEventJpaRepository repository,
+            ObjectMapper objectMapper,
+            Clock clock,
+            ObservationRegistry observationRegistry) {
         this.repository = repository;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.observationRegistry = observationRegistry;
     }
 
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
@@ -46,6 +54,13 @@ class OutboxEventListener {
         if (headers.get(SCS_DESTINATION_HEADER, String.class) == null) {
             return;
         }
+        Observation.createNotStarted("timeline.outbox.event", observationRegistry)
+                .contextualName("persist timeline outbox event")
+                .observe(() -> persist(message));
+    }
+
+    private void persist(Message<?> message) {
+        var headers = message.getHeaders();
         var gameId = headers.get("gameId", String.class);
         var headersJson = objectMapper.writeValueAsString(new LinkedHashMap<>(headers));
         var payloadJson = objectMapper.writeValueAsString(message.getPayload());

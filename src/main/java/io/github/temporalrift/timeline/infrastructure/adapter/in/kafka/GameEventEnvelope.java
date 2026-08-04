@@ -7,10 +7,8 @@ import org.springframework.messaging.Message;
 
 /**
  * The real {@code game.events} envelope metadata, read from Kafka record headers (event-schema.md §1) —
- * not a body field. {@code bindingName} is the {@code spring.cloud.stream.sendto.destination} header the
- * generated producer sets before Spring Modulith externalizes the message; it is the only per-event-type
- * discriminator available on a shared topic (see design.md Decision 2) and is null for records that were
- * never routed through that mechanism.
+ * not a body field. {@code eventType} is the stable contract discriminator. {@code bindingName} is retained
+ * only to consume records published by the previous ZenWave producer implementation.
  */
 record GameEventEnvelope(
         UUID eventId,
@@ -19,8 +17,10 @@ record GameEventEnvelope(
         UUID gameId,
         Instant occurredAt,
         Integer version,
+        String eventType,
         String bindingName) {
 
+    private static final String EVENT_TYPE_HEADER = "eventType";
     private static final String BINDING_NAME_HEADER = "spring.cloud.stream.sendto.destination";
 
     static GameEventEnvelope from(Message<?> message) {
@@ -35,6 +35,7 @@ record GameEventEnvelope(
                 asUuid(headers.get("gameId", String.class)),
                 headers.get("occurredAt", Instant.class),
                 headers.get("version", Integer.class),
+                headers.get(EVENT_TYPE_HEADER, String.class),
                 headers.get(BINDING_NAME_HEADER, String.class));
     }
 
