@@ -59,12 +59,7 @@
     </properties>
 
     <dependencies>
-        <!-- Spec-only: bundles timeline-event's asyncapi.yml, no compiled code. Codegen is driven by the
-             zenwave-sdk-maven-plugin execution below (plugin identity managed in temporal-rift-bom). Only
-             the payload/header model + producer method shapes are used here — the generated producer's
-             applicationEventPublisher.publishEvent(message) call is captured by this service's own
-             OutboxEventListener (infrastructure.adapter.out.outbox), not by Spring Modulith, which this
-             single-bounded-context service deliberately does not use (see developer-notes.md §2). -->
+        <!-- Spec-only: bundles timeline-event's asyncapi.yml, no compiled code. -->
         <dependency>
             <groupId>io.github.temporal-rift</groupId>
             <artifactId>timeline-event</artifactId>
@@ -205,52 +200,6 @@
                             <includeArtifactIds>timeline-event</includeArtifactIds>
                             <includes>asyncapi/**</includes>
                             <outputDirectory>${project.build.directory}/dependency-specs/timeline</outputDirectory>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>io.zenwave360.sdk</groupId>
-                <artifactId>zenwave-sdk-maven-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>generate-timeline-events</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>generate</goal>
-                        </goals>
-                        <configuration>
-                            <inputSpec>${project.build.directory}/dependency-specs/timeline/asyncapi/asyncapi.yml
-                            </inputSpec>
-                            <configOptions>
-                                <role>provider</role>
-                                <componentPrefix>Timeline</componentPrefix>
-                                <modelPackage>
-                                    io.github.temporalrift.timeline.infrastructure.adapter.out.kafka.model
-                                </modelPackage>
-                                <producerApiPackage>
-                                    io.github.temporalrift.timeline.infrastructure.adapter.out.kafka.producer
-                                </producerApiPackage>
-                            </configOptions>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>build-helper-maven-plugin</artifactId>
-                <version>3.6.1</version>
-                <executions>
-                    <execution>
-                        <id>add-zenwave-generated-test-sources</id>
-                        <phase>generate-test-sources</phase>
-                        <goals>
-                            <goal>add-test-source</goal>
-                        </goals>
-                        <configuration>
-                            <sources>
-                                <source>${project.build.directory}/generated-sources/zenwave/src/main/java</source>
-                            </sources>
                         </configuration>
                     </execution>
                 </executions>
