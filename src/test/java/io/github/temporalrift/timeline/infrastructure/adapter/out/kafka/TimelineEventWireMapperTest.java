@@ -3,7 +3,6 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.kafka;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -34,25 +33,20 @@ class TimelineEventWireMapperTest {
 
         var wire = mapper.toWire(event);
 
-        assertThat(wire.getGameId()).isEqualTo(gameId);
-        assertThat(wire.getEraNumber()).isEqualTo(1);
-        assertThat(wire.getTerminalResolutions()).hasSize(2);
+        assertThat(wire.gameId()).isEqualTo(gameId);
+        assertThat(wire.eraNumber()).isEqualTo(1);
+        assertThat(wire.terminalResolutions()).hasSize(2);
 
-        @SuppressWarnings("unchecked")
-        var outcomeAppliedWire =
-                (Map<String, Object>) wire.getTerminalResolutions().get(0);
-        assertThat(outcomeAppliedWire)
-                .containsEntry("eventId", outcomeAppliedEventId)
-                .containsEntry("revealIndex", 0)
-                .containsEntry("terminalState", "OUTCOME_APPLIED")
-                .containsEntry("winningOutcomeId", winningOutcomeId);
+        var outcomeAppliedWire = wire.terminalResolutions().get(0);
+        assertThat(outcomeAppliedWire.eventId()).isEqualTo(outcomeAppliedEventId);
+        assertThat(outcomeAppliedWire.revealIndex()).isEqualTo(0);
+        assertThat(outcomeAppliedWire.terminalState()).isEqualTo("OUTCOME_APPLIED");
+        assertThat(outcomeAppliedWire.winningOutcomeId()).isEqualTo(winningOutcomeId);
 
-        @SuppressWarnings("unchecked")
-        var cascadedWire = (Map<String, Object>) wire.getTerminalResolutions().get(1);
-        assertThat(cascadedWire)
-                .containsEntry("eventId", cascadedEventId)
-                .containsEntry("revealIndex", 1)
-                .containsEntry("terminalState", "CASCADED")
-                .doesNotContainKey("winningOutcomeId");
+        var cascadedWire = wire.terminalResolutions().get(1);
+        assertThat(cascadedWire.eventId()).isEqualTo(cascadedEventId);
+        assertThat(cascadedWire.revealIndex()).isEqualTo(1);
+        assertThat(cascadedWire.terminalState()).isEqualTo("CASCADED");
+        assertThat(cascadedWire.winningOutcomeId()).isNull();
     }
 }
