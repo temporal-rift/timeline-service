@@ -6,17 +6,17 @@ import java.util.List;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.EraResolutionCompletedPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.OutcomeAppliedPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.OutcomeAppliedProbabilityState;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateCalculatedEventState;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateCalculatedOutcomeState;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateCalculatedPayload;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
-import io.github.temporalrift.timeline.infrastructure.adapter.out.kafka.model.EraResolutionCompletedPayload;
-import io.github.temporalrift.timeline.infrastructure.adapter.out.kafka.model.OutcomeAppliedPayload;
-import io.github.temporalrift.timeline.infrastructure.adapter.out.kafka.model.OutcomeAppliedProbabilityState;
-import io.github.temporalrift.timeline.infrastructure.adapter.out.kafka.model.ProbabilityStateCalculatedEventState;
-import io.github.temporalrift.timeline.infrastructure.adapter.out.kafka.model.ProbabilityStateCalculatedOutcomeState;
-import io.github.temporalrift.timeline.infrastructure.adapter.out.kafka.model.ProbabilityStateCalculatedPayload;
 
 @Mapper(componentModel = "spring")
 interface TimelineEventWireMapper {
