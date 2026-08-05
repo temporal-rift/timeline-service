@@ -13,7 +13,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Captures the ZenWave-generated producer's {@code applicationEventPublisher.publishEvent(message)} call
+ * Captures the generated producer's {@code applicationEventPublisher.publishEvent(message)} call
  * and turns it into a durable {@code outbox_events} row, in the same transaction as the mutation that
  * triggered it ({@code phase = BEFORE_COMMIT}).
  *

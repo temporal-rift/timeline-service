@@ -9,7 +9,8 @@ final class TimelineEventHeaders {
 
     private TimelineEventHeaders() {}
 
-    static <H extends Map<String, Object>> H populate(H headers, TimelineEventEnvelope<?> event) {
+    static <H extends Map<String, Object>> H populate(H headers, TimelineEventEnvelope<?> event, String eventType) {
+        headers.put("eventType", eventType);
         headers.put("eventId", event.eventId().toString());
         headers.put("aggregateId", event.aggregateId().toString());
         headers.put("aggregateType", event.aggregateType());
