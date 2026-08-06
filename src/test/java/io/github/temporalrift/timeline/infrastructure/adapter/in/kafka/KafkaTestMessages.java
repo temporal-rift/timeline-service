@@ -11,7 +11,7 @@ final class KafkaTestMessages {
 
     private KafkaTestMessages() {}
 
-    static Message<Object> withHeaders(Object payload, UUID eventId, String bindingName, Integer version) {
+    static Message<Object> withHeaders(Object payload, UUID eventId, String eventType, Integer version) {
         return MessageBuilder.withPayload(payload)
                 .setHeader("eventId", eventId == null ? null : eventId.toString())
                 .setHeader("aggregateId", UUID.randomUUID().toString())
@@ -19,7 +19,7 @@ final class KafkaTestMessages {
                 .setHeader("gameId", UUID.randomUUID().toString())
                 .setHeader("occurredAt", Instant.now())
                 .setHeader("version", version)
-                .setHeader("spring.cloud.stream.sendto.destination", bindingName)
+                .setHeader("eventType", eventType)
                 .build();
     }
 }

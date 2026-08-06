@@ -30,9 +30,9 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 @ExtendWith(MockitoExtension.class)
 class CardPlayedAndResolutionKafkaConsumerTest {
 
-    private static final String CARD_PLAYED_BINDING = "Actionpublish-card-played-out";
+    private static final String CARD_PLAYED_EVENT_TYPE = "CardPlayed";
     private static final String CARD_PLAYED_CONSUMER = "futureevent.card-played";
-    private static final String RESOLUTION_STARTED_BINDING = "Sessionpublish-resolution-started-out";
+    private static final String RESOLUTION_STARTED_EVENT_TYPE = "ResolutionStarted";
     private static final String RESOLUTION_STARTED_CONSUMER = "futureevent.resolution-started";
 
     @Mock
@@ -59,7 +59,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                cardPlayed(targetEventId, "PUSH", null, targetOutcomeId), eventId, CARD_PLAYED_BINDING, 1));
+                cardPlayed(targetEventId, "PUSH", null, targetOutcomeId), eventId, CARD_PLAYED_EVENT_TYPE, 1));
 
         var shiftCaptor = ArgumentCaptor.forClass(ProbabilityShift.class);
         then(applyProbabilityShift).should().apply(eq(targetEventId), shiftCaptor.capture());
@@ -76,7 +76,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                cardPlayed(targetEventId, "SUPPRESS", null, targetOutcomeId), eventId, CARD_PLAYED_BINDING, 1));
+                cardPlayed(targetEventId, "SUPPRESS", null, targetOutcomeId), eventId, CARD_PLAYED_EVENT_TYPE, 1));
 
         var shiftCaptor = ArgumentCaptor.forClass(ProbabilityShift.class);
         then(applyProbabilityShift).should().apply(eq(targetEventId), shiftCaptor.capture());
@@ -94,7 +94,10 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                cardPlayed(targetEventId, "SWING", sourceOutcomeId, targetOutcomeId), eventId, CARD_PLAYED_BINDING, 1));
+                cardPlayed(targetEventId, "SWING", sourceOutcomeId, targetOutcomeId),
+                eventId,
+                CARD_PLAYED_EVENT_TYPE,
+                1));
 
         var shiftCaptor = ArgumentCaptor.forClass(ProbabilityShift.class);
         then(applyProbabilityShift).should().apply(eq(targetEventId), shiftCaptor.capture());
@@ -110,7 +113,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                cardPlayed(UUID.randomUUID(), "AMPLIFY", null, UUID.randomUUID()), eventId, CARD_PLAYED_BINDING, 1));
+                cardPlayed(UUID.randomUUID(), "AMPLIFY", null, UUID.randomUUID()), eventId, CARD_PLAYED_EVENT_TYPE, 1));
 
         then(applyProbabilityShift).should(never()).apply(any(), any());
     }
@@ -122,7 +125,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                cardPlayed(UUID.randomUUID(), null, null, UUID.randomUUID()), eventId, CARD_PLAYED_BINDING, 1));
+                cardPlayed(UUID.randomUUID(), null, null, UUID.randomUUID()), eventId, CARD_PLAYED_EVENT_TYPE, 1));
 
         then(applyProbabilityShift).should(never()).apply(any(), any());
     }
@@ -134,13 +137,13 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(false);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                cardPlayed(UUID.randomUUID(), "PUSH", null, UUID.randomUUID()), eventId, CARD_PLAYED_BINDING, 1));
+                cardPlayed(UUID.randomUUID(), "PUSH", null, UUID.randomUUID()), eventId, CARD_PLAYED_EVENT_TYPE, 1));
 
         then(applyProbabilityShift).should(never()).apply(any(), any());
     }
 
     @Test
-    @DisplayName("ResolutionStarted matching binding — triggers resolution for the envelope's gameId/eraNumber")
+    @DisplayName("ResolutionStarted matching event type — triggers resolution for the envelope's gameId/eraNumber")
     void handle_resolutionStarted_triggersResolution() {
         var eventId = UUID.randomUUID();
         var gameId = UUID.randomUUID();
@@ -148,7 +151,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, RESOLUTION_STARTED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                new ResolutionStartedPayload(gameId, eraNumber), eventId, RESOLUTION_STARTED_BINDING, 1));
+                new ResolutionStartedPayload(gameId, eraNumber), eventId, RESOLUTION_STARTED_EVENT_TYPE, 1));
 
         then(resolveEra).should().resolve(gameId, eraNumber);
     }
@@ -160,19 +163,16 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, RESOLUTION_STARTED_CONSUMER)).willReturn(false);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                new ResolutionStartedPayload(UUID.randomUUID(), 1), eventId, RESOLUTION_STARTED_BINDING, 1));
+                new ResolutionStartedPayload(UUID.randomUUID(), 1), eventId, RESOLUTION_STARTED_EVENT_TYPE, 1));
 
         then(resolveEra).should(never()).resolve(any(), anyInt());
     }
 
     @Test
-    @DisplayName("unrelated binding — ignored, neither shift nor resolution triggered")
-    void handle_unrelatedBinding_ignored() {
+    @DisplayName("unrelated event type — ignored, neither shift nor resolution triggered")
+    void handle_unrelatedEventType_ignored() {
         consumer.handle(KafkaTestMessages.withHeaders(
-                cardPlayed(UUID.randomUUID(), "PUSH", null, UUID.randomUUID()),
-                UUID.randomUUID(),
-                "Sessionpublish-era-started-out",
-                1));
+                cardPlayed(UUID.randomUUID(), "PUSH", null, UUID.randomUUID()), UUID.randomUUID(), "EraStarted", 1));
 
         then(processedEvents).should(never()).claim(any(), any());
         then(applyProbabilityShift).should(never()).apply(any(), any());
@@ -195,9 +195,9 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         // time — this is what actually prevents the cross-consumer-group race (design.md revision):
         // there is no second thread/group that could observe pre-shift state.
         consumer.handle(KafkaTestMessages.withHeaders(
-                cardPlayed(targetEventId, "PUSH", null, targetOutcomeId), cardEventId, CARD_PLAYED_BINDING, 1));
+                cardPlayed(targetEventId, "PUSH", null, targetOutcomeId), cardEventId, CARD_PLAYED_EVENT_TYPE, 1));
         consumer.handle(KafkaTestMessages.withHeaders(
-                new ResolutionStartedPayload(gameId, 1), resolutionEventId, RESOLUTION_STARTED_BINDING, 1));
+                new ResolutionStartedPayload(gameId, 1), resolutionEventId, RESOLUTION_STARTED_EVENT_TYPE, 1));
 
         var order = inOrder(applyProbabilityShift, resolveEra);
         order.verify(applyProbabilityShift).apply(eq(targetEventId), any());

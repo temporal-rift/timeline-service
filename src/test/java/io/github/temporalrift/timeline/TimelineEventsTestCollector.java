@@ -30,9 +30,9 @@ class TimelineEventsTestCollector {
         var payload = message.getPayload() instanceof byte[] bytes
                 ? objectMapper.readValue(bytes, Map.class)
                 : (Map<?, ?>) message.getPayload();
-        var bindingName = message.getHeaders().get("spring.cloud.stream.sendto.destination", String.class);
-        received.add(new CollectedMessage(bindingName, payload));
+        var eventType = message.getHeaders().get("eventType", String.class);
+        received.add(new CollectedMessage(eventType, payload));
     }
 
-    record CollectedMessage(String bindingName, Map<?, ?> payload) {}
+    record CollectedMessage(String eventType, Map<?, ?> payload) {}
 }
