@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Maven Action
+        uses: s4u/setup-maven-action@v1.20.0
+        with:
+          java-version: 26
+          java-distribution: temurin
+          maven-version: 3.9.13
+
+      - name: mvn verify
+        run: mvn --batch-mode verify
