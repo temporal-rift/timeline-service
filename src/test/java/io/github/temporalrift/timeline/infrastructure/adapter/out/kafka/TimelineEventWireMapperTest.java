@@ -15,7 +15,7 @@ class TimelineEventWireMapperTest {
     private final TimelineEventWireMapper mapper = new TimelineEventWireMapperImpl();
 
     @Test
-    void toWire_eraResolutionCompleted_producesExactWireShapePerTerminalState() {
+    void toWire_eraResolutionCompleted_mapsEveryFieldPerTerminalState() {
         var gameId = UUID.randomUUID();
         var outcomeAppliedEventId = UUID.randomUUID();
         var winningOutcomeId = UUID.randomUUID();
