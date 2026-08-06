@@ -7,8 +7,7 @@ import org.springframework.messaging.Message;
 
 /**
  * The real {@code game.events} envelope metadata, read from Kafka record headers (event-schema.md §1) —
- * not a body field. {@code eventType} is the stable contract discriminator. {@code bindingName} is retained
- * only to consume records published by the previous ZenWave producer implementation.
+ * not a body field. {@code eventType} is the stable contract discriminator.
  */
 record GameEventEnvelope(
         UUID eventId,
@@ -17,11 +16,9 @@ record GameEventEnvelope(
         UUID gameId,
         Instant occurredAt,
         Integer version,
-        String eventType,
-        String bindingName) {
+        String eventType) {
 
     private static final String EVENT_TYPE_HEADER = "eventType";
-    private static final String BINDING_NAME_HEADER = "spring.cloud.stream.sendto.destination";
 
     static GameEventEnvelope from(Message<?> message) {
         // eventId/aggregateId/gameId travel as plain String headers (DomainEventHeaders.populate calls
@@ -35,8 +32,7 @@ record GameEventEnvelope(
                 asUuid(headers.get("gameId", String.class)),
                 headers.get("occurredAt", Instant.class),
                 headers.get("version", Integer.class),
-                headers.get(EVENT_TYPE_HEADER, String.class),
-                headers.get(BINDING_NAME_HEADER, String.class));
+                headers.get(EVENT_TYPE_HEADER, String.class));
     }
 
     private static UUID asUuid(String value) {

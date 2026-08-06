@@ -27,7 +27,7 @@ import org.springframework.test.context.ActiveProfiles;
  * {@code EventsDrawn} / {@code ResolutionStarted} messages (headers per event-schema.md §1, not the
  * hand-rolled body-envelope shape used elsewhere for {@code timeline.events} placeholders) onto
  * {@code game.events}, and asserts {@code OutcomeApplied} — preceded by {@code ProbabilityStateCalculated}
- * — lands on {@code timeline.events}. Also confirms the {@code spring.cloud.stream.sendto.destination}
+ * — lands on {@code timeline.events}. Also confirms the {@code eventType}
  * header round-trips end-to-end (design.md Decision 2).
  */
 @SpringBootTest
@@ -36,10 +36,9 @@ import org.springframework.test.context.ActiveProfiles;
 class ResolutionWalkingSkeletonIT {
 
     private static final String GAME_EVENTS_TOPIC = "game.events";
-    private static final String PROBABILITY_STATE_CALCULATED_BINDING =
-            "Timelinepublish-probability-state-calculated-out";
-    private static final String OUTCOME_APPLIED_BINDING = "Timelinepublish-outcome-applied-out";
-    private static final String ERA_RESOLUTION_COMPLETED_BINDING = "Timelinepublish-era-resolution-completed-out";
+    private static final String PROBABILITY_STATE_CALCULATED = "ProbabilityStateCalculated";
+    private static final String OUTCOME_APPLIED = "OutcomeApplied";
+    private static final String ERA_RESOLUTION_COMPLETED = "EraResolutionCompleted";
 
     @Autowired
     KafkaTemplate<Object, Object> kafkaTemplate;
@@ -75,15 +74,12 @@ class ResolutionWalkingSkeletonIT {
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(bindingsOf(collector.received))
-                        .contains(
-                                PROBABILITY_STATE_CALCULATED_BINDING,
-                                OUTCOME_APPLIED_BINDING,
-                                ERA_RESOLUTION_COMPLETED_BINDING));
+                .untilAsserted(() -> assertThat(eventTypesOf(collector.received))
+                        .contains(PROBABILITY_STATE_CALCULATED, OUTCOME_APPLIED, ERA_RESOLUTION_COMPLETED));
 
-        var probabilityIndex = indexOfBinding(collector.received, PROBABILITY_STATE_CALCULATED_BINDING);
-        var outcomeIndex = indexOfBinding(collector.received, OUTCOME_APPLIED_BINDING);
-        var eraResolutionCompletedIndex = indexOfBinding(collector.received, ERA_RESOLUTION_COMPLETED_BINDING);
+        var probabilityIndex = indexOfEventType(collector.received, PROBABILITY_STATE_CALCULATED);
+        var outcomeIndex = indexOfEventType(collector.received, OUTCOME_APPLIED);
+        var eraResolutionCompletedIndex = indexOfEventType(collector.received, ERA_RESOLUTION_COMPLETED);
         assertThat(probabilityIndex).isLessThan(outcomeIndex);
         assertThat(outcomeIndex).isLessThan(eraResolutionCompletedIndex);
 
@@ -120,8 +116,8 @@ class ResolutionWalkingSkeletonIT {
         publishResolutionStarted(gameId, eraNumber, resolutionEventId);
 
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(bindingsOf(collector.received))
-                        .contains(OUTCOME_APPLIED_BINDING, ERA_RESOLUTION_COMPLETED_BINDING));
+                .untilAsserted(() -> assertThat(eventTypesOf(collector.received))
+                        .contains(OUTCOME_APPLIED, ERA_RESOLUTION_COMPLETED));
         var countAfterFirstDelivery = collector.received.size();
 
         // Same envelope eventId — must be claimed-and-skipped, not re-resolved.
@@ -130,8 +126,8 @@ class ResolutionWalkingSkeletonIT {
         await().pollDelay(Duration.ofSeconds(5))
                 .atMost(Duration.ofSeconds(10))
                 .untilAsserted(() -> assertThat(collector.received).hasSize(countAfterFirstDelivery));
-        assertThat(bindingsOf(collector.received))
-                .filteredOn(ERA_RESOLUTION_COMPLETED_BINDING::equals)
+        assertThat(eventTypesOf(collector.received))
+                .filteredOn(ERA_RESOLUTION_COMPLETED::equals)
                 .hasSize(1);
     }
 
@@ -152,16 +148,17 @@ class ResolutionWalkingSkeletonIT {
         // Configured push-shift is +20 (application.yml game.rules.probability.push-shift): 35 + 20 = 55,
         // enough to overtake the initial 50-probability winner. Published immediately followed by
         // ResolutionStarted with no synchronization in between — CardPlayedAndResolutionKafkaConsumer
-        // handles both binding names on the same consumer group/partition, so Kafka's in-partition
+        // handles both event types on the same consumer group/partition, so Kafka's in-partition
         // ordering alone (not a test-only wait) guarantees the shift is applied before resolution runs
         // (design.md Decision 1/3, revised after PR #25 review).
         publishCardPlayed(gameId, eraNumber, futureEventId, "PUSH", null, pushedOutcomeId);
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(bindingsOf(collector.received)).contains(OUTCOME_APPLIED_BINDING));
+                .untilAsserted(
+                        () -> assertThat(eventTypesOf(collector.received)).contains(OUTCOME_APPLIED));
 
-        var outcomeIndex = indexOfBinding(collector.received, OUTCOME_APPLIED_BINDING);
+        var outcomeIndex = indexOfEventType(collector.received, OUTCOME_APPLIED);
         var outcomePayload = collector.received.get(outcomeIndex).payload();
         assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(pushedOutcomeId.toString());
     }
@@ -179,7 +176,7 @@ class ResolutionWalkingSkeletonIT {
     private void publishEraStarted(UUID gameId, int eraNumber) {
         publish(
                 gameId,
-                "Sessionpublish-era-started-out",
+                "EraStarted",
                 Map.of(
                         "gameId",
                         gameId,
@@ -201,7 +198,7 @@ class ResolutionWalkingSkeletonIT {
             int loserProbability) {
         publish(
                 gameId,
-                "Sessionpublish-events-drawn-out",
+                "EventsDrawn",
                 Map.of(
                         "gameId",
                         gameId,
@@ -245,7 +242,7 @@ class ResolutionWalkingSkeletonIT {
             int probability3) {
         publish(
                 gameId,
-                "Sessionpublish-events-drawn-out",
+                "EventsDrawn",
                 Map.of(
                         "gameId",
                         gameId,
@@ -301,22 +298,18 @@ class ResolutionWalkingSkeletonIT {
         payload.put("targetEventId", targetEventId);
         payload.put("sourceOutcomeId", sourceOutcomeId);
         payload.put("targetOutcomeId", targetOutcomeId);
-        publish(gameId, "Actionpublish-card-played-out", payload);
+        publish(gameId, "CardPlayed", payload);
     }
 
     private void publishResolutionStarted(UUID gameId, int eraNumber, UUID eventId) {
-        publish(
-                gameId,
-                "Sessionpublish-resolution-started-out",
-                Map.of("gameId", gameId, "eraNumber", eraNumber),
-                eventId);
+        publish(gameId, "ResolutionStarted", Map.of("gameId", gameId, "eraNumber", eraNumber), eventId);
     }
 
-    private void publish(UUID gameId, String bindingName, Object payload) {
-        publish(gameId, bindingName, payload, UUID.randomUUID());
+    private void publish(UUID gameId, String eventType, Object payload) {
+        publish(gameId, eventType, payload, UUID.randomUUID());
     }
 
-    private void publish(UUID gameId, String bindingName, Object payload, UUID eventId) {
+    private void publish(UUID gameId, String eventType, Object payload, UUID eventId) {
         Message<Object> message = MessageBuilder.withPayload(payload)
                 .setHeader(KafkaHeaders.TOPIC, GAME_EVENTS_TOPIC)
                 .setHeader(KafkaHeaders.KEY, gameId.toString())
@@ -326,18 +319,18 @@ class ResolutionWalkingSkeletonIT {
                 .setHeader("gameId", gameId.toString())
                 .setHeader("occurredAt", Instant.now())
                 .setHeader("version", 1)
-                .setHeader("spring.cloud.stream.sendto.destination", bindingName)
+                .setHeader("eventType", eventType)
                 .build();
         kafkaTemplate.send(message);
     }
 
-    private static List<String> bindingsOf(List<TimelineEventsTestCollector.CollectedMessage> messages) {
+    private static List<String> eventTypesOf(List<TimelineEventsTestCollector.CollectedMessage> messages) {
         return messages.stream()
-                .map(TimelineEventsTestCollector.CollectedMessage::bindingName)
+                .map(TimelineEventsTestCollector.CollectedMessage::eventType)
                 .toList();
     }
 
-    private static int indexOfBinding(List<TimelineEventsTestCollector.CollectedMessage> messages, String binding) {
-        return bindingsOf(messages).indexOf(binding);
+    private static int indexOfEventType(List<TimelineEventsTestCollector.CollectedMessage> messages, String eventType) {
+        return eventTypesOf(messages).indexOf(eventType);
     }
 }

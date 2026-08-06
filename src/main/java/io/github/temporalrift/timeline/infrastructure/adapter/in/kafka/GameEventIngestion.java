@@ -10,10 +10,10 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 /**
  * Shared envelope-validation prologue for the {@code game.events} consumers: filter by the stable
- * {@code eventType} header (or a retained legacy binding header), discard a missing {@code eventId}, skip an
- * unsupported version, then claim the {@code eventId}.
+ * {@code eventType} header, discard a missing {@code eventId}, skip an unsupported version, then claim the
+ * {@code eventId}.
  * Extracted after SonarCloud flagged the duplication across the three consumers, which each repeated
- * these same four checks with only the binding name, event name, and consumer name differing.
+ * these same four checks with only the event name and consumer name differing.
  */
 final class GameEventIngestion {
 
@@ -51,11 +51,8 @@ final class GameEventIngestion {
     }
 
     private static boolean matches(GameEventEnvelope envelope, Spec spec) {
-        if (envelope.eventType() != null) {
-            return spec.eventName().equals(envelope.eventType());
-        }
-        return spec.legacyBindingName().equals(envelope.bindingName());
+        return spec.eventName().equals(envelope.eventType());
     }
 
-    record Spec(String legacyBindingName, String eventName, String consumer, int supportedVersion) {}
+    record Spec(String eventName, String consumer, int supportedVersion) {}
 }

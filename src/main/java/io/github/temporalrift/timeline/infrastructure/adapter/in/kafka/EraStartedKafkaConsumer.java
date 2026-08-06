@@ -15,8 +15,7 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 class EraStartedKafkaConsumer {
 
     private static final String CONSUMER = "futureevent.era-started";
-    private static final GameEventIngestion.Spec SPEC =
-            new GameEventIngestion.Spec("Sessionpublish-era-started-out", "EraStarted", CONSUMER, 1);
+    private static final GameEventIngestion.Spec SPEC = new GameEventIngestion.Spec("EraStarted", CONSUMER, 1);
 
     private final ProcessedEventPort processedEvents;
 

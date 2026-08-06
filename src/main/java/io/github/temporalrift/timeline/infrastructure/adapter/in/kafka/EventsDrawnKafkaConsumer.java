@@ -19,8 +19,7 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 class EventsDrawnKafkaConsumer {
 
     private static final String CONSUMER = "futureevent.events-drawn";
-    private static final GameEventIngestion.Spec SPEC =
-            new GameEventIngestion.Spec("Sessionpublish-events-drawn-out", "EventsDrawn", CONSUMER, 1);
+    private static final GameEventIngestion.Spec SPEC = new GameEventIngestion.Spec("EventsDrawn", CONSUMER, 1);
 
     private final ProcessedEventPort processedEvents;
     private final FutureEventRepository futureEvents;

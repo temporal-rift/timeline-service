@@ -32,9 +32,9 @@ class CardPlayedAndResolutionKafkaConsumer {
 
     private static final String GROUP_ID = "timeline-service.futureevent.card-played-and-resolution";
     private static final GameEventIngestion.Spec CARD_PLAYED_SPEC =
-            new GameEventIngestion.Spec("Actionpublish-card-played-out", "CardPlayed", "futureevent.card-played", 1);
-    private static final GameEventIngestion.Spec RESOLUTION_STARTED_SPEC = new GameEventIngestion.Spec(
-            "Sessionpublish-resolution-started-out", "ResolutionStarted", "futureevent.resolution-started", 1);
+            new GameEventIngestion.Spec("CardPlayed", "futureevent.card-played", 1);
+    private static final GameEventIngestion.Spec RESOLUTION_STARTED_SPEC =
+            new GameEventIngestion.Spec("ResolutionStarted", "futureevent.resolution-started", 1);
 
     private final ProcessedEventPort processedEvents;
     private final ApplyProbabilityShiftUseCase applyProbabilityShift;

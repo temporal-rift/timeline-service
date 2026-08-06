@@ -20,7 +20,7 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 @ExtendWith(MockitoExtension.class)
 class EraStartedKafkaConsumerTest {
 
-    private static final String BINDING_NAME = "Sessionpublish-era-started-out";
+    private static final String EVENT_TYPE = "EraStarted";
     private static final String CONSUMER = "futureevent.era-started";
 
     @Mock
@@ -30,21 +30,20 @@ class EraStartedKafkaConsumerTest {
     EraStartedKafkaConsumer consumer;
 
     @Test
-    @DisplayName("matching binding — claims the eventId")
-    void handle_matchingBinding_claimsEventId() {
+    @DisplayName("matching event type — claims the eventId")
+    void handle_matchingEventType_claimsEventId() {
         var eventId = UUID.randomUUID();
         given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
 
-        consumer.handle(KafkaTestMessages.withHeaders(Map.of(), eventId, BINDING_NAME, 1));
+        consumer.handle(KafkaTestMessages.withHeaders(Map.of(), eventId, EVENT_TYPE, 1));
 
         then(processedEvents).should().claim(eventId, CONSUMER);
     }
 
     @Test
-    @DisplayName("unrelated binding — ignored, never claims")
-    void handle_unrelatedBinding_ignored() {
-        consumer.handle(
-                KafkaTestMessages.withHeaders(Map.of(), UUID.randomUUID(), "Sessionpublish-events-drawn-out", 1));
+    @DisplayName("unrelated event type — ignored, never claims")
+    void handle_unrelatedEventType_ignored() {
+        consumer.handle(KafkaTestMessages.withHeaders(Map.of(), UUID.randomUUID(), "EventsDrawn", 1));
 
         then(processedEvents).should(never()).claim(any(), any());
     }
@@ -52,7 +51,7 @@ class EraStartedKafkaConsumerTest {
     @Test
     @DisplayName("unsupported version — skipped without claiming")
     void handle_unsupportedVersion_skippedWithoutClaim() {
-        consumer.handle(KafkaTestMessages.withHeaders(Map.of(), UUID.randomUUID(), BINDING_NAME, 2));
+        consumer.handle(KafkaTestMessages.withHeaders(Map.of(), UUID.randomUUID(), EVENT_TYPE, 2));
 
         then(processedEvents).should(never()).claim(any(), any());
     }
@@ -63,7 +62,7 @@ class EraStartedKafkaConsumerTest {
         var eventId = UUID.randomUUID();
         given(processedEvents.claim(eventId, CONSUMER)).willReturn(false);
 
-        consumer.handle(KafkaTestMessages.withHeaders(Map.of(), eventId, BINDING_NAME, 1));
+        consumer.handle(KafkaTestMessages.withHeaders(Map.of(), eventId, EVENT_TYPE, 1));
 
         then(processedEvents).should().claim(eventId, CONSUMER);
     }

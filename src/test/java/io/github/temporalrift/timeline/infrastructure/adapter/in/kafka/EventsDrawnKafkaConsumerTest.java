@@ -28,7 +28,7 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 @ExtendWith(MockitoExtension.class)
 class EventsDrawnKafkaConsumerTest {
 
-    private static final String BINDING_NAME = "Sessionpublish-events-drawn-out";
+    private static final String EVENT_TYPE = "EventsDrawn";
     private static final String CONSUMER = "futureevent.events-drawn";
 
     @Mock
@@ -47,8 +47,8 @@ class EventsDrawnKafkaConsumerTest {
     EventsDrawnKafkaConsumer consumer;
 
     @Test
-    @DisplayName("matching binding — drafts one FutureEvent and one index row per drawn event")
-    void handle_matchingBinding_draftsFutureEventsAndIndexRows() {
+    @DisplayName("matching event type — drafts one FutureEvent and one index row per drawn event")
+    void handle_matchingEventType_draftsFutureEventsAndIndexRows() {
         var eventId = UUID.randomUUID();
         var gameId = UUID.randomUUID();
         var eraNumber = 1;
@@ -70,7 +70,7 @@ class EventsDrawnKafkaConsumerTest {
                                 false)));
         given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
 
-        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, BINDING_NAME, 1));
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
 
         then(futureEvents).should().append(eq(futureEventId1), any(FutureEventDrafted.class));
         then(futureEvents).should().append(eq(futureEventId2), any(FutureEventDrafted.class));
@@ -79,10 +79,9 @@ class EventsDrawnKafkaConsumerTest {
     }
 
     @Test
-    @DisplayName("unrelated binding — ignored")
-    void handle_unrelatedBinding_ignored() {
-        consumer.handle(
-                KafkaTestMessages.withHeaders(List.of(), UUID.randomUUID(), "Sessionpublish-era-started-out", 1));
+    @DisplayName("unrelated event type — ignored")
+    void handle_unrelatedEventType_ignored() {
+        consumer.handle(KafkaTestMessages.withHeaders(List.of(), UUID.randomUUID(), "EraStarted", 1));
 
         then(processedEvents).should(never()).claim(any(), any());
         then(futureEvents).should(never()).append(any(), any());
@@ -95,7 +94,7 @@ class EventsDrawnKafkaConsumerTest {
         given(processedEvents.claim(eventId, CONSUMER)).willReturn(false);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                new EventsDrawnPayload(UUID.randomUUID(), 1, List.of()), eventId, BINDING_NAME, 1));
+                new EventsDrawnPayload(UUID.randomUUID(), 1, List.of()), eventId, EVENT_TYPE, 1));
 
         then(futureEvents).should(never()).append(any(), any());
         then(eraIndex).should(never()).add(any(), any(), anyInt(), anyInt());
