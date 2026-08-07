@@ -22,6 +22,7 @@ jobs:
           java-version: 26
           java-distribution: temurin
           maven-version: 3.9.13
+          settings-githubServer: false
 
       - name: mvn verify
         run: mvn --batch-mode verify
