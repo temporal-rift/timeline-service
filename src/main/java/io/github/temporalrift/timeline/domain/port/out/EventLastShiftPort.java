@@ -10,7 +10,7 @@ import java.util.UUID;
  */
 public interface EventLastShiftPort {
 
-    void record(UUID gameId, int eraNumber, int roundNumber, UUID futureEventId, EventShift shift);
+    void save(UUID gameId, int eraNumber, int roundNumber, UUID futureEventId, EventShift shift);
 
     Optional<EventShift> find(UUID gameId, int eraNumber, int roundNumber, UUID futureEventId);
 

@@ -6,7 +6,7 @@ import java.util.UUID;
 /** Driven port for "the most recently played card this round" — what NULLIFY targets (design.md Decision 1). */
 public interface RoundLastCardPort {
 
-    void record(UUID gameId, int eraNumber, int roundNumber, LastCard lastCard);
+    void save(UUID gameId, int eraNumber, int roundNumber, LastCard lastCard);
 
     Optional<LastCard> find(UUID gameId, int eraNumber, int roundNumber);
 

@@ -28,7 +28,7 @@ class JpaAmplifyStateAdapter implements AmplifyStatePort {
     @Transactional
     public void arm(UUID gameId, int eraNumber, int roundNumber) {
         repository.deleteByGameIdAndEraNumberAndRoundNumber(gameId, eraNumber, roundNumber);
-        repository.save(new RoundAmplifyPendingEntity(gameId, eraNumber, roundNumber, true));
+        repository.save(new RoundAmplifyPendingEntity(new RoundKey(gameId, eraNumber, roundNumber), true));
     }
 
     @Override

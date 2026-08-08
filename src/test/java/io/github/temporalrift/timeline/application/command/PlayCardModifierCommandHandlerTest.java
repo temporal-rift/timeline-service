@@ -69,7 +69,7 @@ class PlayCardModifierCommandHandlerTest {
         then(amplifyState).should().arm(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
         then(roundLastCard)
                 .should()
-                .record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.AMPLIFY_ARMED, null));
+                .save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.AMPLIFY_ARMED, null));
     }
 
     @Test
@@ -81,7 +81,7 @@ class PlayCardModifierCommandHandlerTest {
 
         then(amplifyState).should().clear(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
         then(futureEvents).should(never()).findById(any());
-        then(roundLastCard).should().record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
+        then(roundLastCard).should().save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
     }
 
     @Test
@@ -141,7 +141,7 @@ class PlayCardModifierCommandHandlerTest {
         handler.play(new CardModifier.Nullify(GAME_ID, ERA_NUMBER, ROUND_NUMBER));
 
         then(futureEvents).should(never()).findById(any());
-        then(roundLastCard).should(never()).record(any(), anyInt(), anyInt(), any());
+        then(roundLastCard).should(never()).save(any(), anyInt(), anyInt(), any());
     }
 
     @Test
@@ -193,7 +193,7 @@ class PlayCardModifierCommandHandlerTest {
         handler.play(new CardModifier.Redirect(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, outcomeB));
 
         var captor = ArgumentCaptor.forClass(EventShift.class);
-        then(eventLastShift).should().record(any(), anyInt(), anyInt(), any(), captor.capture());
+        then(eventLastShift).should().save(any(), anyInt(), anyInt(), any(), captor.capture());
         assertThat(captor.getValue().preShiftSnapshot()).isEqualTo(Map.of(outcomeA, 70, outcomeB, 18, outcomeC, 12));
     }
 
@@ -205,7 +205,7 @@ class PlayCardModifierCommandHandlerTest {
         handler.play(new CardModifier.Redirect(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, UUID.randomUUID()));
 
         then(futureEvents).should(never()).findById(any());
-        then(roundLastCard).should().record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
+        then(roundLastCard).should().save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
     }
 
     @Test
@@ -229,8 +229,8 @@ class PlayCardModifierCommandHandlerTest {
         // IllegalArgumentException ("SWING requires distinct source and target outcomes").
         handler.play(new CardModifier.Redirect(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, sourceOutcomeId));
 
-        then(eventLastShift).should(never()).record(any(), anyInt(), anyInt(), any(), any());
-        then(roundLastCard).should().record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
+        then(eventLastShift).should(never()).save(any(), anyInt(), anyInt(), any(), any());
+        then(roundLastCard).should().save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
     }
 
     @Test
@@ -248,8 +248,8 @@ class PlayCardModifierCommandHandlerTest {
 
         handler.play(new CardModifier.Redirect(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, UUID.randomUUID()));
 
-        then(eventLastShift).should(never()).record(any(), anyInt(), anyInt(), any(), any());
-        then(roundLastCard).should().record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
+        then(eventLastShift).should(never()).save(any(), anyInt(), anyInt(), any(), any());
+        then(roundLastCard).should().save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
     }
 
     @Test
@@ -264,7 +264,7 @@ class PlayCardModifierCommandHandlerTest {
         assertThat(futureEvent.stalled()).isTrue();
         then(roundLastCard)
                 .should()
-                .record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.EVENT_STALLED, eventId));
+                .save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.EVENT_STALLED, eventId));
     }
 
     @Test
@@ -278,7 +278,7 @@ class PlayCardModifierCommandHandlerTest {
         handler.play(new CardModifier.Stall(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId));
 
         then(futureEvents).should(never()).append(any(), any());
-        then(roundLastCard).should().record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
+        then(roundLastCard).should().save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
     }
 
     @Test
@@ -307,7 +307,7 @@ class PlayCardModifierCommandHandlerTest {
         handler.play(new CardModifier.NoOp(GAME_ID, ERA_NUMBER, ROUND_NUMBER));
 
         then(futureEvents).should(never()).findById(any());
-        then(roundLastCard).should().record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
+        then(roundLastCard).should().save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
     }
 
     private static FutureEvent draftedFutureEvent(UUID eventId, UUID outcomeId, int probability) {
