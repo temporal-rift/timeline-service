@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Round-scoped "what was the most recent card this round" pointer, read and cleared by NULLIFY
+      (design.md Decision 1). Not event-sourced: operational coordination state, not domain history.
+  -->
+  <changeSet id="001-create-round-last-card" author="timeline-service">
+    <createTable tableName="round_last_card">
+      <column name="id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="era_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="round_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <!-- AMPLIFY_ARMED, EVENT_EFFECT, EVENT_STALLED, NOOP -->
+      <column name="effect_kind" type="VARCHAR(32)">
+        <constraints nullable="false"/>
+      </column>
+      <!-- populated for EVENT_EFFECT/EVENT_STALLED -->
+      <column name="future_event_id" type="UUID"/>
+    </createTable>
+
+    <addUniqueConstraint
+        tableName="round_last_card"
+        columnNames="game_id,era_number,round_number"
+        constraintName="uq_round_last_card_game_era_round"/>
+  </changeSet>
+
+</databaseChangeLog>

@@ -22,6 +22,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
+import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
@@ -85,6 +86,40 @@ class EventsDrawnKafkaConsumerTest {
 
         then(processedEvents).should(never()).claim(any(), any());
         then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    @DisplayName("event already indexed for this era (STALL carry-over) — not re-drafted or re-indexed")
+    void handle_eventAlreadyCarriedOverThisEra_skipsDraftingThatEvent() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        var eraNumber = 2;
+        var carriedOverEventId = UUID.randomUUID();
+        var freshEventId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
+        given(eraIndex.findByGameIdAndEraNumber(gameId, eraNumber))
+                .willReturn(List.of(new IndexedEventId(carriedOverEventId, 0)));
+        var payload = new EventsDrawnPayload(
+                gameId,
+                eraNumber,
+                List.of(
+                        new EventsDrawnPayload.FutureEvent(
+                                carriedOverEventId,
+                                "carried",
+                                List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "a", 100)),
+                                false),
+                        new EventsDrawnPayload.FutureEvent(
+                                freshEventId,
+                                "fresh",
+                                List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "b", 100)),
+                                false)));
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
+
+        then(futureEvents).should(never()).append(eq(carriedOverEventId), any());
+        then(eraIndex).should(never()).add(eq(carriedOverEventId), any(), anyInt(), anyInt());
+        then(futureEvents).should().append(eq(freshEventId), any(FutureEventDrafted.class));
+        then(eraIndex).should().add(freshEventId, gameId, eraNumber, 1);
     }
 
     @Test

@@ -13,4 +13,9 @@
     <!-- FutureEvent: era index -->
     <include file="db/changelog/futureevent/001-create-future-event-era-index.xml"/>
 
+    <!-- Round-scoped card-modifier coordination state (AMPLIFY/NULLIFY/REDIRECT) -->
+    <include file="db/changelog/roundeffect/001-create-round-last-card.xml"/>
+    <include file="db/changelog/roundeffect/002-create-round-amplify-pending.xml"/>
+    <include file="db/changelog/roundeffect/003-create-round-event-last-shift.xml"/>
+
 </databaseChangeLog>

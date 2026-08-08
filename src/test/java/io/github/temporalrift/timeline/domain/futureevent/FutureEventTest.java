@@ -4,10 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import io.github.temporalrift.timeline.domain.event.EventStalled;
+import io.github.temporalrift.timeline.domain.event.EventUnstalled;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
@@ -325,6 +328,80 @@ class FutureEventTest {
 
         assertThat(byId(event, a.outcomeId())).isEqualTo(70);
         assertThat(event.resolved()).isFalse();
+    }
+
+    @Test
+    void markStalled_thenResolve_throwsStalled() {
+        var id = UUID.randomUUID();
+        var event = drafted(id, new Outcome(UUID.randomUUID(), "only", 100));
+
+        event.markStalled();
+
+        assertThat(event.stalled()).isTrue();
+        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER)).isInstanceOf(FutureEventStalledException.class);
+    }
+
+    @Test
+    void markStalled_thenClearStalled_resolvesNormally() {
+        var id = UUID.randomUUID();
+        var winner = new Outcome(UUID.randomUUID(), "winner", 100);
+        var event = drafted(id, winner);
+
+        event.markStalled();
+        event.clearStalled();
+
+        assertThat(event.stalled()).isFalse();
+        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER);
+        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(winner.outcomeId());
+    }
+
+    @Test
+    void markStalled_alreadyResolved_throws() {
+        var id = UUID.randomUUID();
+        var event = drafted(id, new Outcome(UUID.randomUUID(), "only", 100));
+        event.resolve(GAME_ID, ERA_NUMBER);
+
+        assertThatThrownBy(event::markStalled).isInstanceOf(FutureEventAlreadyResolvedException.class);
+    }
+
+    @Test
+    void replay_eventStalledThenEventUnstalled_reconstructsUnstalledState() {
+        var id = UUID.randomUUID();
+        var outcome = new Outcome(UUID.randomUUID(), "only", 100);
+        var drafted = new FutureEventDrafted(id, List.of(outcome));
+
+        var event = FutureEvent.replay(id, List.of(drafted, new EventStalled(id), new EventUnstalled(id)));
+
+        assertThat(event.stalled()).isFalse();
+        assertThat(event.resolved()).isFalse();
+    }
+
+    @Test
+    void replay_eventStalledBeforeDrafted_throwsIllegalState() {
+        var id = UUID.randomUUID();
+
+        assertThatThrownBy(() -> FutureEvent.replay(id, List.of(new EventStalled(id))))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void applyShift_restore_setsExactProbabilitiesIgnoringMagnitude() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        event.applyShift(
+                new ProbabilityShift.Restore(Map.of(a.outcomeId(), 50, b.outcomeId(), 30, c.outcomeId(), 20)),
+                999,
+                0,
+                90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(30);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(20);
     }
 
     private static int byId(FutureEvent event, UUID outcomeId) {

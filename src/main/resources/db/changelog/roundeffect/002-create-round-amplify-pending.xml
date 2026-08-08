@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Whether AMPLIFY's doubling is armed for a round — tracked independently of round_last_card
+      because an intervening no-op card must not clear it (design.md Decision 3).
+  -->
+  <changeSet id="002-create-round-amplify-pending" author="timeline-service">
+    <createTable tableName="round_amplify_pending">
+      <column name="id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="era_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="round_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="pending" type="BOOLEAN">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+
+    <addUniqueConstraint
+        tableName="round_amplify_pending"
+        columnNames="game_id,era_number,round_number"
+        constraintName="uq_round_amplify_pending_game_era_round"/>
+  </changeSet>
+
+</databaseChangeLog>

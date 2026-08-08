@@ -2,6 +2,7 @@ package io.github.temporalrift.timeline.application.command;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
@@ -111,6 +112,79 @@ class ResolveEraCommandHandlerTest {
         handler.resolve(GAME_ID, ERA_NUMBER);
 
         then(publisher).should(never()).publish(any());
+    }
+
+    @Test
+    void resolve_stalledEvent_excludedFromOutcomeAppliedAndReportedAsStalled() {
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(stalledFutureEvent(eventId, outcomeId));
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should().publish(captor.capture());
+        var eraResolutionCompleted = (EraResolutionCompleted) captor.getValue().payload();
+        assertThat(eraResolutionCompleted.terminalResolutions())
+                .containsExactly(new TerminalResolution(eventId, 0, TerminalResolution.TerminalState.STALLED, null));
+        then(eraIndex).should().add(eventId, GAME_ID, ERA_NUMBER + 1, 0);
+    }
+
+    @Test
+    void resolve_mixOfStalledAndResolved_bothReportedInRevealOrder() {
+        var stalledEventId = UUID.randomUUID();
+        var resolvedEventId = UUID.randomUUID();
+        var resolvedOutcomeId = UUID.randomUUID();
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(stalledEventId, 0), new IndexedEventId(resolvedEventId, 1)));
+        given(futureEvents.findById(stalledEventId)).willReturn(stalledFutureEvent(stalledEventId, UUID.randomUUID()));
+        given(futureEvents.findById(resolvedEventId))
+                .willReturn(draftedFutureEvent(resolvedEventId, resolvedOutcomeId));
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(org.mockito.Mockito.atLeastOnce()).publish(captor.capture());
+        var eraResolutionCompleted = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .filter(EraResolutionCompleted.class::isInstance)
+                .map(EraResolutionCompleted.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(eraResolutionCompleted.terminalResolutions())
+                .containsExactly(
+                        new TerminalResolution(stalledEventId, 0, TerminalResolution.TerminalState.STALLED, null),
+                        new TerminalResolution(
+                                resolvedEventId,
+                                1,
+                                TerminalResolution.TerminalState.OUTCOME_APPLIED,
+                                resolvedOutcomeId));
+    }
+
+    @Test
+    void resolve_stalledEventAlreadyCarriedForward_doesNotRepublish() {
+        var eventId = UUID.randomUUID();
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER + 1))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(stalledFutureEvent(eventId, UUID.randomUUID()));
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        then(publisher).should(never()).publish(any());
+        then(eraIndex).should(never()).add(any(), any(), org.mockito.ArgumentMatchers.eq(ERA_NUMBER + 1), anyInt());
+    }
+
+    private static FutureEvent stalledFutureEvent(UUID eventId, UUID outcomeId) {
+        var event = draftedFutureEvent(eventId, outcomeId);
+        event.markStalled();
+        return event;
     }
 
     private static FutureEvent draftedFutureEvent(UUID eventId, UUID outcomeId) {
