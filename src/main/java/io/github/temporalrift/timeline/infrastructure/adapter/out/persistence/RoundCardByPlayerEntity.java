@@ -58,21 +58,14 @@ class RoundCardByPlayerEntity extends RoundScopedEntity {
 
     /** {@code snapshot} must have exactly 3 entries — a FutureEvent always has exactly 3 outcomes. */
     RoundCardByPlayerEntity(
-            RoundKey key,
-            UUID playerId,
-            UUID futureEventId,
-            ShiftType shiftType,
-            UUID sourceOutcomeId,
-            UUID targetOutcomeId,
-            int magnitude,
-            List<OutcomeSnapshot> snapshot) {
+            RoundKey key, UUID playerId, UUID futureEventId, ShiftDescriptor shift, List<OutcomeSnapshot> snapshot) {
         super(key);
         this.playerId = playerId;
         this.futureEventId = futureEventId;
-        this.shiftType = shiftType;
-        this.sourceOutcomeId = sourceOutcomeId;
-        this.targetOutcomeId = targetOutcomeId;
-        this.magnitude = magnitude;
+        this.shiftType = shift.shiftType();
+        this.sourceOutcomeId = shift.sourceOutcomeId();
+        this.targetOutcomeId = shift.targetOutcomeId();
+        this.magnitude = shift.magnitude();
         this.snapshotOutcome1Id = snapshot.get(0).outcomeId();
         this.snapshotOutcome1Probability = snapshot.get(0).probability();
         this.snapshotOutcome2Id = snapshot.get(1).outcomeId();
@@ -113,4 +106,7 @@ class RoundCardByPlayerEntity extends RoundScopedEntity {
     }
 
     record OutcomeSnapshot(UUID outcomeId, int probability) {}
+
+    /** Groups the shift-shape fields so the constructor stays under Sonar's 7-parameter limit (S107). */
+    record ShiftDescriptor(ShiftType shiftType, UUID sourceOutcomeId, UUID targetOutcomeId, int magnitude) {}
 }

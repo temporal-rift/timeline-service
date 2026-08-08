@@ -34,10 +34,8 @@ class JpaRoundCardByPlayerAdapter implements RoundCardByPlayerPort {
                 new RoundKey(gameId, eraNumber, roundNumber),
                 playerId,
                 card.futureEventId(),
-                card.shiftType(),
-                card.sourceOutcomeId(),
-                card.targetOutcomeId(),
-                card.magnitude(),
+                new RoundCardByPlayerEntity.ShiftDescriptor(
+                        card.shiftType(), card.sourceOutcomeId(), card.targetOutcomeId(), card.magnitude()),
                 snapshotEntries));
     }
 
