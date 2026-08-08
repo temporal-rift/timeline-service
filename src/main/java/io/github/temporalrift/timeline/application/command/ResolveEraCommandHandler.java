@@ -122,6 +122,9 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             return;
         }
         eraIndex.add(futureEvent.id(), gameId, eraNumber + 1, indexedEventId.revealIndex());
+        // The one-era delay is now spent: clear the flag so the carried event resolves normally next era
+        // unless a fresh STALL is played on it there — otherwise it would carry forward indefinitely.
+        futureEvents.append(futureEvent.id(), futureEvent.clearStalled());
         newTerminalResolutions.add(new TerminalResolution(
                 futureEvent.id(), indexedEventId.revealIndex(), TerminalResolution.TerminalState.STALLED, null));
     }

@@ -36,8 +36,8 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     private static final String CARD_PLAYED_CONSUMER = "futureevent.card-played";
     private static final String RESOLUTION_STARTED_EVENT_TYPE = "ResolutionStarted";
     private static final String RESOLUTION_STARTED_CONSUMER = "futureevent.resolution-started";
-    private static final int ERA_NUMBER = 1;
-    private static final int ROUND_NUMBER = 1;
+    private static final int ERA_NUMBER = 2;
+    private static final int ROUND_NUMBER = 3;
 
     @Mock
     ProcessedEventPort processedEvents;

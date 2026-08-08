@@ -15,6 +15,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -172,13 +173,83 @@ class PlayCardModifierCommandHandlerTest {
     }
 
     @Test
-    void redirect_noPriorShiftOnTargetEvent_isNoOp() {
+    void redirect_recordsTheStateBeforeItRanNotTheOriginalPreShiftSnapshot() {
+        // Regression for a NULLIFY-after-REDIRECT bug: the snapshot stored for undo must be the state right
+        // before REDIRECT ran (70/18/12, post-original-PUSH), not the original shift's own pre-shift
+        // snapshot (50/30/20) — otherwise a later NULLIFY would undo both the REDIRECT and the original PUSH.
+        var eventId = UUID.randomUUID();
+        var outcomeA = UUID.randomUUID();
+        var outcomeB = UUID.randomUUID();
+        var outcomeC = UUID.randomUUID();
+        var originalPreShiftSnapshot = Map.of(outcomeA, 50, outcomeB, 30, outcomeC, 20);
+        var futureEvent = draftedFutureEvent(eventId, outcomeA, 70, outcomeB, 18, outcomeC, 12);
+
+        given(eventLastShift.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId))
+                .willReturn(Optional.of(new EventShift(ShiftType.PUSH, null, outcomeA, 20, originalPreShiftSnapshot)));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+
+        handler.play(new CardModifier.Redirect(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, outcomeB));
+
+        var captor = ArgumentCaptor.forClass(EventShift.class);
+        then(eventLastShift).should().record(any(), anyInt(), anyInt(), any(), captor.capture());
+        assertThat(captor.getValue().preShiftSnapshot()).isEqualTo(Map.of(outcomeA, 70, outcomeB, 18, outcomeC, 12));
+    }
+
+    @Test
+    void redirect_noPriorShiftOnTargetEvent_isNoOpAndRecordsRoundLastCardAsNoOp() {
         var eventId = UUID.randomUUID();
         given(eventLastShift.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId)).willReturn(Optional.empty());
 
         handler.play(new CardModifier.Redirect(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, UUID.randomUUID()));
 
         then(futureEvents).should(never()).findById(any());
+        then(roundLastCard).should().record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
+    }
+
+    @Test
+    void redirect_swingToItsOwnRecordedSource_isNoOpAndRecordsRoundLastCardAsNoOp() {
+        var eventId = UUID.randomUUID();
+        var sourceOutcomeId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var thirdOutcomeId = UUID.randomUUID();
+        var futureEvent = draftedFutureEvent(eventId, sourceOutcomeId, 40, targetOutcomeId, 40, thirdOutcomeId, 20);
+
+        given(eventLastShift.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId))
+                .willReturn(Optional.of(new EventShift(
+                        ShiftType.SWING,
+                        sourceOutcomeId,
+                        targetOutcomeId,
+                        30,
+                        Map.of(sourceOutcomeId, 40, targetOutcomeId, 40, thirdOutcomeId, 20))));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+
+        // Redirecting back to the SWING's own recorded source would otherwise throw
+        // IllegalArgumentException ("SWING requires distinct source and target outcomes").
+        handler.play(new CardModifier.Redirect(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, sourceOutcomeId));
+
+        then(eventLastShift).should(never()).record(any(), anyInt(), anyInt(), any(), any());
+        then(roundLastCard).should().record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
+    }
+
+    @Test
+    void redirect_unknownTargetOutcome_isNoOpAndRecordsRoundLastCardAsNoOp() {
+        var eventId = UUID.randomUUID();
+        var outcomeA = UUID.randomUUID();
+        var outcomeB = UUID.randomUUID();
+        var outcomeC = UUID.randomUUID();
+        var futureEvent = draftedFutureEvent(eventId, outcomeA, 50, outcomeB, 30, outcomeC, 20);
+
+        given(eventLastShift.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId))
+                .willReturn(Optional.of(new EventShift(
+                        ShiftType.PUSH, null, outcomeA, 20, Map.of(outcomeA, 50, outcomeB, 30, outcomeC, 20))));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+
+        handler.play(new CardModifier.Redirect(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, UUID.randomUUID()));
+
+        then(eventLastShift).should(never()).record(any(), anyInt(), anyInt(), any(), any());
+        then(roundLastCard).should().record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
     }
 
     @Test
