@@ -63,79 +63,106 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                 .map(IndexedEventId::eventId)
                 .collect(Collectors.toSet());
 
-        var resolutions = new ArrayList<OutcomeApplied>();
-        var newTerminalResolutions = new ArrayList<TerminalResolution>();
-        var paradoxes = new ArrayList<ParadoxDetected.Paradox>();
+        var accumulator = new ResolutionAccumulator();
         for (var indexedEventId : indexedEventIds) {
-            var futureEvent = futureEvents.findById(indexedEventId.eventId());
-            if (alreadyCarriedForward.contains(indexedEventId.eventId())) {
-                // Already carried into eraNumber + 1 and reported as STALLED by a prior call for this era.
-                // addStalled clears stalled() as part of carrying an event forward, so a redelivered call
-                // reaching this event again would otherwise fall through to resolving it a second time.
-            } else if (futureEvent.resolved()) {
-                // already resolved in a prior call for this era — nothing to do
-            } else if (futureEvent.stalled()) {
-                addStalled(gameId, eraNumber, indexedEventId, futureEvent, newTerminalResolutions);
-            } else {
-                var detected = ParadoxDetector.detect(futureEvent.outcomes());
-                if (detected.isEmpty()) {
-                    var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
-                    resolutions.add(outcomeApplied);
-                    newTerminalResolutions.add(new TerminalResolution(
+            // Already carried into eraNumber + 1 and reported as STALLED by a prior call for this era.
+            // addStalled clears stalled() as part of carrying an event forward, so a redelivered call
+            // reaching this event again would otherwise fall through to resolving it a second time.
+            if (!alreadyCarriedForward.contains(indexedEventId.eventId())) {
+                var futureEvent = futureEvents.findById(indexedEventId.eventId());
+                resolveEvent(gameId, eraNumber, indexedEventId, futureEvent, accumulator);
+            }
+        }
+        publishResolution(gameId, eraNumber, accumulator);
+    }
+
+    private void resolveEvent(
+            UUID gameId,
+            int eraNumber,
+            IndexedEventId indexedEventId,
+            FutureEvent futureEvent,
+            ResolutionAccumulator accumulator) {
+        if (futureEvent.resolved()) {
+            // already resolved in a prior call for this era — nothing to do
+            return;
+        }
+        if (futureEvent.stalled()) {
+            addStalled(gameId, eraNumber, indexedEventId, futureEvent, accumulator.terminalResolutions());
+            return;
+        }
+        var detected = ParadoxDetector.detect(futureEvent.outcomes());
+        if (detected.isEmpty()) {
+            var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
+            accumulator.resolutions().add(outcomeApplied);
+            accumulator
+                    .terminalResolutions()
+                    .add(new TerminalResolution(
                             outcomeApplied.eventId(),
                             indexedEventId.revealIndex(),
                             TerminalResolution.TerminalState.OUTCOME_APPLIED,
                             outcomeApplied.winningOutcomeId()));
-                } else {
-                    // Left neither resolved() nor stalled(): a future resolution attempt for this same
-                    // gameId/eraNumber (paradox-resolution capability) re-evaluates it from scratch instead
-                    // of skipping it as already-handled.
-                    detected.forEach(d -> paradoxes.add(new ParadoxDetected.Paradox(
+        } else {
+            // Left neither resolved() nor stalled(): a future resolution attempt for this same
+            // gameId/eraNumber (paradox-resolution capability) re-evaluates it from scratch instead
+            // of skipping it as already-handled.
+            detected.forEach(d -> accumulator
+                    .paradoxes()
+                    .add(new ParadoxDetected.Paradox(
                             UUID.randomUUID(), d.type(), futureEvent.id(), d.affectedOutcomeIds(), d.description())));
-                }
-            }
         }
-        if (newTerminalResolutions.isEmpty() && paradoxes.isEmpty()) {
+    }
+
+    private void publishResolution(UUID gameId, int eraNumber, ResolutionAccumulator accumulator) {
+        if (accumulator.terminalResolutions().isEmpty()
+                && accumulator.paradoxes().isEmpty()) {
             return;
         }
+        if (!accumulator.resolutions().isEmpty()) {
+            publisher.publish(TimelineEventEnvelope.create(
+                    gameId,
+                    ERA_AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    toProbabilityStateCalculated(gameId, eraNumber, accumulator.resolutions()),
+                    clock));
+        }
+        if (!accumulator.paradoxes().isEmpty()) {
+            publisher.publish(TimelineEventEnvelope.create(
+                    gameId,
+                    ERA_AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new ParadoxDetected(gameId, eraNumber, accumulator.paradoxes()),
+                    clock));
+        }
+        for (var outcomeApplied : accumulator.resolutions()) {
+            publisher.publish(TimelineEventEnvelope.create(
+                    outcomeApplied.eventId(),
+                    FUTURE_EVENT_AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    outcomeApplied,
+                    clock));
+        }
+        if (!accumulator.terminalResolutions().isEmpty()) {
+            publisher.publish(TimelineEventEnvelope.create(
+                    gameId,
+                    ERA_AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new EraResolutionCompleted(gameId, eraNumber, accumulator.terminalResolutions()),
+                    clock));
+        }
+    }
 
-        if (!resolutions.isEmpty()) {
-            publisher.publish(TimelineEventEnvelope.create(
-                    gameId,
-                    ERA_AGGREGATE_TYPE,
-                    gameId,
-                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    toProbabilityStateCalculated(gameId, eraNumber, resolutions),
-                    clock));
-        }
-        if (!paradoxes.isEmpty()) {
-            publisher.publish(TimelineEventEnvelope.create(
-                    gameId,
-                    ERA_AGGREGATE_TYPE,
-                    gameId,
-                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new ParadoxDetected(gameId, eraNumber, paradoxes),
-                    clock));
-        }
-        if (!resolutions.isEmpty()) {
-            for (var outcomeApplied : resolutions) {
-                publisher.publish(TimelineEventEnvelope.create(
-                        outcomeApplied.eventId(),
-                        FUTURE_EVENT_AGGREGATE_TYPE,
-                        gameId,
-                        TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                        outcomeApplied,
-                        clock));
-            }
-        }
-        if (!newTerminalResolutions.isEmpty()) {
-            publisher.publish(TimelineEventEnvelope.create(
-                    gameId,
-                    ERA_AGGREGATE_TYPE,
-                    gameId,
-                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new EraResolutionCompleted(gameId, eraNumber, newTerminalResolutions),
-                    clock));
+    /** Mutable per-call collector, populated by {@link #resolveEvent} and drained by {@link #publishResolution}. */
+    private record ResolutionAccumulator(
+            List<OutcomeApplied> resolutions,
+            List<TerminalResolution> terminalResolutions,
+            List<ParadoxDetected.Paradox> paradoxes) {
+
+        ResolutionAccumulator() {
+            this(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
         }
     }
 

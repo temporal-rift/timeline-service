@@ -224,10 +224,11 @@ class ResolveEraCommandHandlerTest {
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER + 1))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
-        given(futureEvents.findById(eventId)).willReturn(stalledFutureEvent(eventId, UUID.randomUUID()));
 
         handler.resolve(GAME_ID, ERA_NUMBER);
 
+        // Already known to be carried forward — resolving it again would be wasted work.
+        then(futureEvents).should(never()).findById(eventId);
         then(publisher).should(never()).publish(any());
         then(eraIndex).should(never()).add(any(), any(), org.mockito.ArgumentMatchers.eq(ERA_NUMBER + 1), anyInt());
     }
