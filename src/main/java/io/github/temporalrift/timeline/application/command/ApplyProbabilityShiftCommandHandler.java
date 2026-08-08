@@ -6,6 +6,7 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 import io.github.temporalrift.timeline.application.port.in.ApplyProbabilityShiftUseCase;
+import io.github.temporalrift.timeline.domain.event.SealBreachRecorded;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.port.out.AmplifyStatePort;
@@ -14,6 +15,7 @@ import io.github.temporalrift.timeline.domain.port.out.EventLastShiftPort.EventS
 import io.github.temporalrift.timeline.domain.port.out.EventLastShiftPort.EventShift.ShiftType;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
+import io.github.temporalrift.timeline.domain.port.out.RoundCardByPlayerPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundLastCardPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundLastCardPort.LastCard;
 import io.github.temporalrift.timeline.domain.port.out.RoundLastCardPort.LastCard.EffectKind;
@@ -27,22 +29,26 @@ class ApplyProbabilityShiftCommandHandler implements ApplyProbabilityShiftUseCas
     private final AmplifyStatePort amplifyState;
     private final RoundLastCardPort roundLastCard;
     private final EventLastShiftPort eventLastShift;
+    private final RoundCardByPlayerPort roundCardByPlayer;
 
     ApplyProbabilityShiftCommandHandler(
             FutureEventRepository futureEvents,
             ProbabilityRulesPort rules,
             AmplifyStatePort amplifyState,
             RoundLastCardPort roundLastCard,
-            EventLastShiftPort eventLastShift) {
+            EventLastShiftPort eventLastShift,
+            RoundCardByPlayerPort roundCardByPlayer) {
         this.futureEvents = futureEvents;
         this.rules = rules;
         this.amplifyState = amplifyState;
         this.roundLastCard = roundLastCard;
         this.eventLastShift = eventLastShift;
+        this.roundCardByPlayer = roundCardByPlayer;
     }
 
     @Override
-    public void apply(UUID gameId, int eraNumber, int roundNumber, UUID targetEventId, ProbabilityShift shift) {
+    public void apply(
+            UUID gameId, int eraNumber, int roundNumber, UUID playerId, UUID targetEventId, ProbabilityShift shift) {
         var futureEvent = futureEvents.findById(targetEventId);
         int baseMagnitude =
                 switch (shift) {
@@ -66,18 +72,29 @@ class ApplyProbabilityShiftCommandHandler implements ApplyProbabilityShiftUseCas
         var event = futureEvent.applyShift(shift, magnitude, rules.probabilityFloor(), rules.probabilityCeiling());
         futureEvents.append(targetEventId, event);
 
-        eventLastShift.save(
+        if (event instanceof SealBreachRecorded) {
+            // Sealed target: no probability change, so there is nothing for a later NULLIFY/REDIRECT to
+            // undo/retarget and nothing for a later CORRUPT to correlate against and invert.
+            roundLastCard.save(gameId, eraNumber, roundNumber, new LastCard(EffectKind.NOOP, null));
+            return;
+        }
+
+        var eventShift = new EventShift(
+                shiftTypeOf(shift), sourceOutcomeIdOf(shift), targetOutcomeIdOf(shift), magnitude, preShiftSnapshot);
+        eventLastShift.save(gameId, eraNumber, roundNumber, targetEventId, eventShift);
+        roundLastCard.save(gameId, eraNumber, roundNumber, new LastCard(EffectKind.EVENT_EFFECT, targetEventId));
+        roundCardByPlayer.save(
                 gameId,
                 eraNumber,
                 roundNumber,
-                targetEventId,
-                new EventShift(
-                        shiftTypeOf(shift),
-                        sourceOutcomeIdOf(shift),
-                        targetOutcomeIdOf(shift),
-                        magnitude,
-                        preShiftSnapshot));
-        roundLastCard.save(gameId, eraNumber, roundNumber, new LastCard(EffectKind.EVENT_EFFECT, targetEventId));
+                playerId,
+                new RoundCardByPlayerPort.PlayerCard(
+                        targetEventId,
+                        eventShift.shiftType(),
+                        eventShift.sourceOutcomeId(),
+                        eventShift.targetOutcomeId(),
+                        eventShift.magnitude(),
+                        eventShift.preShiftSnapshot()));
     }
 
     private static ShiftType shiftTypeOf(ProbabilityShift shift) {

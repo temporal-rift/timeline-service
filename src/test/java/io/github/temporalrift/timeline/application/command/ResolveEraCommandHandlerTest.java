@@ -260,6 +260,92 @@ class ResolveEraCommandHandlerTest {
         then(publisher).should(times(1)).publish(any());
     }
 
+    @Test
+    void resolve_sealedAndAnnihilatedOutcomes_reportedInProbabilityStateCalculated() {
+        var eventId = UUID.randomUUID();
+        var sealedOutcomeId = UUID.randomUUID();
+        var annihilatedOutcomeId = UUID.randomUUID();
+        var plainOutcomeId = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(sealedOutcomeId, "sealed", 20),
+                                new Outcome(annihilatedOutcomeId, "annihilated", 30),
+                                new Outcome(plainOutcomeId, "plain", 50)))));
+        futureEvent.sealOutcome(sealedOutcomeId);
+        futureEvent.annihilateOutcome(annihilatedOutcomeId);
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeastOnce()).publish(captor.capture());
+        var probabilityStateCalculated = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .filter(ProbabilityStateCalculated.class::isInstance)
+                .map(ProbabilityStateCalculated.class::cast)
+                .findFirst()
+                .orElseThrow();
+        var outcomeStates = probabilityStateCalculated.eventStates().getFirst().outcomes();
+        assertThat(outcomeStates)
+                .filteredOn(o -> o.outcomeId().equals(sealedOutcomeId))
+                .singleElement()
+                .satisfies(o -> {
+                    assertThat(o.isSealed()).isTrue();
+                    assertThat(o.isAnnihilated()).isFalse();
+                });
+        assertThat(outcomeStates)
+                .filteredOn(o -> o.outcomeId().equals(annihilatedOutcomeId))
+                .singleElement()
+                .satisfies(o -> {
+                    assertThat(o.isAnnihilated()).isTrue();
+                    assertThat(o.isSealed()).isFalse();
+                });
+        assertThat(outcomeStates)
+                .filteredOn(o -> o.outcomeId().equals(plainOutcomeId))
+                .singleElement()
+                .satisfies(o -> {
+                    assertThat(o.isSealed()).isFalse();
+                    assertThat(o.isAnnihilated()).isFalse();
+                });
+    }
+
+    @Test
+    void resolve_annihilatedOutcome_excludedFromWinnerSelection() {
+        var eventId = UUID.randomUUID();
+        var annihilatedHighest = UUID.randomUUID();
+        var eligibleSecond = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(annihilatedHighest, "highest", 60),
+                                new Outcome(eligibleSecond, "second", 40)))));
+        futureEvent.annihilateOutcome(annihilatedHighest);
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeastOnce()).publish(captor.capture());
+        var outcomeApplied = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .filter(OutcomeApplied.class::isInstance)
+                .map(OutcomeApplied.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(eligibleSecond);
+    }
+
     private static FutureEvent stalledFutureEvent(UUID eventId, UUID outcomeId) {
         var event = draftedFutureEvent(eventId, outcomeId);
         event.markStalled();
