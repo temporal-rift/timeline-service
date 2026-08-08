@@ -3,7 +3,6 @@ package io.github.temporalrift.timeline.application.command;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -64,11 +63,14 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
         var newTerminalResolutions = new ArrayList<TerminalResolution>();
         for (var indexedEventId : indexedEventIds) {
             var futureEvent = futureEvents.findById(indexedEventId.eventId());
-            if (futureEvent.resolved()) {
+            if (alreadyCarriedForward.contains(indexedEventId.eventId())) {
+                // Already carried into eraNumber + 1 and reported as STALLED by a prior call for this era.
+                // addStalled clears stalled() as part of carrying an event forward, so a redelivered call
+                // reaching this event again would otherwise fall through to resolving it a second time.
+            } else if (futureEvent.resolved()) {
                 // already resolved in a prior call for this era — nothing to do
             } else if (futureEvent.stalled()) {
-                addStalled(
-                        gameId, eraNumber, indexedEventId, futureEvent, alreadyCarriedForward, newTerminalResolutions);
+                addStalled(gameId, eraNumber, indexedEventId, futureEvent, newTerminalResolutions);
             } else {
                 var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
                 resolutions.add(outcomeApplied);
@@ -115,11 +117,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             int eraNumber,
             IndexedEventId indexedEventId,
             FutureEvent futureEvent,
-            Set<UUID> alreadyCarriedForward,
             List<TerminalResolution> newTerminalResolutions) {
-        if (alreadyCarriedForward.contains(futureEvent.id())) {
-            return;
-        }
         eraIndex.add(futureEvent.id(), gameId, eraNumber + 1, indexedEventId.revealIndex());
         // The one-era delay is now spent: clear the flag so the carried event resolves normally next era
         // unless a fresh STALL is played on it there — otherwise it would carry forward indefinitely.
