@@ -24,7 +24,7 @@ class JpaRoundCardByPlayerAdapter implements RoundCardByPlayerPort {
     public void save(UUID gameId, int eraNumber, int roundNumber, UUID playerId, PlayerCard card) {
         repository.deleteByGameIdAndEraNumberAndRoundNumberAndPlayerId(gameId, eraNumber, roundNumber, playerId);
         var snapshotEntries = card.preShiftSnapshot().entrySet().stream()
-                .map(e -> new RoundCardByPlayerEntity.OutcomeSnapshot(e.getKey(), e.getValue()))
+                .map(e -> new OutcomeSnapshotTriple.OutcomeSnapshot(e.getKey(), e.getValue()))
                 .toList();
         if (snapshotEntries.size() != 3) {
             throw new IllegalArgumentException(
@@ -34,8 +34,7 @@ class JpaRoundCardByPlayerAdapter implements RoundCardByPlayerPort {
                 new RoundKey(gameId, eraNumber, roundNumber),
                 playerId,
                 card.futureEventId(),
-                new RoundCardByPlayerEntity.ShiftDescriptor(
-                        card.shiftType(), card.sourceOutcomeId(), card.targetOutcomeId(), card.magnitude()),
+                new ShiftDescriptor(card.shiftType(), card.sourceOutcomeId(), card.targetOutcomeId(), card.magnitude()),
                 snapshotEntries));
     }
 

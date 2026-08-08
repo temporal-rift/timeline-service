@@ -4,12 +4,12 @@ import java.util.List;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 
 import io.github.temporalrift.timeline.domain.port.out.EventLastShiftPort.EventShift.ShiftType;
+import io.github.temporalrift.timeline.infrastructure.adapter.out.persistence.OutcomeSnapshotTriple.OutcomeSnapshot;
 
 @Entity
 @Table(name = "round_card_by_player")
@@ -21,57 +21,23 @@ class RoundCardByPlayerEntity extends RoundScopedEntity {
     @Column(name = "future_event_id", nullable = false)
     private UUID futureEventId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "shift_type", nullable = false)
-    private ShiftType shiftType;
+    @Embedded
+    private ShiftDescriptor shift;
 
-    @Column(name = "source_outcome_id")
-    private UUID sourceOutcomeId;
-
-    @Column(name = "target_outcome_id", nullable = false)
-    private UUID targetOutcomeId;
-
-    @Column(name = "magnitude", nullable = false)
-    private int magnitude;
-
-    @Column(name = "snapshot_outcome_1_id", nullable = false)
-    private UUID snapshotOutcome1Id;
-
-    @Column(name = "snapshot_outcome_1_probability", nullable = false)
-    private int snapshotOutcome1Probability;
-
-    @Column(name = "snapshot_outcome_2_id", nullable = false)
-    private UUID snapshotOutcome2Id;
-
-    @Column(name = "snapshot_outcome_2_probability", nullable = false)
-    private int snapshotOutcome2Probability;
-
-    @Column(name = "snapshot_outcome_3_id", nullable = false)
-    private UUID snapshotOutcome3Id;
-
-    @Column(name = "snapshot_outcome_3_probability", nullable = false)
-    private int snapshotOutcome3Probability;
+    @Embedded
+    private OutcomeSnapshotTriple snapshot;
 
     protected RoundCardByPlayerEntity() {
         // for JPA
     }
 
-    /** {@code snapshot} must have exactly 3 entries — a FutureEvent always has exactly 3 outcomes. */
     RoundCardByPlayerEntity(
             RoundKey key, UUID playerId, UUID futureEventId, ShiftDescriptor shift, List<OutcomeSnapshot> snapshot) {
         super(key);
         this.playerId = playerId;
         this.futureEventId = futureEventId;
-        this.shiftType = shift.shiftType();
-        this.sourceOutcomeId = shift.sourceOutcomeId();
-        this.targetOutcomeId = shift.targetOutcomeId();
-        this.magnitude = shift.magnitude();
-        this.snapshotOutcome1Id = snapshot.get(0).outcomeId();
-        this.snapshotOutcome1Probability = snapshot.get(0).probability();
-        this.snapshotOutcome2Id = snapshot.get(1).outcomeId();
-        this.snapshotOutcome2Probability = snapshot.get(1).probability();
-        this.snapshotOutcome3Id = snapshot.get(2).outcomeId();
-        this.snapshotOutcome3Probability = snapshot.get(2).probability();
+        this.shift = shift;
+        this.snapshot = new OutcomeSnapshotTriple(snapshot);
     }
 
     UUID playerId() {
@@ -83,30 +49,22 @@ class RoundCardByPlayerEntity extends RoundScopedEntity {
     }
 
     ShiftType shiftType() {
-        return shiftType;
+        return shift.shiftType();
     }
 
     UUID sourceOutcomeId() {
-        return sourceOutcomeId;
+        return shift.sourceOutcomeId();
     }
 
     UUID targetOutcomeId() {
-        return targetOutcomeId;
+        return shift.targetOutcomeId();
     }
 
     int magnitude() {
-        return magnitude;
+        return shift.magnitude();
     }
 
     List<OutcomeSnapshot> snapshot() {
-        return List.of(
-                new OutcomeSnapshot(snapshotOutcome1Id, snapshotOutcome1Probability),
-                new OutcomeSnapshot(snapshotOutcome2Id, snapshotOutcome2Probability),
-                new OutcomeSnapshot(snapshotOutcome3Id, snapshotOutcome3Probability));
+        return snapshot.toList();
     }
-
-    record OutcomeSnapshot(UUID outcomeId, int probability) {}
-
-    /** Groups the shift-shape fields so the constructor stays under Sonar's 7-parameter limit (S107). */
-    record ShiftDescriptor(ShiftType shiftType, UUID sourceOutcomeId, UUID targetOutcomeId, int magnitude) {}
 }

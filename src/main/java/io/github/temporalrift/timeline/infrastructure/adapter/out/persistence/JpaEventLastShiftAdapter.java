@@ -25,7 +25,7 @@ class JpaEventLastShiftAdapter implements EventLastShiftPort {
         repository.deleteByGameIdAndEraNumberAndRoundNumberAndFutureEventId(
                 gameId, eraNumber, roundNumber, futureEventId);
         var snapshotEntries = shift.preShiftSnapshot().entrySet().stream()
-                .map(e -> new RoundEventLastShiftEntity.OutcomeSnapshot(e.getKey(), e.getValue()))
+                .map(e -> new OutcomeSnapshotTriple.OutcomeSnapshot(e.getKey(), e.getValue()))
                 .toList();
         if (snapshotEntries.size() != 3) {
             throw new IllegalArgumentException(
@@ -34,10 +34,8 @@ class JpaEventLastShiftAdapter implements EventLastShiftPort {
         repository.save(new RoundEventLastShiftEntity(
                 new RoundKey(gameId, eraNumber, roundNumber),
                 futureEventId,
-                shift.shiftType(),
-                shift.sourceOutcomeId(),
-                shift.targetOutcomeId(),
-                shift.magnitude(),
+                new ShiftDescriptor(
+                        shift.shiftType(), shift.sourceOutcomeId(), shift.targetOutcomeId(), shift.magnitude()),
                 snapshotEntries));
     }
 
