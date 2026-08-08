@@ -2,8 +2,6 @@ package io.github.temporalrift.timeline.infrastructure.adapter.in.kafka;
 
 import static org.springframework.transaction.annotation.Propagation.REQUIRES_NEW;
 
-import java.util.Optional;
-
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
@@ -11,6 +9,8 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import io.github.temporalrift.timeline.application.port.in.ApplyProbabilityShiftUseCase;
+import io.github.temporalrift.timeline.application.port.in.PlayCardModifierUseCase;
+import io.github.temporalrift.timeline.application.port.in.PlayCardModifierUseCase.CardModifier;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
@@ -19,13 +19,11 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
  * Consumes {@code CardPlayed} and {@code ResolutionStarted} from {@code game.events} in one Kafka
  * consumer group (design.md Decision 1/3, revised after PR #25 review): a single
  * {@code @KafkaListener} reading one assigned partition processes records strictly in the order
- * {@code game-service} produced them, so every accepted shifter card for an era is durably applied
+ * {@code game-service} produced them, so every accepted card's effect for an era is durably applied
  * before that era's {@code ResolutionStarted} is handled. Splitting these into two independent
  * consumer groups (the original design) let a lagging card consumer be overtaken by the resolution
  * consumer — reachable in practice (consumer rebalance, GC pause, retry), not just theoretical —
- * silently losing the card's effect. {@code PUSH}/{@code SUPPRESS}/{@code SWING} apply immediately;
- * every other {@code cardType} still has its {@code eventId} claimed but is otherwise a no-op this
- * slice (deferred to a later one).
+ * silently losing the card's effect.
  */
 @Component
 class CardPlayedAndResolutionKafkaConsumer {
@@ -38,16 +36,19 @@ class CardPlayedAndResolutionKafkaConsumer {
 
     private final ProcessedEventPort processedEvents;
     private final ApplyProbabilityShiftUseCase applyProbabilityShift;
+    private final PlayCardModifierUseCase playCardModifier;
     private final ResolveEraUseCase resolveEra;
     private final ObjectMapper objectMapper;
 
     CardPlayedAndResolutionKafkaConsumer(
             ProcessedEventPort processedEvents,
             ApplyProbabilityShiftUseCase applyProbabilityShift,
+            PlayCardModifierUseCase playCardModifier,
             ResolveEraUseCase resolveEra,
             ObjectMapper objectMapper) {
         this.processedEvents = processedEvents;
         this.applyProbabilityShift = applyProbabilityShift;
+        this.playCardModifier = playCardModifier;
         this.resolveEra = resolveEra;
         this.objectMapper = objectMapper;
     }
@@ -57,7 +58,7 @@ class CardPlayedAndResolutionKafkaConsumer {
     public void handle(Message<Object> message) {
         GameEventIngestion.accept(message, CARD_PLAYED_SPEC, processedEvents).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), CardPlayedPayload.class);
-            toProbabilityShift(payload).ifPresent(shift -> applyProbabilityShift.apply(payload.targetEventId(), shift));
+            handleCardPlayed(payload);
         });
         GameEventIngestion.accept(message, RESOLUTION_STARTED_SPEC, processedEvents)
                 .ifPresent(envelope -> {
@@ -67,13 +68,51 @@ class CardPlayedAndResolutionKafkaConsumer {
                 });
     }
 
-    private static Optional<ProbabilityShift> toProbabilityShift(CardPlayedPayload payload) {
-        return switch (payload.cardType()) {
-            case "PUSH" -> Optional.of(new ProbabilityShift.Push(payload.targetOutcomeId()));
-            case "SUPPRESS" -> Optional.of(new ProbabilityShift.Suppress(payload.targetOutcomeId()));
+    private void handleCardPlayed(CardPlayedPayload payload) {
+        switch (payload.cardType()) {
+            case "PUSH" ->
+                applyProbabilityShift.apply(
+                        payload.gameId(),
+                        payload.eraNumber(),
+                        payload.roundNumber(),
+                        payload.targetEventId(),
+                        new ProbabilityShift.Push(payload.targetOutcomeId()));
+            case "SUPPRESS" ->
+                applyProbabilityShift.apply(
+                        payload.gameId(),
+                        payload.eraNumber(),
+                        payload.roundNumber(),
+                        payload.targetEventId(),
+                        new ProbabilityShift.Suppress(payload.targetOutcomeId()));
             case "SWING" ->
-                Optional.of(new ProbabilityShift.Swing(payload.sourceOutcomeId(), payload.targetOutcomeId()));
-            case null, default -> Optional.empty();
-        };
+                applyProbabilityShift.apply(
+                        payload.gameId(),
+                        payload.eraNumber(),
+                        payload.roundNumber(),
+                        payload.targetEventId(),
+                        new ProbabilityShift.Swing(payload.sourceOutcomeId(), payload.targetOutcomeId()));
+            case "AMPLIFY" ->
+                playCardModifier.play(
+                        new CardModifier.Amplify(payload.gameId(), payload.eraNumber(), payload.roundNumber()));
+            case "NULLIFY" ->
+                playCardModifier.play(
+                        new CardModifier.Nullify(payload.gameId(), payload.eraNumber(), payload.roundNumber()));
+            case "REDIRECT" ->
+                playCardModifier.play(new CardModifier.Redirect(
+                        payload.gameId(),
+                        payload.eraNumber(),
+                        payload.roundNumber(),
+                        payload.targetEventId(),
+                        payload.targetOutcomeId()));
+            case "STALL" ->
+                playCardModifier.play(new CardModifier.Stall(
+                        payload.gameId(), payload.eraNumber(), payload.roundNumber(), payload.targetEventId()));
+            case "INTERCEPT", "SCAN", "TRACE", "DECOY", "JAM" ->
+                playCardModifier.play(
+                        new CardModifier.NoOp(payload.gameId(), payload.eraNumber(), payload.roundNumber()));
+            case null, default -> {
+                // Unknown/future cardType: eventId already claimed by GameEventIngestion, no effect this slice.
+            }
+        }
     }
 }

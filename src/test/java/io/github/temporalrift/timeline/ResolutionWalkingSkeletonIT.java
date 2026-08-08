@@ -163,6 +163,36 @@ class ResolutionWalkingSkeletonIT {
         assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(pushedOutcomeId.toString());
     }
 
+    @Test
+    void amplifyThenSuppress_doublesTheConfiguredSuppressMagnitudeAndFlipsTheWinner() {
+        var gameId = UUID.randomUUID();
+        var eraNumber = 1;
+        var futureEventId = UUID.randomUUID();
+        var initialWinnerOutcomeId = UUID.randomUUID();
+        var risingOutcomeId = UUID.randomUUID();
+        var thirdOutcomeId = UUID.randomUUID();
+
+        publishEraStarted(gameId, eraNumber);
+        // configured suppress-shift is -20 (application.yml game.rules.probability). A single SUPPRESS on
+        // the 70-probability outcome only drops it to 50 (still the winner); AMPLIFY doubling it to -40
+        // drops it to 30, below the 47 the second outcome is redistributed up to.
+        publishEventsDrawnThreeOutcomes(
+                gameId, eraNumber, futureEventId, initialWinnerOutcomeId, 70, risingOutcomeId, 20, thirdOutcomeId, 10);
+        awaitFutureEventIndexed(gameId, eraNumber);
+
+        publishCardPlayed(gameId, eraNumber, futureEventId, "AMPLIFY", null, null);
+        publishCardPlayed(gameId, eraNumber, futureEventId, "SUPPRESS", null, initialWinnerOutcomeId);
+        publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
+
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(
+                        () -> assertThat(eventTypesOf(collector.received)).contains(OUTCOME_APPLIED));
+
+        var outcomeIndex = indexOfEventType(collector.received, OUTCOME_APPLIED);
+        var outcomePayload = collector.received.get(outcomeIndex).payload();
+        assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(risingOutcomeId.toString());
+    }
+
     private void awaitFutureEventIndexed(UUID gameId, int eraNumber) {
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(

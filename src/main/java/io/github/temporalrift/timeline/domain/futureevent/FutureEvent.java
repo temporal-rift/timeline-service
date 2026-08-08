@@ -6,6 +6,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
+import io.github.temporalrift.timeline.domain.event.EventStalled;
+import io.github.temporalrift.timeline.domain.event.EventUnstalled;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
@@ -19,11 +21,13 @@ public final class FutureEvent {
     private final UUID id;
     private List<Outcome> outcomes;
     private boolean resolved;
+    private boolean stalled;
 
-    private FutureEvent(UUID id, List<Outcome> outcomes, boolean resolved) {
+    private FutureEvent(UUID id, List<Outcome> outcomes, boolean resolved, boolean stalled) {
         this.id = id;
         this.outcomes = outcomes;
         this.resolved = resolved;
+        this.stalled = stalled;
     }
 
     /** Rebuilds this aggregate by replaying its domain-event stream in order. */
@@ -33,14 +37,19 @@ public final class FutureEvent {
             if (event instanceof FutureEventDrafted && state != null) {
                 throw new IllegalStateException("FutureEventDrafted replayed after initialization for " + id);
             }
-            if ((event instanceof OutcomeApplied || event instanceof ProbabilityShifted)
+            if ((event instanceof OutcomeApplied
+                            || event instanceof ProbabilityShifted
+                            || event instanceof EventStalled
+                            || event instanceof EventUnstalled)
                     && (state == null || state.resolved())) {
                 throw new IllegalStateException("Event replayed outside the drafted and unresolved state for " + id);
             }
             state = switch (event) {
-                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), false);
-                case OutcomeApplied e -> new FutureEvent(id, e.finalOutcomes(), true);
-                case ProbabilityShifted e -> new FutureEvent(id, e.outcomes(), false);
+                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), false, false);
+                case OutcomeApplied e -> new FutureEvent(id, e.finalOutcomes(), true, false);
+                case ProbabilityShifted e -> new FutureEvent(id, e.outcomes(), false, state.stalled());
+                case EventStalled e -> new FutureEvent(id, state.outcomes(), false, true);
+                case EventUnstalled e -> new FutureEvent(id, state.outcomes(), false, false);
                 default -> throw new IllegalArgumentException("Unknown FutureEvent domain event: " + event.getClass());
             };
         }
@@ -51,12 +60,36 @@ public final class FutureEvent {
     }
 
     /**
+     * Marks this event stalled ({@code STALL}): excluded from resolution this era, carried into the next
+     * era's index instead (GDD §3 "Group 3 — Disruption").
+     */
+    public EventStalled markStalled() {
+        if (resolved) {
+            throw new FutureEventAlreadyResolvedException(id);
+        }
+        this.stalled = true;
+        return new EventStalled(id);
+    }
+
+    /** Clears a stalled state ({@code NULLIFY} targeting the {@code STALL} that set it). */
+    public EventUnstalled clearStalled() {
+        if (resolved) {
+            throw new FutureEventAlreadyResolvedException(id);
+        }
+        this.stalled = false;
+        return new EventUnstalled(id);
+    }
+
+    /**
      * Resolves this event by selecting the highest-probability outcome, tie-broken by the smallest
      * {@code outcomeId} (natural UUID ordering) — no card, special-action, or paradox logic.
      */
     public OutcomeApplied resolve(UUID gameId, int eraNumber) {
         if (resolved) {
             throw new FutureEventAlreadyResolvedException(id);
+        }
+        if (stalled) {
+            throw new FutureEventStalledException(id);
         }
         var winner = outcomes.stream()
                 .max(Comparator.comparingInt(Outcome::probability)
@@ -84,6 +117,7 @@ public final class FutureEvent {
                     case ProbabilityShift.Suppress s -> shiftSingle(s.targetOutcomeId(), magnitude, floor, ceiling);
                     case ProbabilityShift.Swing sw ->
                         swing(sw.sourceOutcomeId(), sw.targetOutcomeId(), magnitude, floor, ceiling);
+                    case ProbabilityShift.Restore r -> replaceProbabilities(r.targetProbabilities());
                 };
         var event = new ProbabilityShifted(id, shiftedOutcomes);
         this.outcomes = shiftedOutcomes;
@@ -179,6 +213,10 @@ public final class FutureEvent {
 
     public boolean resolved() {
         return resolved;
+    }
+
+    public boolean stalled() {
+        return stalled;
     }
 
     public List<Outcome> outcomes() {
