@@ -118,10 +118,11 @@ class ResolveEraCommandHandlerTest {
     void resolve_stalledEvent_excludedFromOutcomeAppliedAndReportedAsStalled() {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
+        var futureEvent = stalledFutureEvent(eventId, outcomeId);
 
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
-        given(futureEvents.findById(eventId)).willReturn(stalledFutureEvent(eventId, outcomeId));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
 
         handler.resolve(GAME_ID, ERA_NUMBER);
 
@@ -131,6 +132,50 @@ class ResolveEraCommandHandlerTest {
         assertThat(eraResolutionCompleted.terminalResolutions())
                 .containsExactly(new TerminalResolution(eventId, 0, TerminalResolution.TerminalState.STALLED, null));
         then(eraIndex).should().add(eventId, GAME_ID, ERA_NUMBER + 1, 0);
+    }
+
+    @Test
+    void resolve_stalledEvent_clearsStalledStateSoTheCarriedEventResolvesNormallyNextEra() {
+        // Regression: without clearing, the same FutureEvent would still report stalled() == true when
+        // resolve() runs again for eraNumber + 1, carrying it forward forever instead of resolving it.
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var futureEvent = stalledFutureEvent(eventId, outcomeId);
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        assertThat(futureEvent.stalled()).isFalse();
+    }
+
+    @Test
+    void resolve_carriedEventNoLongerStalled_resolvesNormallyInTheNextEra() {
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var nextEraNumber = ERA_NUMBER + 1;
+        var futureEvent = draftedFutureEvent(eventId, outcomeId);
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, nextEraNumber))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+
+        handler.resolve(GAME_ID, nextEraNumber);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(org.mockito.Mockito.atLeastOnce()).publish(captor.capture());
+        var terminalResolution = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .filter(EraResolutionCompleted.class::isInstance)
+                .map(EraResolutionCompleted.class::cast)
+                .findFirst()
+                .orElseThrow()
+                .terminalResolutions()
+                .getFirst();
+        assertThat(terminalResolution.terminalState()).isEqualTo(TerminalResolution.TerminalState.OUTCOME_APPLIED);
+        assertThat(terminalResolution.winningOutcomeId()).isEqualTo(outcomeId);
     }
 
     @Test

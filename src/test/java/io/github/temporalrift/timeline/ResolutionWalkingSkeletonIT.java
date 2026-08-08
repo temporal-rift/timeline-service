@@ -74,21 +74,22 @@ class ResolutionWalkingSkeletonIT {
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(eventTypesOf(collector.received))
+                .untilAsserted(() -> assertThat(eventTypesOf(messagesFor(gameId)))
                         .contains(PROBABILITY_STATE_CALCULATED, OUTCOME_APPLIED, ERA_RESOLUTION_COMPLETED));
 
-        var probabilityIndex = indexOfEventType(collector.received, PROBABILITY_STATE_CALCULATED);
-        var outcomeIndex = indexOfEventType(collector.received, OUTCOME_APPLIED);
-        var eraResolutionCompletedIndex = indexOfEventType(collector.received, ERA_RESOLUTION_COMPLETED);
+        var messages = messagesFor(gameId);
+        var probabilityIndex = indexOfEventType(messages, PROBABILITY_STATE_CALCULATED);
+        var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
+        var eraResolutionCompletedIndex = indexOfEventType(messages, ERA_RESOLUTION_COMPLETED);
         assertThat(probabilityIndex).isLessThan(outcomeIndex);
         assertThat(outcomeIndex).isLessThan(eraResolutionCompletedIndex);
 
-        var outcomePayload = collector.received.get(outcomeIndex).payload();
+        var outcomePayload = messages.get(outcomeIndex).payload();
         assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(winnerOutcomeId.toString());
         assertThat(outcomePayload.get("eventId")).isEqualTo(futureEventId.toString());
 
         var eraResolutionCompletedPayload =
-                collector.received.get(eraResolutionCompletedIndex).payload();
+                messages.get(eraResolutionCompletedIndex).payload();
         assertThat((List<?>) eraResolutionCompletedPayload.get("terminalResolutions"))
                 .singleElement()
                 .satisfies(entry -> {
@@ -116,17 +117,17 @@ class ResolutionWalkingSkeletonIT {
         publishResolutionStarted(gameId, eraNumber, resolutionEventId);
 
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(eventTypesOf(collector.received))
+                .untilAsserted(() -> assertThat(eventTypesOf(messagesFor(gameId)))
                         .contains(OUTCOME_APPLIED, ERA_RESOLUTION_COMPLETED));
-        var countAfterFirstDelivery = collector.received.size();
+        var countAfterFirstDelivery = messagesFor(gameId).size();
 
         // Same envelope eventId — must be claimed-and-skipped, not re-resolved.
         publishResolutionStarted(gameId, eraNumber, resolutionEventId);
 
         await().pollDelay(Duration.ofSeconds(5))
                 .atMost(Duration.ofSeconds(10))
-                .untilAsserted(() -> assertThat(collector.received).hasSize(countAfterFirstDelivery));
-        assertThat(eventTypesOf(collector.received))
+                .untilAsserted(() -> assertThat(messagesFor(gameId)).hasSize(countAfterFirstDelivery));
+        assertThat(eventTypesOf(messagesFor(gameId)))
                 .filteredOn(ERA_RESOLUTION_COMPLETED::equals)
                 .hasSize(1);
     }
@@ -156,10 +157,11 @@ class ResolutionWalkingSkeletonIT {
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(
-                        () -> assertThat(eventTypesOf(collector.received)).contains(OUTCOME_APPLIED));
+                        () -> assertThat(eventTypesOf(messagesFor(gameId))).contains(OUTCOME_APPLIED));
 
-        var outcomeIndex = indexOfEventType(collector.received, OUTCOME_APPLIED);
-        var outcomePayload = collector.received.get(outcomeIndex).payload();
+        var messages = messagesFor(gameId);
+        var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
+        var outcomePayload = messages.get(outcomeIndex).payload();
         assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(pushedOutcomeId.toString());
     }
 
@@ -186,10 +188,11 @@ class ResolutionWalkingSkeletonIT {
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(
-                        () -> assertThat(eventTypesOf(collector.received)).contains(OUTCOME_APPLIED));
+                        () -> assertThat(eventTypesOf(messagesFor(gameId))).contains(OUTCOME_APPLIED));
 
-        var outcomeIndex = indexOfEventType(collector.received, OUTCOME_APPLIED);
-        var outcomePayload = collector.received.get(outcomeIndex).payload();
+        var messages = messagesFor(gameId);
+        var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
+        var outcomePayload = messages.get(outcomeIndex).payload();
         assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(risingOutcomeId.toString());
     }
 
@@ -218,9 +221,10 @@ class ResolutionWalkingSkeletonIT {
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(
-                        () -> assertThat(eventTypesOf(collector.received)).contains(ERA_RESOLUTION_COMPLETED));
+                        () -> assertThat(eventTypesOf(messagesFor(gameId))).contains(ERA_RESOLUTION_COMPLETED));
 
-        var outcomeAppliedEventIds = collector.received.stream()
+        var messages = messagesFor(gameId);
+        var outcomeAppliedEventIds = messages.stream()
                 .filter(m -> OUTCOME_APPLIED.equals(m.eventType()))
                 .map(m -> (Object) m.payload().get("eventId"))
                 .toList();
@@ -228,7 +232,7 @@ class ResolutionWalkingSkeletonIT {
                 .contains(resolvedEventId.toString())
                 .doesNotContain(stalledEventId.toString());
 
-        var eraResolutionCompletedPayload = collector.received.stream()
+        var eraResolutionCompletedPayload = messages.stream()
                 .filter(m -> ERA_RESOLUTION_COMPLETED.equals(m.eventType()))
                 .findFirst()
                 .orElseThrow()
@@ -247,6 +251,25 @@ class ResolutionWalkingSkeletonIT {
                         stalledEventId,
                         eraNumber + 1))
                 .isEqualTo(1);
+
+        // The one-era delay is spent: resolving era 2 directly (its era-index entry already exists from the
+        // carry-over above) must produce a normal OUTCOME_APPLIED, proving the event doesn't stay stalled
+        // forever.
+        publishResolutionStarted(gameId, eraNumber + 1, UUID.randomUUID());
+
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+            // Era 1's EraResolutionCompleted also carries an entry for this eventId (STALLED) — find the
+            // one where it resolved (OUTCOME_APPLIED) specifically, not just any entry mentioning it.
+            var resolvedInNextEra = messagesFor(gameId).stream()
+                    .filter(m -> ERA_RESOLUTION_COMPLETED.equals(m.eventType()))
+                    .map(m -> (List<?>) m.payload().get("terminalResolutions"))
+                    .anyMatch(resolutions -> resolutions.stream().anyMatch(entry -> {
+                        var terminalResolution = (Map<?, ?>) entry;
+                        return stalledEventId.toString().equals(terminalResolution.get("eventId"))
+                                && "OUTCOME_APPLIED".equals(terminalResolution.get("terminalState"));
+                    }));
+            assertThat(resolvedInNextEra).isTrue();
+        });
     }
 
     private void awaitFutureEventIndexed(UUID gameId, int eraNumber) {
@@ -408,6 +431,17 @@ class ResolutionWalkingSkeletonIT {
                 .setHeader("eventType", eventType)
                 .build();
         kafkaTemplate.send(message);
+    }
+
+    /**
+     * The collector bean is a Spring-context-scoped singleton shared across every test method; a still-in-flight
+     * async consumer from a previous test can append to it after this test's {@code clearCollector()} ran. Filter
+     * by this test's own {@code gameId} (every collected payload carries one) instead of trusting the raw list.
+     */
+    private List<TimelineEventsTestCollector.CollectedMessage> messagesFor(UUID gameId) {
+        return collector.received.stream()
+                .filter(m -> gameId.toString().equals(m.payload().get("gameId")))
+                .toList();
     }
 
     private static List<String> eventTypesOf(List<TimelineEventsTestCollector.CollectedMessage> messages) {

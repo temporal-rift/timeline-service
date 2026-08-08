@@ -1,10 +1,13 @@
 package io.github.temporalrift.timeline.application.command;
 
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
 import io.github.temporalrift.timeline.application.port.in.PlayCardModifierUseCase;
+import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
+import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.port.out.AmplifyStatePort;
 import io.github.temporalrift.timeline.domain.port.out.EventLastShiftPort;
@@ -94,47 +97,71 @@ class PlayCardModifierCommandHandler implements PlayCardModifierUseCase {
     }
 
     private void playRedirect(CardModifier.Redirect r) {
-        eventLastShift
-                .find(r.gameId(), r.eraNumber(), r.roundNumber(), r.targetEventId())
-                .ifPresent(shift -> {
-                    var futureEvent = futureEvents.findById(r.targetEventId());
-                    var restored = futureEvent.applyShift(
-                            new ProbabilityShift.Restore(shift.preShiftSnapshot()),
-                            0,
-                            rules.probabilityFloor(),
-                            rules.probabilityCeiling());
-                    futureEvents.append(r.targetEventId(), restored);
+        var shiftOpt = eventLastShift.find(r.gameId(), r.eraNumber(), r.roundNumber(), r.targetEventId());
+        if (shiftOpt.isEmpty()) {
+            recordIneffectiveRedirect(r);
+            return;
+        }
+        var shift = shiftOpt.get();
+        var futureEvent = futureEvents.findById(r.targetEventId());
+        if (!isValidRedirectTarget(futureEvent, shift, r.targetOutcomeId())) {
+            recordIneffectiveRedirect(r);
+            return;
+        }
 
-                    boolean amplified = amplifyState.isPending(r.gameId(), r.eraNumber(), r.roundNumber());
-                    int magnitude = amplified ? 2 * shift.magnitude() : shift.magnitude();
-                    if (amplified) {
-                        amplifyState.clear(r.gameId(), r.eraNumber(), r.roundNumber());
-                    }
+        // The snapshot a later NULLIFY must restore to is the state right before THIS card ran, not the
+        // state before the original shift being redirected — otherwise NULLIFY-after-REDIRECT would also
+        // undo the original shift.
+        var preRedirectSnapshot =
+                futureEvent.outcomes().stream().collect(Collectors.toMap(Outcome::outcomeId, Outcome::probability));
 
-                    var reapplied = futureEvent.applyShift(
-                            toShift(shift.shiftType(), shift.sourceOutcomeId(), r.targetOutcomeId()),
-                            magnitude,
-                            rules.probabilityFloor(),
-                            rules.probabilityCeiling());
-                    futureEvents.append(r.targetEventId(), reapplied);
+        var restored = futureEvent.applyShift(
+                new ProbabilityShift.Restore(shift.preShiftSnapshot()),
+                0,
+                rules.probabilityFloor(),
+                rules.probabilityCeiling());
+        futureEvents.append(r.targetEventId(), restored);
 
-                    eventLastShift.record(
-                            r.gameId(),
-                            r.eraNumber(),
-                            r.roundNumber(),
-                            r.targetEventId(),
-                            new EventLastShiftPort.EventShift(
-                                    shift.shiftType(),
-                                    shift.sourceOutcomeId(),
-                                    r.targetOutcomeId(),
-                                    magnitude,
-                                    shift.preShiftSnapshot()));
-                    roundLastCard.record(
-                            r.gameId(),
-                            r.eraNumber(),
-                            r.roundNumber(),
-                            new LastCard(EffectKind.EVENT_EFFECT, r.targetEventId()));
-                });
+        boolean amplified = amplifyState.isPending(r.gameId(), r.eraNumber(), r.roundNumber());
+        int magnitude = amplified ? 2 * shift.magnitude() : shift.magnitude();
+        if (amplified) {
+            amplifyState.clear(r.gameId(), r.eraNumber(), r.roundNumber());
+        }
+
+        var reapplied = futureEvent.applyShift(
+                toShift(shift.shiftType(), shift.sourceOutcomeId(), r.targetOutcomeId()),
+                magnitude,
+                rules.probabilityFloor(),
+                rules.probabilityCeiling());
+        futureEvents.append(r.targetEventId(), reapplied);
+
+        eventLastShift.record(
+                r.gameId(),
+                r.eraNumber(),
+                r.roundNumber(),
+                r.targetEventId(),
+                new EventLastShiftPort.EventShift(
+                        shift.shiftType(),
+                        shift.sourceOutcomeId(),
+                        r.targetOutcomeId(),
+                        magnitude,
+                        preRedirectSnapshot));
+        roundLastCard.record(
+                r.gameId(), r.eraNumber(), r.roundNumber(), new LastCard(EffectKind.EVENT_EFFECT, r.targetEventId()));
+    }
+
+    /** Unknown outcome, or a SWING redirected to its own recorded source, would otherwise throw downstream. */
+    private static boolean isValidRedirectTarget(
+            FutureEvent futureEvent, EventLastShiftPort.EventShift shift, UUID targetOutcomeId) {
+        boolean knownOutcome =
+                futureEvent.outcomes().stream().anyMatch(o -> o.outcomeId().equals(targetOutcomeId));
+        boolean swingToOwnSource =
+                shift.shiftType() == ShiftType.SWING && targetOutcomeId.equals(shift.sourceOutcomeId());
+        return knownOutcome && !swingToOwnSource;
+    }
+
+    private void recordIneffectiveRedirect(CardModifier.Redirect r) {
+        roundLastCard.record(r.gameId(), r.eraNumber(), r.roundNumber(), new LastCard(EffectKind.NOOP, null));
     }
 
     private static ProbabilityShift toShift(ShiftType type, UUID sourceOutcomeId, UUID targetOutcomeId) {
