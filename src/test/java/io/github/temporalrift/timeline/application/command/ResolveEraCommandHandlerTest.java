@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.times;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -226,6 +228,36 @@ class ResolveEraCommandHandlerTest {
 
         then(publisher).should(never()).publish(any());
         then(eraIndex).should(never()).add(any(), any(), org.mockito.ArgumentMatchers.eq(ERA_NUMBER + 1), anyInt());
+    }
+
+    @Test
+    void resolve_calledTwiceForSameEra_secondCallDoesNotResolveTheCarriedEvent() {
+        // Regression: addStalled clears stalled() as part of carrying the event forward, so by the second
+        // call futureEvent.stalled() is already false. Without an alreadyCarriedForward guard ahead of the
+        // resolved()/stalled() checks, the second call would fall through to the else branch and resolve
+        // the event in eraNumber — cancelling the one-era delay and double-reporting it.
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var futureEvent = stalledFutureEvent(eventId, outcomeId);
+        var carriedForwardIndex = new ArrayList<IndexedEventId>();
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER + 1))
+                .willAnswer(inv -> List.copyOf(carriedForwardIndex));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        willAnswer(inv -> {
+                    carriedForwardIndex.add(new IndexedEventId(eventId, 0));
+                    return null;
+                })
+                .given(eraIndex)
+                .add(eventId, GAME_ID, ERA_NUMBER + 1, 0);
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        assertThat(futureEvent.resolved()).isFalse();
+        then(publisher).should(times(1)).publish(any());
     }
 
     private static FutureEvent stalledFutureEvent(UUID eventId, UUID outcomeId) {

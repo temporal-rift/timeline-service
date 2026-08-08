@@ -176,10 +176,11 @@ class PlayCardModifierCommandHandler implements PlayCardModifierUseCase {
 
     private void playStall(CardModifier.Stall s) {
         var futureEvent = futureEvents.findById(s.targetEventId());
-        if (futureEvent.stalled()) {
-            // Already stalled by an earlier STALL this era that hasn't resolved yet — this card changes
-            // nothing, so a NULLIFY targeting it must not un-stall the event (that would also cancel the
-            // earlier STALL still doing the work, not just "the most recent card").
+        if (futureEvent.resolved() || futureEvent.stalled()) {
+            // Already resolved (this card arrived too late to have any effect), or already stalled by an
+            // earlier STALL this era that hasn't resolved yet — either way this card changes nothing, so a
+            // NULLIFY targeting it must not un-stall the event (that would also cancel an earlier STALL
+            // still doing the work, not just "the most recent card") or resurrect a resolved event.
             roundLastCard.save(s.gameId(), s.eraNumber(), s.roundNumber(), new LastCard(EffectKind.NOOP, null));
             return;
         }

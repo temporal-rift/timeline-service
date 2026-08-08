@@ -282,6 +282,23 @@ class PlayCardModifierCommandHandlerTest {
     }
 
     @Test
+    void stall_eventAlreadyResolved_isNoOpAndDoesNotThrow() {
+        // markStalled() throws FutureEventAlreadyResolvedException for a resolved event; a STALL that
+        // arrives after resolution (e.g. a late/reordered message) must not let that exception escape the
+        // Kafka listener.
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var futureEvent = draftedFutureEvent(eventId, outcomeId, 100);
+        futureEvent.resolve(GAME_ID, ERA_NUMBER);
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+
+        handler.play(new CardModifier.Stall(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId));
+
+        then(futureEvents).should(never()).append(any(), any());
+        then(roundLastCard).should().save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
+    }
+
+    @Test
     void nullify_afterRepeatedStall_leavesEventStalledBecauseEarlierStallStillApplies() {
         // A second STALL on an already-stalled event changes nothing, so NULLIFY targeting it must cancel
         // only that ineffective card, not the earlier STALL that's still doing the work.
