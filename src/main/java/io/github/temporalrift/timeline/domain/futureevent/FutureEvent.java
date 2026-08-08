@@ -139,14 +139,15 @@ public final class FutureEvent {
                 swingOrBreach(sw.sourceOutcomeId(), sw.targetOutcomeId(), magnitude, floor, ceiling);
             case ProbabilityShift.Restore r -> {
                 // A snapshot predates any SEAL cast on this event since — restoring it verbatim would
-                // silently overwrite a sealed outcome's now-frozen probability if the two disagree. Only
-                // outcomes still consistent with a sealed neighbor's current value are safe to touch; if
-                // any sealed outcome's snapshot value has diverged, decline the whole restore rather than
-                // partially rebuild the other two around a value we're not allowed to change (undo/REDIRECT/
-                // CORRUPT all funnel through here, so this protects all three, not just CORRUPT).
-                var shiftedOutcomes = conflictsWithSealedOutcome(r.targetProbabilities())
-                        ? outcomes()
-                        : replaceProbabilities(r.targetProbabilities());
+                // silently overwrite a sealed outcome's now-frozen probability if the two disagree. Decline
+                // the whole restore rather than partially rebuild the other two around a value we're not
+                // allowed to change (undo/REDIRECT/CORRUPT all funnel through here, so this protects all
+                // three, not just CORRUPT), and record it as a breach — the same signal PUSH/SUPPRESS/SWING
+                // already record whenever a seal blocks their effect.
+                if (conflictsWithSealedOutcome(r.targetProbabilities())) {
+                    yield recordSealBreach();
+                }
+                var shiftedOutcomes = replaceProbabilities(r.targetProbabilities());
                 var event = new ProbabilityShifted(id, shiftedOutcomes);
                 this.outcomes = shiftedOutcomes;
                 yield event;

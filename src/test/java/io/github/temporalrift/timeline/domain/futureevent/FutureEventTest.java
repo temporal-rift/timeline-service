@@ -409,10 +409,11 @@ class FutureEventTest {
     }
 
     @Test
-    void applyShift_restore_conflictingWithNowSealedOutcome_declinesEntirely() {
+    void applyShift_restore_conflictingWithNowSealedOutcome_declinesAndSetsSealBreach() {
         // The snapshot predates a SEAL cast on b afterward, at a different value than the snapshot holds.
         // Restoring verbatim would silently overwrite b's frozen probability, so the whole restore must be
-        // declined rather than partially rebuilding a/c around a value it isn't allowed to touch.
+        // declined rather than partially rebuilding a/c around a value it isn't allowed to touch, and
+        // recorded as a breach — the same signal PUSH/SUPPRESS/SWING record when a seal blocks them.
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 70);
         var b = new Outcome(UUID.randomUUID(), "b", 18);
@@ -420,21 +421,23 @@ class FutureEventTest {
         var event = drafted(id, a, b, c);
         event.sealOutcome(b.outcomeId());
 
-        event.applyShift(
+        var result = event.applyShift(
                 new ProbabilityShift.Restore(Map.of(a.outcomeId(), 50, b.outcomeId(), 30, c.outcomeId(), 20)),
                 0,
                 0,
                 90);
 
+        assertThat(result).isInstanceOf(SealBreachRecorded.class);
         assertThat(byId(event, a.outcomeId())).isEqualTo(70);
         assertThat(byId(event, b.outcomeId())).isEqualTo(18);
         assertThat(byId(event, c.outcomeId())).isEqualTo(12);
+        assertThat(event.sealBreach()).isTrue();
     }
 
     @Test
-    void applyShift_restore_consistentWithSealedOutcomesValue_stillApplies() {
+    void applyShift_restore_consistentWithSealedOutcomesValue_stillAppliesWithoutBreach() {
         // b is sealed but the snapshot's value for b matches its current (frozen) value exactly, so
-        // restoring a/c around it is safe — this is a no-op for b either way.
+        // restoring a/c around it is safe — this is a genuine no-op for b, not a blocked attempt.
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 70);
         var b = new Outcome(UUID.randomUUID(), "b", 18);
@@ -442,15 +445,23 @@ class FutureEventTest {
         var event = drafted(id, a, b, c);
         event.sealOutcome(b.outcomeId());
 
-        event.applyShift(
+        var result = event.applyShift(
                 new ProbabilityShift.Restore(Map.of(a.outcomeId(), 50, b.outcomeId(), 18, c.outcomeId(), 32)),
                 0,
                 0,
                 90);
 
+        assertThat(result).isInstanceOf(ProbabilityShifted.class);
         assertThat(byId(event, a.outcomeId())).isEqualTo(50);
         assertThat(byId(event, b.outcomeId())).isEqualTo(18);
         assertThat(byId(event, c.outcomeId())).isEqualTo(32);
+        assertThat(event.outcomes().stream()
+                        .filter(o -> o.outcomeId().equals(b.outcomeId()))
+                        .findFirst()
+                        .orElseThrow()
+                        .sealed())
+                .isTrue();
+        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
