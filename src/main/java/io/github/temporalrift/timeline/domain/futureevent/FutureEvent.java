@@ -138,7 +138,15 @@ public final class FutureEvent {
             case ProbabilityShift.Swing sw ->
                 swingOrBreach(sw.sourceOutcomeId(), sw.targetOutcomeId(), magnitude, floor, ceiling);
             case ProbabilityShift.Restore r -> {
-                var shiftedOutcomes = replaceProbabilities(r.targetProbabilities());
+                // A snapshot predates any SEAL cast on this event since — restoring it verbatim would
+                // silently overwrite a sealed outcome's now-frozen probability if the two disagree. Only
+                // outcomes still consistent with a sealed neighbor's current value are safe to touch; if
+                // any sealed outcome's snapshot value has diverged, decline the whole restore rather than
+                // partially rebuild the other two around a value we're not allowed to change (undo/REDIRECT/
+                // CORRUPT all funnel through here, so this protects all three, not just CORRUPT).
+                var shiftedOutcomes = conflictsWithSealedOutcome(r.targetProbabilities())
+                        ? outcomes()
+                        : replaceProbabilities(r.targetProbabilities());
                 var event = new ProbabilityShifted(id, shiftedOutcomes);
                 this.outcomes = shiftedOutcomes;
                 yield event;
@@ -146,11 +154,50 @@ public final class FutureEvent {
         };
     }
 
+    private boolean conflictsWithSealedOutcome(Map<UUID, Integer> targetProbabilities) {
+        return outcomes.stream()
+                .anyMatch(o -> o.sealed()
+                        && targetProbabilities.containsKey(o.outcomeId())
+                        && targetProbabilities.get(o.outcomeId()) != o.probability());
+    }
+
+    /**
+     * PUSH/SUPPRESS target the named outcome; if it's sealed, breach. Otherwise its movement must be
+     * redistributed into the other two outcomes (GDD §4.2) — but a sealed "other" can't absorb any of it
+     * either, so: both others sealed → nowhere to put the movement, breach; exactly one sealed → the sole
+     * unsealed other absorbs all of it; neither sealed → the existing proportional 3-way split.
+     */
     private Object shiftSingleOrBreach(UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
-        if (outcomeById(targetOutcomeId).sealed()) {
+        var target = outcomeById(targetOutcomeId);
+        if (target.sealed()) {
             return recordSealBreach();
         }
-        var shiftedOutcomes = shiftSingle(targetOutcomeId, magnitude, floor, ceiling);
+        var others = outcomes.stream()
+                .filter(o -> !o.outcomeId().equals(targetOutcomeId))
+                .toList();
+        var other1 = others.get(0);
+        var other2 = others.get(1);
+
+        int actualDelta = clamp(target.probability() + magnitude, floor, ceiling) - target.probability();
+        if (actualDelta == 0) {
+            var event = new ProbabilityShifted(id, outcomes());
+            this.outcomes = event.outcomes();
+            return event;
+        }
+
+        List<Outcome> shiftedOutcomes;
+        if (other1.sealed() && other2.sealed()) {
+            return recordSealBreach();
+        } else if (other1.sealed() || other2.sealed()) {
+            var freeOther = other1.sealed() ? other2 : other1;
+            var rebalanced = clampPairPreservingSum(
+                    target.probability() + magnitude, freeOther.probability() - magnitude, floor, ceiling);
+            // The sealed other is deliberately omitted from the map — replaceProbabilities keeps it unchanged.
+            shiftedOutcomes =
+                    replaceProbabilities(Map.of(targetOutcomeId, rebalanced[0], freeOther.outcomeId(), rebalanced[1]));
+        } else {
+            shiftedOutcomes = shiftSingle(targetOutcomeId, magnitude, floor, ceiling);
+        }
         var event = new ProbabilityShifted(id, shiftedOutcomes);
         this.outcomes = shiftedOutcomes;
         return event;
@@ -278,8 +325,10 @@ public final class FutureEvent {
      * accounts for the other's constraint (e.g. {@code a}'s lower bound is raised to {@code sum - ceiling}
      * so {@code b = sum - a} cannot exceed the ceiling), so both results land in {@code [floor, ceiling]}
      * with no further iteration — valid whenever {@code sum} itself is within {@code [2*floor, 2*ceiling]}.
-     * Here {@code sum = 100 - desiredTarget} for a {@code desiredTarget} already clamped to
-     * {@code [floor, ceiling]}, so the precondition holds for every possible {@code desiredTarget} exactly
+     * Used both for two of three outcomes given the third's already-clamped value ({@code sum = 100 -
+     * thirdOutcome}), and for a target/free-other pair when the remaining third outcome is sealed and frozen
+     * ({@code sum = 100 - sealedOutcome}) — either way {@code sum} is {@code 100} minus one outcome's
+     * probability, already within {@code [floor, ceiling]}, so the precondition holds for every case exactly
      * when {@code floor + 2*ceiling >= 100 and 2*floor + ceiling <= 100} — enforced at startup by
      * {@code TimelineRulesProperties}, not re-checked here.
      */
