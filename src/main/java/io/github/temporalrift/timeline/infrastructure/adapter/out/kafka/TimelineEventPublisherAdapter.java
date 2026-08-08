@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
+import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
@@ -40,6 +41,7 @@ class TimelineEventPublisherAdapter implements TimelineEventPublisher {
         switch (event.payload()) {
             case ProbabilityStateCalculated e -> publish("ProbabilityStateCalculated", mapper.toWire(e), event);
             case OutcomeApplied e -> publish("OutcomeApplied", mapper.toWire(e), event);
+            case ParadoxDetected e -> publish("ParadoxDetected", mapper.toWire(e), event);
             case EraResolutionCompleted e -> publish("EraResolutionCompleted", mapper.toWire(e), event);
             default ->
                 throw new IllegalArgumentException(

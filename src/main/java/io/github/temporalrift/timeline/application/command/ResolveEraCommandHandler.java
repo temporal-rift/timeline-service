@@ -11,9 +11,11 @@ import org.springframework.stereotype.Service;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
+import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
+import io.github.temporalrift.timeline.domain.futureevent.ParadoxDetector;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -22,10 +24,12 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
 /**
  * Resolves every {@code FutureEvent} drawn for an era: highest-probability wins, deterministic
- * {@code outcomeId} tie-break, no faction-special or paradox logic (design.md Decision 3) beyond the
- * card-modifier effects (AMPLIFY/NULLIFY/REDIRECT/STALL) already reflected in each {@code FutureEvent}'s
- * current state. Emits one era-level {@code ProbabilityStateCalculated} before any {@code OutcomeApplied}
- * (design.md requirement: emission order).
+ * {@code outcomeId} tie-break, no faction-special logic beyond the card-modifier effects
+ * (AMPLIFY/NULLIFY/REDIRECT/STALL) already reflected in each {@code FutureEvent}'s current state. An event whose
+ * final state trips {@link ParadoxDetector} is excluded from this era's {@code OutcomeApplied}/terminal-resolution
+ * set instead (design.md) — its resolution is deferred until a future paradox-resolution capability clears it.
+ * Emits one era-level {@code ProbabilityStateCalculated} before any {@code OutcomeApplied} (design.md requirement:
+ * emission order).
  */
 @Service
 class ResolveEraCommandHandler implements ResolveEraUseCase {
@@ -61,6 +65,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
 
         var resolutions = new ArrayList<OutcomeApplied>();
         var newTerminalResolutions = new ArrayList<TerminalResolution>();
+        var paradoxes = new ArrayList<ParadoxDetected.Paradox>();
         for (var indexedEventId : indexedEventIds) {
             var futureEvent = futureEvents.findById(indexedEventId.eventId());
             if (alreadyCarriedForward.contains(indexedEventId.eventId())) {
@@ -72,16 +77,25 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             } else if (futureEvent.stalled()) {
                 addStalled(gameId, eraNumber, indexedEventId, futureEvent, newTerminalResolutions);
             } else {
-                var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
-                resolutions.add(outcomeApplied);
-                newTerminalResolutions.add(new TerminalResolution(
-                        outcomeApplied.eventId(),
-                        indexedEventId.revealIndex(),
-                        TerminalResolution.TerminalState.OUTCOME_APPLIED,
-                        outcomeApplied.winningOutcomeId()));
+                var detected = ParadoxDetector.detect(futureEvent.outcomes());
+                if (detected.isEmpty()) {
+                    var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
+                    resolutions.add(outcomeApplied);
+                    newTerminalResolutions.add(new TerminalResolution(
+                            outcomeApplied.eventId(),
+                            indexedEventId.revealIndex(),
+                            TerminalResolution.TerminalState.OUTCOME_APPLIED,
+                            outcomeApplied.winningOutcomeId()));
+                } else {
+                    // Left neither resolved() nor stalled(): a future resolution attempt for this same
+                    // gameId/eraNumber (paradox-resolution capability) re-evaluates it from scratch instead
+                    // of skipping it as already-handled.
+                    detected.forEach(d -> paradoxes.add(new ParadoxDetected.Paradox(
+                            UUID.randomUUID(), d.type(), futureEvent.id(), d.affectedOutcomeIds(), d.description())));
+                }
             }
         }
-        if (newTerminalResolutions.isEmpty()) {
+        if (newTerminalResolutions.isEmpty() && paradoxes.isEmpty()) {
             return;
         }
 
@@ -93,6 +107,17 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                     TimelineEventEnvelope.SCHEMA_VERSION_V1,
                     toProbabilityStateCalculated(gameId, eraNumber, resolutions),
                     clock));
+        }
+        if (!paradoxes.isEmpty()) {
+            publisher.publish(TimelineEventEnvelope.create(
+                    gameId,
+                    ERA_AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new ParadoxDetected(gameId, eraNumber, paradoxes),
+                    clock));
+        }
+        if (!resolutions.isEmpty()) {
             for (var outcomeApplied : resolutions) {
                 publisher.publish(TimelineEventEnvelope.create(
                         outcomeApplied.eventId(),
@@ -103,13 +128,15 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                         clock));
             }
         }
-        publisher.publish(TimelineEventEnvelope.create(
-                gameId,
-                ERA_AGGREGATE_TYPE,
-                gameId,
-                TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                new EraResolutionCompleted(gameId, eraNumber, newTerminalResolutions),
-                clock));
+        if (!newTerminalResolutions.isEmpty()) {
+            publisher.publish(TimelineEventEnvelope.create(
+                    gameId,
+                    ERA_AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new EraResolutionCompleted(gameId, eraNumber, newTerminalResolutions),
+                    clock));
+        }
     }
 
     private void addStalled(
