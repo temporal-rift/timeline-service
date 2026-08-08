@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Round-scoped buffer of CORRUPT specials awaiting their round's ActionRoundClosed, since the correlated
+      card isn't knowable at submission time (design.md Decision 4). Multiple rows per round are expected —
+      not unique per (game, era, round) the way the other roundeffect tables are.
+  -->
+  <changeSet id="004-create-round-pending-corrupt" author="timeline-service">
+    <createTable tableName="round_pending_corrupt">
+      <column name="id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="era_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="round_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="target_player_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+
+    <createIndex tableName="round_pending_corrupt" indexName="ix_round_pending_corrupt_game_era_round">
+      <column name="game_id"/>
+      <column name="era_number"/>
+      <column name="round_number"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>

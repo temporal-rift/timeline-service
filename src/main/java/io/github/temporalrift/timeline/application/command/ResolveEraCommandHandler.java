@@ -139,7 +139,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                         r.eventId(),
                         r.finalOutcomes().stream()
                                 .map(o -> new ProbabilityStateCalculated.OutcomeState(
-                                        o.outcomeId(), o.probability(), false, false))
+                                        o.outcomeId(), o.probability(), o.annihilated(), o.sealed()))
                                 .toList()))
                 .toList();
         return new ProbabilityStateCalculated(gameId, eraNumber, eventStates);

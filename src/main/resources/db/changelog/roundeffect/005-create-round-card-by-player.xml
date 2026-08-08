@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Per-(round, player) record of the shifter card that player played, with a pre-shift snapshot for
+      exact restore-then-reapply — read by CORRUPT's correlation on ActionRoundClosed (design.md
+      Decision 4). A FutureEvent always has exactly 3 outcomes (GDD invariant), so the snapshot is stored
+      as 3 flat columns rather than a JSON blob, mirroring round_event_last_shift.
+  -->
+  <changeSet id="005-create-round-card-by-player" author="timeline-service">
+    <createTable tableName="round_card_by_player">
+      <column name="id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="era_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="round_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="player_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="future_event_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <!-- PUSH, SUPPRESS, SWING -->
+      <column name="shift_type" type="VARCHAR(16)">
+        <constraints nullable="false"/>
+      </column>
+      <!-- populated for SWING only -->
+      <column name="source_outcome_id" type="UUID"/>
+      <column name="target_outcome_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="magnitude" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="snapshot_outcome_1_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="snapshot_outcome_1_probability" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="snapshot_outcome_2_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="snapshot_outcome_2_probability" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="snapshot_outcome_3_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="snapshot_outcome_3_probability" type="INT">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+
+    <addUniqueConstraint
+        tableName="round_card_by_player"
+        columnNames="game_id,era_number,round_number,player_id"
+        constraintName="uq_round_card_by_player_game_era_round_player"/>
+  </changeSet>
+
+</databaseChangeLog>
