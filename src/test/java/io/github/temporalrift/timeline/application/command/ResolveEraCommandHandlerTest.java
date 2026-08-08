@@ -27,10 +27,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
+import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
+import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -316,7 +318,11 @@ class ResolveEraCommandHandlerTest {
     }
 
     @Test
-    void resolve_annihilatedOutcome_excludedFromWinnerSelection() {
+    void resolve_annihilatedOutcomeAtHighestProbability_publishesParadoxInsteadOfExcludingAndResolving() {
+        // Before paradox detection, this exact case (annihilated outcome holds the top probability) resolved
+        // by excluding the annihilated outcome and picking the next-highest — see FutureEventTest for that
+        // exclusion rule still holding within resolve() itself. At this layer, that same input is now the
+        // IMPOSSIBLE_ERASURE condition and is intercepted before resolve() is called at all.
         var eventId = UUID.randomUUID();
         var annihilatedHighest = UUID.randomUUID();
         var eligibleSecond = UUID.randomUUID();
@@ -337,13 +343,134 @@ class ResolveEraCommandHandlerTest {
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
         then(publisher).should(atLeastOnce()).publish(captor.capture());
-        var outcomeApplied = captor.getAllValues().stream()
+        var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
-                .filter(OutcomeApplied.class::isInstance)
-                .map(OutcomeApplied.class::cast)
+                .toList();
+        assertThat(payloads).noneMatch(OutcomeApplied.class::isInstance);
+        var paradoxDetected = payloads.stream()
+                .filter(ParadoxDetected.class::isInstance)
+                .map(ParadoxDetected.class::cast)
                 .findFirst()
                 .orElseThrow();
-        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(eligibleSecond);
+        assertThat(paradoxDetected.paradoxes())
+                .singleElement()
+                .satisfies(paradox -> assertThat(paradox.affectedOutcomeIds()).containsExactly(annihilatedHighest));
+    }
+
+    @Test
+    void resolve_oneParadoxedAndTwoNormalEvents_publishesParadoxDetectedAndOmitsParadoxedFromTerminalResolutions() {
+        var paradoxedEventId = UUID.randomUUID();
+        var annihilatedOutcomeId = UUID.randomUUID();
+        var paradoxedEvent = FutureEvent.replay(
+                paradoxedEventId,
+                List.of(new FutureEventDrafted(
+                        paradoxedEventId,
+                        List.of(
+                                new Outcome(annihilatedOutcomeId, "annihilated", 60),
+                                new Outcome(UUID.randomUUID(), "second", 40)))));
+        paradoxedEvent.annihilateOutcome(annihilatedOutcomeId);
+
+        var eventId1 = UUID.randomUUID();
+        var eventId2 = UUID.randomUUID();
+        var outcomeId1 = UUID.randomUUID();
+        var outcomeId2 = UUID.randomUUID();
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(
+                        new IndexedEventId(paradoxedEventId, 0),
+                        new IndexedEventId(eventId1, 1),
+                        new IndexedEventId(eventId2, 2)));
+        given(futureEvents.findById(paradoxedEventId)).willReturn(paradoxedEvent);
+        given(futureEvents.findById(eventId1)).willReturn(draftedFutureEvent(eventId1, outcomeId1));
+        given(futureEvents.findById(eventId2)).willReturn(draftedFutureEvent(eventId2, outcomeId2));
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeastOnce()).publish(captor.capture());
+        var payloads = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .toList();
+
+        var paradoxDetected = payloads.stream()
+                .filter(ParadoxDetected.class::isInstance)
+                .map(ParadoxDetected.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(paradoxDetected.gameId()).isEqualTo(GAME_ID);
+        assertThat(paradoxDetected.eraNumber()).isEqualTo(ERA_NUMBER);
+        assertThat(paradoxDetected.paradoxes()).hasSize(1);
+        var paradox = paradoxDetected.paradoxes().getFirst();
+        assertThat(paradox.type()).isEqualTo(ParadoxType.IMPOSSIBLE_ERASURE);
+        assertThat(paradox.affectedEventId()).isEqualTo(paradoxedEventId);
+        assertThat(paradox.affectedOutcomeIds()).containsExactly(annihilatedOutcomeId);
+
+        var outcomeAppliedEventIds = payloads.stream()
+                .filter(OutcomeApplied.class::isInstance)
+                .map(OutcomeApplied.class::cast)
+                .map(OutcomeApplied::eventId)
+                .toList();
+        assertThat(outcomeAppliedEventIds).containsExactly(eventId1, eventId2);
+
+        var eraResolutionCompleted = payloads.stream()
+                .filter(EraResolutionCompleted.class::isInstance)
+                .map(EraResolutionCompleted.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(eraResolutionCompleted.terminalResolutions())
+                .containsExactly(
+                        new TerminalResolution(
+                                eventId1, 1, TerminalResolution.TerminalState.OUTCOME_APPLIED, outcomeId1),
+                        new TerminalResolution(
+                                eventId2, 2, TerminalResolution.TerminalState.OUTCOME_APPLIED, outcomeId2));
+    }
+
+    @Test
+    void resolve_noParadoxes_publishesNoParadoxDetected() {
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(draftedFutureEvent(eventId, outcomeId));
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeastOnce()).publish(captor.capture());
+        assertThat(captor.getAllValues().stream().map(TimelineEventEnvelope::payload))
+                .noneMatch(ParadoxDetected.class::isInstance);
+    }
+
+    @Test
+    void resolve_paradoxedEvent_staysUnresolvedSoASubsequentCallReEvaluatesIt() {
+        var eventId = UUID.randomUUID();
+        var annihilatedOutcomeId = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(annihilatedOutcomeId, "annihilated", 60),
+                                new Outcome(UUID.randomUUID(), "second", 40)))));
+        futureEvent.annihilateOutcome(annihilatedOutcomeId);
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        assertThat(futureEvent.resolved()).isFalse();
+        assertThat(futureEvent.stalled()).isFalse();
+
+        // A second call for the same era re-detects the still-unresolved paradox instead of skipping the event.
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(2)).publish(captor.capture());
+        assertThat(captor.getAllValues().stream().map(TimelineEventEnvelope::payload))
+                .allMatch(ParadoxDetected.class::isInstance);
     }
 
     private static FutureEvent stalledFutureEvent(UUID eventId, UUID outcomeId) {
