@@ -65,20 +65,19 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
         for (var indexedEventId : indexedEventIds) {
             var futureEvent = futureEvents.findById(indexedEventId.eventId());
             if (futureEvent.resolved()) {
-                continue;
-            }
-            if (futureEvent.stalled()) {
+                // already resolved in a prior call for this era — nothing to do
+            } else if (futureEvent.stalled()) {
                 addStalled(
                         gameId, eraNumber, indexedEventId, futureEvent, alreadyCarriedForward, newTerminalResolutions);
-                continue;
+            } else {
+                var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
+                resolutions.add(outcomeApplied);
+                newTerminalResolutions.add(new TerminalResolution(
+                        outcomeApplied.eventId(),
+                        indexedEventId.revealIndex(),
+                        TerminalResolution.TerminalState.OUTCOME_APPLIED,
+                        outcomeApplied.winningOutcomeId()));
             }
-            var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
-            resolutions.add(outcomeApplied);
-            newTerminalResolutions.add(new TerminalResolution(
-                    outcomeApplied.eventId(),
-                    indexedEventId.revealIndex(),
-                    TerminalResolution.TerminalState.OUTCOME_APPLIED,
-                    outcomeApplied.winningOutcomeId()));
         }
         if (newTerminalResolutions.isEmpty()) {
             return;

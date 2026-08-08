@@ -71,17 +71,18 @@ class FutureEventTest {
     void replay_outcomeAppliedBeforeDrafted_throwsIllegalState() {
         var id = UUID.randomUUID();
         var outcomeApplied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, UUID.randomUUID(), List.of());
+        List<Object> history = List.of(outcomeApplied);
 
-        assertThatThrownBy(() -> FutureEvent.replay(id, List.of(outcomeApplied)))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> FutureEvent.replay(id, history)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void replay_probabilityShiftedBeforeDrafted_throwsIllegalState() {
         var id = UUID.randomUUID();
         var shifted = new ProbabilityShifted(id, List.of());
+        List<Object> history = List.of(shifted);
 
-        assertThatThrownBy(() -> FutureEvent.replay(id, List.of(shifted))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> FutureEvent.replay(id, history)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -91,9 +92,9 @@ class FutureEventTest {
         var drafted = new FutureEventDrafted(id, List.of(outcome));
         var applied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, outcome.outcomeId(), List.of(outcome));
         var shifted = new ProbabilityShifted(id, List.of(outcome));
+        List<Object> history = List.of(drafted, applied, shifted);
 
-        assertThatThrownBy(() -> FutureEvent.replay(id, List.of(drafted, applied, shifted)))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> FutureEvent.replay(id, history)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -101,9 +102,9 @@ class FutureEventTest {
         var id = UUID.randomUUID();
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);
         var drafted = new FutureEventDrafted(id, List.of(outcome));
+        List<Object> history = List.of(drafted, drafted);
 
-        assertThatThrownBy(() -> FutureEvent.replay(id, List.of(drafted, drafted)))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> FutureEvent.replay(id, history)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -182,7 +183,7 @@ class FutureEventTest {
 
         event.applyShift(new ProbabilityShift.Suppress(a.outcomeId()), -20, 0, 90);
 
-        assertThat(byId(event, a.outcomeId())).isEqualTo(0);
+        assertThat(byId(event, a.outcomeId())).isZero();
         assertThat(byId(event, b.outcomeId())).isEqualTo(53);
         assertThat(byId(event, c.outcomeId())).isEqualTo(47);
         assertThat(sum(event)).isEqualTo(100);
@@ -214,7 +215,7 @@ class FutureEventTest {
 
         event.applyShift(new ProbabilityShift.Suppress(a.outcomeId()), -20, 0, 90);
 
-        assertThat(byId(event, a.outcomeId())).isEqualTo(0);
+        assertThat(byId(event, a.outcomeId())).isZero();
         assertThat(byId(event, b.outcomeId())).isEqualTo(90);
         assertThat(byId(event, c.outcomeId())).isEqualTo(10);
         assertThat(sum(event)).isEqualTo(100);
@@ -245,7 +246,7 @@ class FutureEventTest {
 
         event.applyShift(new ProbabilityShift.Swing(source.outcomeId(), target.outcomeId()), 30, 0, 90);
 
-        assertThat(byId(event, source.outcomeId())).isEqualTo(0);
+        assertThat(byId(event, source.outcomeId())).isZero();
         assertThat(byId(event, target.outcomeId())).isEqualTo(40);
         assertThat(byId(event, other.outcomeId())).isEqualTo(60);
     }
@@ -272,9 +273,9 @@ class FutureEventTest {
         var b = new Outcome(UUID.randomUUID(), "b", 30);
         var c = new Outcome(UUID.randomUUID(), "c", 20);
         var event = drafted(id, a, b, c);
+        var shift = new ProbabilityShift.Swing(a.outcomeId(), a.outcomeId());
 
-        assertThatThrownBy(() -> event.applyShift(new ProbabilityShift.Swing(a.outcomeId(), a.outcomeId()), 30, 0, 90))
-                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> event.applyShift(shift, 30, 0, 90)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -379,9 +380,9 @@ class FutureEventTest {
     @Test
     void replay_eventStalledBeforeDrafted_throwsIllegalState() {
         var id = UUID.randomUUID();
+        List<Object> history = List.of(new EventStalled(id));
 
-        assertThatThrownBy(() -> FutureEvent.replay(id, List.of(new EventStalled(id))))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> FutureEvent.replay(id, history)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test

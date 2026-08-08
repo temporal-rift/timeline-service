@@ -66,7 +66,7 @@ class ApplyProbabilityShiftCommandHandler implements ApplyProbabilityShiftUseCas
         var event = futureEvent.applyShift(shift, magnitude, rules.probabilityFloor(), rules.probabilityCeiling());
         futureEvents.append(targetEventId, event);
 
-        eventLastShift.record(
+        eventLastShift.save(
                 gameId,
                 eraNumber,
                 roundNumber,
@@ -77,7 +77,7 @@ class ApplyProbabilityShiftCommandHandler implements ApplyProbabilityShiftUseCas
                         targetOutcomeIdOf(shift),
                         magnitude,
                         preShiftSnapshot));
-        roundLastCard.record(gameId, eraNumber, roundNumber, new LastCard(EffectKind.EVENT_EFFECT, targetEventId));
+        roundLastCard.save(gameId, eraNumber, roundNumber, new LastCard(EffectKind.EVENT_EFFECT, targetEventId));
     }
 
     private static ShiftType shiftTypeOf(ProbabilityShift shift) {

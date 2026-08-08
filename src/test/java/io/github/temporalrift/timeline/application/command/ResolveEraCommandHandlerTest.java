@@ -5,7 +5,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -78,7 +80,7 @@ class ResolveEraCommandHandlerTest {
         handler.resolve(GAME_ID, ERA_NUMBER);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(org.mockito.Mockito.times(5)).publish(captor.capture());
+        then(publisher).should(times(5)).publish(captor.capture());
         var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .toList();
@@ -165,7 +167,7 @@ class ResolveEraCommandHandlerTest {
         handler.resolve(GAME_ID, nextEraNumber);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(org.mockito.Mockito.atLeastOnce()).publish(captor.capture());
+        then(publisher).should(atLeastOnce()).publish(captor.capture());
         var terminalResolution = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .filter(EraResolutionCompleted.class::isInstance)
@@ -193,7 +195,7 @@ class ResolveEraCommandHandlerTest {
         handler.resolve(GAME_ID, ERA_NUMBER);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(org.mockito.Mockito.atLeastOnce()).publish(captor.capture());
+        then(publisher).should(atLeastOnce()).publish(captor.capture());
         var eraResolutionCompleted = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .filter(EraResolutionCompleted.class::isInstance)

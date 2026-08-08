@@ -9,7 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import io.github.temporalrift.timeline.domain.port.out.RoundLastCardPort;
 
 /**
- * Delete-then-insert upsert: safe because {@code record} is only ever called from the single ordered
+ * Delete-then-insert upsert: safe because {@code save} is only ever called from the single ordered
  * {@code CardPlayedAndResolutionKafkaConsumer} partition thread for a given game (design.md Decision 5) —
  * no concurrent writers for the same {@code (gameId, eraNumber, roundNumber)} key.
  */
@@ -24,10 +24,10 @@ class JpaRoundLastCardAdapter implements RoundLastCardPort {
 
     @Override
     @Transactional
-    public void record(UUID gameId, int eraNumber, int roundNumber, LastCard lastCard) {
+    public void save(UUID gameId, int eraNumber, int roundNumber, LastCard lastCard) {
         repository.deleteByGameIdAndEraNumberAndRoundNumber(gameId, eraNumber, roundNumber);
         repository.save(new RoundLastCardEntity(
-                gameId, eraNumber, roundNumber, lastCard.effectKind(), lastCard.futureEventId()));
+                new RoundKey(gameId, eraNumber, roundNumber), lastCard.effectKind(), lastCard.futureEventId()));
     }
 
     @Override

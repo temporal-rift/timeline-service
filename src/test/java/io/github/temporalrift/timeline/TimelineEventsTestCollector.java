@@ -25,14 +25,15 @@ class TimelineEventsTestCollector {
         this.objectMapper = objectMapper;
     }
 
+    @SuppressWarnings("unchecked")
     @KafkaListener(topics = "timeline.events", groupId = "test-collector")
     void collect(Message<Object> message) {
-        var payload = message.getPayload() instanceof byte[] bytes
+        Map<String, Object> payload = message.getPayload() instanceof byte[] bytes
                 ? objectMapper.readValue(bytes, Map.class)
-                : (Map<?, ?>) message.getPayload();
+                : (Map<String, Object>) message.getPayload();
         var eventType = message.getHeaders().get("eventType", String.class);
         received.add(new CollectedMessage(eventType, payload));
     }
 
-    record CollectedMessage(String eventType, Map<?, ?> payload) {}
+    record CollectedMessage(String eventType, Map<String, Object> payload) {}
 }

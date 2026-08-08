@@ -1,32 +1,19 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 
+import java.util.List;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import io.github.temporalrift.timeline.domain.port.out.EventLastShiftPort.EventShift.ShiftType;
 
 @Entity
 @Table(name = "round_event_last_shift")
-class RoundEventLastShiftEntity {
-
-    @Id
-    @Column(name = "id", nullable = false)
-    private UUID id;
-
-    @Column(name = "game_id", nullable = false)
-    private UUID gameId;
-
-    @Column(name = "era_number", nullable = false)
-    private int eraNumber;
-
-    @Column(name = "round_number", nullable = false)
-    private int roundNumber;
+class RoundEventLastShiftEntity extends RoundScopedEntity {
 
     @Column(name = "future_event_id", nullable = false)
     private UUID futureEventId;
@@ -66,36 +53,27 @@ class RoundEventLastShiftEntity {
         // for JPA
     }
 
+    /** {@code snapshot} must have exactly 3 entries — a FutureEvent always has exactly 3 outcomes. */
     RoundEventLastShiftEntity(
-            UUID gameId,
-            int eraNumber,
-            int roundNumber,
+            RoundKey key,
             UUID futureEventId,
             ShiftType shiftType,
             UUID sourceOutcomeId,
             UUID targetOutcomeId,
             int magnitude,
-            UUID snapshotOutcome1Id,
-            int snapshotOutcome1Probability,
-            UUID snapshotOutcome2Id,
-            int snapshotOutcome2Probability,
-            UUID snapshotOutcome3Id,
-            int snapshotOutcome3Probability) {
-        this.id = UUID.randomUUID();
-        this.gameId = gameId;
-        this.eraNumber = eraNumber;
-        this.roundNumber = roundNumber;
+            List<OutcomeSnapshot> snapshot) {
+        super(key);
         this.futureEventId = futureEventId;
         this.shiftType = shiftType;
         this.sourceOutcomeId = sourceOutcomeId;
         this.targetOutcomeId = targetOutcomeId;
         this.magnitude = magnitude;
-        this.snapshotOutcome1Id = snapshotOutcome1Id;
-        this.snapshotOutcome1Probability = snapshotOutcome1Probability;
-        this.snapshotOutcome2Id = snapshotOutcome2Id;
-        this.snapshotOutcome2Probability = snapshotOutcome2Probability;
-        this.snapshotOutcome3Id = snapshotOutcome3Id;
-        this.snapshotOutcome3Probability = snapshotOutcome3Probability;
+        this.snapshotOutcome1Id = snapshot.get(0).outcomeId();
+        this.snapshotOutcome1Probability = snapshot.get(0).probability();
+        this.snapshotOutcome2Id = snapshot.get(1).outcomeId();
+        this.snapshotOutcome2Probability = snapshot.get(1).probability();
+        this.snapshotOutcome3Id = snapshot.get(2).outcomeId();
+        this.snapshotOutcome3Probability = snapshot.get(2).probability();
     }
 
     ShiftType shiftType() {
@@ -114,27 +92,12 @@ class RoundEventLastShiftEntity {
         return magnitude;
     }
 
-    UUID snapshotOutcome1Id() {
-        return snapshotOutcome1Id;
+    List<OutcomeSnapshot> snapshot() {
+        return List.of(
+                new OutcomeSnapshot(snapshotOutcome1Id, snapshotOutcome1Probability),
+                new OutcomeSnapshot(snapshotOutcome2Id, snapshotOutcome2Probability),
+                new OutcomeSnapshot(snapshotOutcome3Id, snapshotOutcome3Probability));
     }
 
-    int snapshotOutcome1Probability() {
-        return snapshotOutcome1Probability;
-    }
-
-    UUID snapshotOutcome2Id() {
-        return snapshotOutcome2Id;
-    }
-
-    int snapshotOutcome2Probability() {
-        return snapshotOutcome2Probability;
-    }
-
-    UUID snapshotOutcome3Id() {
-        return snapshotOutcome3Id;
-    }
-
-    int snapshotOutcome3Probability() {
-        return snapshotOutcome3Probability;
-    }
+    record OutcomeSnapshot(UUID outcomeId, int probability) {}
 }

@@ -59,7 +59,7 @@ class PlayCardModifierCommandHandler implements PlayCardModifierUseCase {
 
     private void playAmplify(CardModifier.Amplify a) {
         amplifyState.arm(a.gameId(), a.eraNumber(), a.roundNumber());
-        roundLastCard.record(a.gameId(), a.eraNumber(), a.roundNumber(), new LastCard(EffectKind.AMPLIFY_ARMED, null));
+        roundLastCard.save(a.gameId(), a.eraNumber(), a.roundNumber(), new LastCard(EffectKind.AMPLIFY_ARMED, null));
     }
 
     private void playNullify(CardModifier.Nullify n) {
@@ -73,9 +73,11 @@ class PlayCardModifierCommandHandler implements PlayCardModifierUseCase {
                 undoEventEffect(
                         n.gameId(), n.eraNumber(), n.roundNumber(), last.get().futureEventId());
             case EVENT_STALLED -> unstall(last.get().futureEventId());
-            case NOOP -> {}
+            case NOOP -> {
+                // Nothing to undo — the most recent card had no effect.
+            }
         }
-        roundLastCard.record(n.gameId(), n.eraNumber(), n.roundNumber(), new LastCard(EffectKind.NOOP, null));
+        roundLastCard.save(n.gameId(), n.eraNumber(), n.roundNumber(), new LastCard(EffectKind.NOOP, null));
     }
 
     private void undoEventEffect(UUID gameId, int eraNumber, int roundNumber, UUID futureEventId) {
@@ -135,7 +137,7 @@ class PlayCardModifierCommandHandler implements PlayCardModifierUseCase {
                 rules.probabilityCeiling());
         futureEvents.append(r.targetEventId(), reapplied);
 
-        eventLastShift.record(
+        eventLastShift.save(
                 r.gameId(),
                 r.eraNumber(),
                 r.roundNumber(),
@@ -146,7 +148,7 @@ class PlayCardModifierCommandHandler implements PlayCardModifierUseCase {
                         r.targetOutcomeId(),
                         magnitude,
                         preRedirectSnapshot));
-        roundLastCard.record(
+        roundLastCard.save(
                 r.gameId(), r.eraNumber(), r.roundNumber(), new LastCard(EffectKind.EVENT_EFFECT, r.targetEventId()));
     }
 
@@ -161,7 +163,7 @@ class PlayCardModifierCommandHandler implements PlayCardModifierUseCase {
     }
 
     private void recordIneffectiveRedirect(CardModifier.Redirect r) {
-        roundLastCard.record(r.gameId(), r.eraNumber(), r.roundNumber(), new LastCard(EffectKind.NOOP, null));
+        roundLastCard.save(r.gameId(), r.eraNumber(), r.roundNumber(), new LastCard(EffectKind.NOOP, null));
     }
 
     private static ProbabilityShift toShift(ShiftType type, UUID sourceOutcomeId, UUID targetOutcomeId) {
@@ -178,16 +180,16 @@ class PlayCardModifierCommandHandler implements PlayCardModifierUseCase {
             // Already stalled by an earlier STALL this era that hasn't resolved yet — this card changes
             // nothing, so a NULLIFY targeting it must not un-stall the event (that would also cancel the
             // earlier STALL still doing the work, not just "the most recent card").
-            roundLastCard.record(s.gameId(), s.eraNumber(), s.roundNumber(), new LastCard(EffectKind.NOOP, null));
+            roundLastCard.save(s.gameId(), s.eraNumber(), s.roundNumber(), new LastCard(EffectKind.NOOP, null));
             return;
         }
         var stalled = futureEvent.markStalled();
         futureEvents.append(s.targetEventId(), stalled);
-        roundLastCard.record(
+        roundLastCard.save(
                 s.gameId(), s.eraNumber(), s.roundNumber(), new LastCard(EffectKind.EVENT_STALLED, s.targetEventId()));
     }
 
     private void playNoOp(CardModifier.NoOp n) {
-        roundLastCard.record(n.gameId(), n.eraNumber(), n.roundNumber(), new LastCard(EffectKind.NOOP, null));
+        roundLastCard.save(n.gameId(), n.eraNumber(), n.roundNumber(), new LastCard(EffectKind.NOOP, null));
     }
 }

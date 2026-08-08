@@ -85,8 +85,8 @@ class ResolutionWalkingSkeletonIT {
         assertThat(outcomeIndex).isLessThan(eraResolutionCompletedIndex);
 
         var outcomePayload = messages.get(outcomeIndex).payload();
-        assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(winnerOutcomeId.toString());
-        assertThat(outcomePayload.get("eventId")).isEqualTo(futureEventId.toString());
+        assertThat(outcomePayload).containsEntry("winningOutcomeId", winnerOutcomeId.toString());
+        assertThat(outcomePayload).containsEntry("eventId", futureEventId.toString());
 
         var eraResolutionCompletedPayload =
                 messages.get(eraResolutionCompletedIndex).payload();
@@ -94,11 +94,11 @@ class ResolutionWalkingSkeletonIT {
                 .singleElement()
                 .satisfies(entry -> {
                     @SuppressWarnings("unchecked")
-                    var terminalResolution = (Map<?, ?>) entry;
-                    assertThat(terminalResolution.get("eventId")).isEqualTo(futureEventId.toString());
-                    assertThat(terminalResolution.get("revealIndex")).isEqualTo(0);
-                    assertThat(terminalResolution.get("terminalState")).isEqualTo("OUTCOME_APPLIED");
-                    assertThat(terminalResolution.get("winningOutcomeId")).isEqualTo(winnerOutcomeId.toString());
+                    var terminalResolution = (Map<String, Object>) entry;
+                    assertThat(terminalResolution).containsEntry("eventId", futureEventId.toString());
+                    assertThat(terminalResolution).containsEntry("revealIndex", 0);
+                    assertThat(terminalResolution).containsEntry("terminalState", "OUTCOME_APPLIED");
+                    assertThat(terminalResolution).containsEntry("winningOutcomeId", winnerOutcomeId.toString());
                 });
     }
 
@@ -162,7 +162,7 @@ class ResolutionWalkingSkeletonIT {
         var messages = messagesFor(gameId);
         var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
         var outcomePayload = messages.get(outcomeIndex).payload();
-        assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(pushedOutcomeId.toString());
+        assertThat(outcomePayload).containsEntry("winningOutcomeId", pushedOutcomeId.toString());
     }
 
     @Test
@@ -193,7 +193,7 @@ class ResolutionWalkingSkeletonIT {
         var messages = messagesFor(gameId);
         var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
         var outcomePayload = messages.get(outcomeIndex).payload();
-        assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(risingOutcomeId.toString());
+        assertThat(outcomePayload).containsEntry("winningOutcomeId", risingOutcomeId.toString());
     }
 
     @Test
@@ -239,11 +239,11 @@ class ResolutionWalkingSkeletonIT {
                 .payload();
         var terminalResolutions = (List<?>) eraResolutionCompletedPayload.get("terminalResolutions");
         var stalledEntry = terminalResolutionFor(terminalResolutions, stalledEventId);
-        assertThat(stalledEntry.get("terminalState")).isEqualTo("STALLED");
+        assertThat(stalledEntry).containsEntry("terminalState", "STALLED");
         assertThat(stalledEntry.get("winningOutcomeId")).isNull();
         var resolvedEntry = terminalResolutionFor(terminalResolutions, resolvedEventId);
-        assertThat(resolvedEntry.get("terminalState")).isEqualTo("OUTCOME_APPLIED");
-        assertThat(resolvedEntry.get("winningOutcomeId")).isEqualTo(winnerOutcomeId.toString());
+        assertThat(resolvedEntry).containsEntry("terminalState", "OUTCOME_APPLIED");
+        assertThat(resolvedEntry).containsEntry("winningOutcomeId", winnerOutcomeId.toString());
 
         assertThat(jdbcTemplate.queryForObject(
                         "SELECT COUNT(*) FROM future_event_era_index WHERE event_id = ? AND era_number = ?",
@@ -454,9 +454,10 @@ class ResolutionWalkingSkeletonIT {
         return eventTypesOf(messages).indexOf(eventType);
     }
 
-    private static Map<?, ?> terminalResolutionFor(List<?> terminalResolutions, UUID eventId) {
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> terminalResolutionFor(List<?> terminalResolutions, UUID eventId) {
         return terminalResolutions.stream()
-                .map(entry -> (Map<?, ?>) entry)
+                .map(entry -> (Map<String, Object>) entry)
                 .filter(entry -> eventId.toString().equals(entry.get("eventId")))
                 .findFirst()
                 .orElseThrow();

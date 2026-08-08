@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.never;
 
 import java.util.List;
 import java.util.UUID;
@@ -82,7 +83,7 @@ class ApplyProbabilityShiftCommandHandlerTest {
         var shiftCaptor = ArgumentCaptor.forClass(EventShift.class);
         then(eventLastShift)
                 .should()
-                .record(eq(GAME_ID), eq(ERA_NUMBER), eq(ROUND_NUMBER), eq(eventId), shiftCaptor.capture());
+                .save(eq(GAME_ID), eq(ERA_NUMBER), eq(ROUND_NUMBER), eq(eventId), shiftCaptor.capture());
         assertThat(shiftCaptor.getValue().magnitude()).isEqualTo(-20);
         assertThat(shiftCaptor.getValue().shiftType()).isEqualTo(ShiftType.SUPPRESS);
     }
@@ -101,7 +102,7 @@ class ApplyProbabilityShiftCommandHandlerTest {
         handler.apply(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, new ProbabilityShift.Push(target));
 
         assertThat(probabilityOf(futureEvent, target)).isEqualTo(70);
-        then(amplifyState).should(org.mockito.Mockito.never()).clear(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+        then(amplifyState).should(never()).clear(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
     }
 
     @Test
@@ -119,7 +120,7 @@ class ApplyProbabilityShiftCommandHandlerTest {
 
         then(roundLastCard)
                 .should()
-                .record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.EVENT_EFFECT, eventId));
+                .save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.EVENT_EFFECT, eventId));
     }
 
     private static FutureEvent draftedFutureEvent(

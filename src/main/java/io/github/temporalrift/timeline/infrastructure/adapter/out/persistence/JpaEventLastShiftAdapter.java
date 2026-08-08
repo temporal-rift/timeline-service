@@ -1,7 +1,6 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,29 +21,24 @@ class JpaEventLastShiftAdapter implements EventLastShiftPort {
 
     @Override
     @Transactional
-    public void record(UUID gameId, int eraNumber, int roundNumber, UUID futureEventId, EventShift shift) {
+    public void save(UUID gameId, int eraNumber, int roundNumber, UUID futureEventId, EventShift shift) {
         repository.deleteByGameIdAndEraNumberAndRoundNumberAndFutureEventId(
                 gameId, eraNumber, roundNumber, futureEventId);
-        var snapshotEntries = List.copyOf(shift.preShiftSnapshot().entrySet());
+        var snapshotEntries = shift.preShiftSnapshot().entrySet().stream()
+                .map(e -> new RoundEventLastShiftEntity.OutcomeSnapshot(e.getKey(), e.getValue()))
+                .toList();
         if (snapshotEntries.size() != 3) {
             throw new IllegalArgumentException(
                     "A FutureEvent snapshot must have exactly 3 outcomes, got " + snapshotEntries.size());
         }
         repository.save(new RoundEventLastShiftEntity(
-                gameId,
-                eraNumber,
-                roundNumber,
+                new RoundKey(gameId, eraNumber, roundNumber),
                 futureEventId,
                 shift.shiftType(),
                 shift.sourceOutcomeId(),
                 shift.targetOutcomeId(),
                 shift.magnitude(),
-                snapshotEntries.get(0).getKey(),
-                snapshotEntries.get(0).getValue(),
-                snapshotEntries.get(1).getKey(),
-                snapshotEntries.get(1).getValue(),
-                snapshotEntries.get(2).getKey(),
-                snapshotEntries.get(2).getValue()));
+                snapshotEntries));
     }
 
     @Override
@@ -63,9 +57,7 @@ class JpaEventLastShiftAdapter implements EventLastShiftPort {
 
     private EventShift toEventShift(RoundEventLastShiftEntity e) {
         Map<UUID, Integer> snapshot = new LinkedHashMap<>();
-        snapshot.put(e.snapshotOutcome1Id(), e.snapshotOutcome1Probability());
-        snapshot.put(e.snapshotOutcome2Id(), e.snapshotOutcome2Probability());
-        snapshot.put(e.snapshotOutcome3Id(), e.snapshotOutcome3Probability());
+        e.snapshot().forEach(outcome -> snapshot.put(outcome.outcomeId(), outcome.probability()));
         return new EventShift(e.shiftType(), e.sourceOutcomeId(), e.targetOutcomeId(), e.magnitude(), snapshot);
     }
 }
