@@ -193,6 +193,62 @@ class ResolutionWalkingSkeletonIT {
         assertThat(outcomePayload.get("winningOutcomeId")).isEqualTo(risingOutcomeId.toString());
     }
 
+    @Test
+    void stallCard_excludesItsEventFromOutcomeAppliedAndCarriesItIntoTheNextEra() {
+        var gameId = UUID.randomUUID();
+        var eraNumber = 1;
+        var stalledEventId = UUID.randomUUID();
+        var resolvedEventId = UUID.randomUUID();
+        var winnerOutcomeId = UUID.randomUUID();
+        var loserOutcomeId = UUID.randomUUID();
+
+        publishEraStarted(gameId, eraNumber);
+        publishEventsDrawn(gameId, eraNumber, stalledEventId, UUID.randomUUID(), 60, UUID.randomUUID(), 40);
+        publishEventsDrawn(gameId, eraNumber, resolvedEventId, winnerOutcomeId, 70, loserOutcomeId, 30);
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
+                                "SELECT COUNT(*) FROM future_event_era_index WHERE game_id = ? AND era_number = ?",
+                                Integer.class,
+                                gameId,
+                                eraNumber))
+                        .isEqualTo(2));
+
+        publishCardPlayed(gameId, eraNumber, stalledEventId, "STALL", null, null);
+        publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
+
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(
+                        () -> assertThat(eventTypesOf(collector.received)).contains(ERA_RESOLUTION_COMPLETED));
+
+        var outcomeAppliedEventIds = collector.received.stream()
+                .filter(m -> OUTCOME_APPLIED.equals(m.eventType()))
+                .map(m -> (Object) m.payload().get("eventId"))
+                .toList();
+        assertThat(outcomeAppliedEventIds)
+                .contains(resolvedEventId.toString())
+                .doesNotContain(stalledEventId.toString());
+
+        var eraResolutionCompletedPayload = collector.received.stream()
+                .filter(m -> ERA_RESOLUTION_COMPLETED.equals(m.eventType()))
+                .findFirst()
+                .orElseThrow()
+                .payload();
+        var terminalResolutions = (List<?>) eraResolutionCompletedPayload.get("terminalResolutions");
+        var stalledEntry = terminalResolutionFor(terminalResolutions, stalledEventId);
+        assertThat(stalledEntry.get("terminalState")).isEqualTo("STALLED");
+        assertThat(stalledEntry.get("winningOutcomeId")).isNull();
+        var resolvedEntry = terminalResolutionFor(terminalResolutions, resolvedEventId);
+        assertThat(resolvedEntry.get("terminalState")).isEqualTo("OUTCOME_APPLIED");
+        assertThat(resolvedEntry.get("winningOutcomeId")).isEqualTo(winnerOutcomeId.toString());
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM future_event_era_index WHERE event_id = ? AND era_number = ?",
+                        Integer.class,
+                        stalledEventId,
+                        eraNumber + 1))
+                .isEqualTo(1);
+    }
+
     private void awaitFutureEventIndexed(UUID gameId, int eraNumber) {
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
@@ -362,5 +418,13 @@ class ResolutionWalkingSkeletonIT {
 
     private static int indexOfEventType(List<TimelineEventsTestCollector.CollectedMessage> messages, String eventType) {
         return eventTypesOf(messages).indexOf(eventType);
+    }
+
+    private static Map<?, ?> terminalResolutionFor(List<?> terminalResolutions, UUID eventId) {
+        return terminalResolutions.stream()
+                .map(entry -> (Map<?, ?>) entry)
+                .filter(entry -> eventId.toString().equals(entry.get("eventId")))
+                .findFirst()
+                .orElseThrow();
     }
 }
