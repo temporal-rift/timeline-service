@@ -20,6 +20,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
+import io.github.temporalrift.timeline.domain.port.out.EventLastShiftPort;
+import io.github.temporalrift.timeline.domain.port.out.EventLastShiftPort.EventShift;
 import io.github.temporalrift.timeline.domain.port.out.EventLastShiftPort.EventShift.ShiftType;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.PendingCorruptPort;
@@ -42,6 +44,9 @@ class ResolvePendingCorruptCommandHandlerTest {
     RoundCardByPlayerPort roundCardByPlayer;
 
     @Mock
+    EventLastShiftPort eventLastShift;
+
+    @Mock
     FutureEventRepository futureEvents;
 
     @Mock
@@ -51,7 +56,17 @@ class ResolvePendingCorruptCommandHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new ResolvePendingCorruptCommandHandler(pendingCorrupt, roundCardByPlayer, futureEvents, rules);
+        handler = new ResolvePendingCorruptCommandHandler(
+                pendingCorrupt, roundCardByPlayer, eventLastShift, futureEvents, rules);
+    }
+
+    private static EventShift asEventShift(PlayerCard card) {
+        return new EventShift(
+                card.shiftType(),
+                card.sourceOutcomeId(),
+                card.targetOutcomeId(),
+                card.magnitude(),
+                card.preShiftSnapshot());
     }
 
     @Test
@@ -88,6 +103,8 @@ class ResolvePendingCorruptCommandHandlerTest {
         given(pendingCorrupt.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(List.of(TARGET_PLAYER_ID));
         given(roundCardByPlayer.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, TARGET_PLAYER_ID))
                 .willReturn(Optional.of(card));
+        given(eventLastShift.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId))
+                .willReturn(Optional.of(asEventShift(card)));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
@@ -114,6 +131,8 @@ class ResolvePendingCorruptCommandHandlerTest {
         given(pendingCorrupt.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(List.of(TARGET_PLAYER_ID));
         given(roundCardByPlayer.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, TARGET_PLAYER_ID))
                 .willReturn(Optional.of(card));
+        given(eventLastShift.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId))
+                .willReturn(Optional.of(asEventShift(card)));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
@@ -140,6 +159,8 @@ class ResolvePendingCorruptCommandHandlerTest {
         given(pendingCorrupt.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(List.of(TARGET_PLAYER_ID));
         given(roundCardByPlayer.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, TARGET_PLAYER_ID))
                 .willReturn(Optional.of(card));
+        given(eventLastShift.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId))
+                .willReturn(Optional.of(asEventShift(card)));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
 
         handler.resolve(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
@@ -148,6 +169,37 @@ class ResolvePendingCorruptCommandHandlerTest {
         assertThat(probabilityOf(futureEvent, outcomeB)).isEqualTo(18);
         assertThat(probabilityOf(futureEvent, outcomeC)).isEqualTo(12);
         assertThat(futureEvent.sealBreach()).isFalse();
+        verify(futureEvents, never()).append(any(), any());
+    }
+
+    @Test
+    void resolve_correlatedCardSupersededByAnotherPlayersLaterShiftOnSameEvent_doesNotClobberIt() {
+        // Regression: P1's PUSH applied first (preShiftSnapshot 50/30/20), then P2's SUPPRESS landed on the
+        // same event afterward. CORRUPT targets P1. Restoring P1's stale snapshot would silently discard
+        // P2's shift too — instead, since P1's card is no longer the event's last shift this round, CORRUPT
+        // must have no effect.
+        var eventId = UUID.randomUUID();
+        var outcomeA = UUID.randomUUID();
+        var outcomeB = UUID.randomUUID();
+        var outcomeC = UUID.randomUUID();
+        var futureEvent = draftedFutureEvent(eventId, outcomeA, 64, outcomeB, 10, outcomeC, 26);
+        var p1PreShiftSnapshot = Map.of(outcomeA, 50, outcomeB, 30, outcomeC, 20);
+        var p1Card = new PlayerCard(eventId, ShiftType.PUSH, null, outcomeA, 20, p1PreShiftSnapshot);
+        // The event's actual last shift this round is P2's SUPPRESS, not P1's PUSH.
+        var p2LastShift = new EventShift(
+                ShiftType.SUPPRESS, null, outcomeB, -20, Map.of(outcomeA, 70, outcomeB, 18, outcomeC, 12));
+
+        given(pendingCorrupt.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(List.of(TARGET_PLAYER_ID));
+        given(roundCardByPlayer.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, TARGET_PLAYER_ID))
+                .willReturn(Optional.of(p1Card));
+        given(eventLastShift.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId)).willReturn(Optional.of(p2LastShift));
+
+        handler.resolve(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, outcomeA)).isEqualTo(64);
+        assertThat(probabilityOf(futureEvent, outcomeB)).isEqualTo(10);
+        assertThat(probabilityOf(futureEvent, outcomeC)).isEqualTo(26);
+        verify(futureEvents, never()).findById(any());
         verify(futureEvents, never()).append(any(), any());
     }
 
