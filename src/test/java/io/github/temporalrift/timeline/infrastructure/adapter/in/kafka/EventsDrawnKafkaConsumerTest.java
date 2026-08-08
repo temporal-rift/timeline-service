@@ -1,5 +1,6 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.in.kafka;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -7,6 +8,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
@@ -63,12 +65,12 @@ class EventsDrawnKafkaConsumerTest {
                                 futureEventId1,
                                 "first",
                                 List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "a", 50)),
-                                false),
+                                EventsDrawnPayload.CarryOverState.FRESH),
                         new EventsDrawnPayload.FutureEvent(
                                 futureEventId2,
                                 "second",
                                 List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "b", 100)),
-                                false)));
+                                EventsDrawnPayload.CarryOverState.FRESH)));
         given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
@@ -107,12 +109,12 @@ class EventsDrawnKafkaConsumerTest {
                                 carriedOverEventId,
                                 "carried",
                                 List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "a", 100)),
-                                false),
+                                EventsDrawnPayload.CarryOverState.CASCADED),
                         new EventsDrawnPayload.FutureEvent(
                                 freshEventId,
                                 "fresh",
                                 List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "b", 100)),
-                                false)));
+                                EventsDrawnPayload.CarryOverState.FRESH)));
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
 
@@ -133,5 +135,37 @@ class EventsDrawnKafkaConsumerTest {
 
         then(futureEvents).should(never()).append(any(), any());
         then(eraIndex).should(never()).add(any(), any(), anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("payload omitting carryOverState — rejected, no event drafted")
+    void handle_payloadOmittingCarryOverState_rejected() {
+        var eventId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
+        var json = """
+                {"gameId":"%s","eraNumber":1,"events":[{"eventId":"%s","title":"t","outcomes":[]}]}
+                """.formatted(UUID.randomUUID(), UUID.randomUUID());
+
+        assertThatThrownBy(() -> consumer.handle(
+                        KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1)))
+                .isInstanceOf(RuntimeException.class);
+
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    @DisplayName("payload with retired isCascaded field instead of carryOverState — rejected, no event drafted")
+    void handle_payloadWithRetiredIsCascadedField_rejected() {
+        var eventId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
+        var json = """
+                {"gameId":"%s","eraNumber":1,"events":[{"eventId":"%s","title":"t","outcomes":[],"isCascaded":false}]}
+                """.formatted(UUID.randomUUID(), UUID.randomUUID());
+
+        assertThatThrownBy(() -> consumer.handle(
+                        KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1)))
+                .isInstanceOf(RuntimeException.class);
+
+        then(futureEvents).should(never()).append(any(), any());
     }
 }
