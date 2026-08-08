@@ -85,8 +85,9 @@ class ResolutionWalkingSkeletonIT {
         assertThat(outcomeIndex).isLessThan(eraResolutionCompletedIndex);
 
         var outcomePayload = messages.get(outcomeIndex).payload();
-        assertThat(outcomePayload).containsEntry("winningOutcomeId", winnerOutcomeId.toString());
-        assertThat(outcomePayload).containsEntry("eventId", futureEventId.toString());
+        assertThat(outcomePayload)
+                .containsEntry("winningOutcomeId", winnerOutcomeId.toString())
+                .containsEntry("eventId", futureEventId.toString());
 
         var eraResolutionCompletedPayload =
                 messages.get(eraResolutionCompletedIndex).payload();
@@ -95,10 +96,11 @@ class ResolutionWalkingSkeletonIT {
                 .satisfies(entry -> {
                     @SuppressWarnings("unchecked")
                     var terminalResolution = (Map<String, Object>) entry;
-                    assertThat(terminalResolution).containsEntry("eventId", futureEventId.toString());
-                    assertThat(terminalResolution).containsEntry("revealIndex", 0);
-                    assertThat(terminalResolution).containsEntry("terminalState", "OUTCOME_APPLIED");
-                    assertThat(terminalResolution).containsEntry("winningOutcomeId", winnerOutcomeId.toString());
+                    assertThat(terminalResolution)
+                            .containsEntry("eventId", futureEventId.toString())
+                            .containsEntry("revealIndex", 0)
+                            .containsEntry("terminalState", "OUTCOME_APPLIED")
+                            .containsEntry("winningOutcomeId", winnerOutcomeId.toString());
                 });
     }
 
@@ -239,11 +241,11 @@ class ResolutionWalkingSkeletonIT {
                 .payload();
         var terminalResolutions = (List<?>) eraResolutionCompletedPayload.get("terminalResolutions");
         var stalledEntry = terminalResolutionFor(terminalResolutions, stalledEventId);
-        assertThat(stalledEntry).containsEntry("terminalState", "STALLED");
-        assertThat(stalledEntry.get("winningOutcomeId")).isNull();
+        assertThat(stalledEntry).containsEntry("terminalState", "STALLED").doesNotContainKey("winningOutcomeId");
         var resolvedEntry = terminalResolutionFor(terminalResolutions, resolvedEventId);
-        assertThat(resolvedEntry).containsEntry("terminalState", "OUTCOME_APPLIED");
-        assertThat(resolvedEntry).containsEntry("winningOutcomeId", winnerOutcomeId.toString());
+        assertThat(resolvedEntry)
+                .containsEntry("terminalState", "OUTCOME_APPLIED")
+                .containsEntry("winningOutcomeId", winnerOutcomeId.toString());
 
         assertThat(jdbcTemplate.queryForObject(
                         "SELECT COUNT(*) FROM future_event_era_index WHERE event_id = ? AND era_number = ?",
