@@ -26,10 +26,6 @@ class JpaRoundCardByPlayerAdapter implements RoundCardByPlayerPort {
         var snapshotEntries = card.preShiftSnapshot().entrySet().stream()
                 .map(e -> new OutcomeSnapshotTriple.OutcomeSnapshot(e.getKey(), e.getValue()))
                 .toList();
-        if (snapshotEntries.size() != 3) {
-            throw new IllegalArgumentException(
-                    "A FutureEvent snapshot must have exactly 3 outcomes, got " + snapshotEntries.size());
-        }
         repository.save(new RoundCardByPlayerEntity(
                 new RoundKey(gameId, eraNumber, roundNumber),
                 playerId,

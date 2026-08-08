@@ -38,6 +38,10 @@ class OutcomeSnapshotTriple {
 
     /** {@code snapshot} must have exactly 3 entries — a FutureEvent always has exactly 3 outcomes. */
     OutcomeSnapshotTriple(List<OutcomeSnapshot> snapshot) {
+        if (snapshot.size() != 3) {
+            throw new IllegalArgumentException(
+                    "A FutureEvent snapshot must have exactly 3 outcomes, got " + snapshot.size());
+        }
         this.outcome1Id = snapshot.get(0).outcomeId();
         this.outcome1Probability = snapshot.get(0).probability();
         this.outcome2Id = snapshot.get(1).outcomeId();
