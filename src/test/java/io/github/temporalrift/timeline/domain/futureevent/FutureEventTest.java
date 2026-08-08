@@ -12,8 +12,11 @@ import org.junit.jupiter.api.Test;
 import io.github.temporalrift.timeline.domain.event.EventStalled;
 import io.github.temporalrift.timeline.domain.event.EventUnstalled;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
+import io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
+import io.github.temporalrift.timeline.domain.event.OutcomeSealed;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
+import io.github.temporalrift.timeline.domain.event.SealBreachRecorded;
 
 class FutureEventTest {
 
@@ -403,6 +406,219 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(50);
         assertThat(byId(event, b.outcomeId())).isEqualTo(30);
         assertThat(byId(event, c.outcomeId())).isEqualTo(20);
+    }
+
+    @Test
+    void resolve_annihilatedOutcome_excludedEvenAtHighestProbability() {
+        var id = UUID.randomUUID();
+        var highest = new Outcome(UUID.randomUUID(), "highest", 45);
+        var second = new Outcome(UUID.randomUUID(), "second", 35);
+        var third = new Outcome(UUID.randomUUID(), "third", 20);
+        var event = drafted(id, highest, second, third);
+        event.annihilateOutcome(highest.outcomeId());
+
+        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER);
+
+        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(second.outcomeId());
+    }
+
+    @Test
+    void annihilateOutcome_flagSurvivesOutcomeApplied() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(b.outcomeId());
+        event.resolve(GAME_ID, ERA_NUMBER);
+
+        assertThat(event.outcomes().stream()
+                        .filter(o -> o.outcomeId().equals(b.outcomeId()))
+                        .findFirst()
+                        .orElseThrow()
+                        .annihilated())
+                .isTrue();
+    }
+
+    @Test
+    void annihilateOutcome_unknownOutcomeId_throws() {
+        var id = UUID.randomUUID();
+        var event = drafted(id, new Outcome(UUID.randomUUID(), "only", 100));
+
+        assertThatThrownBy(() -> event.annihilateOutcome(UUID.randomUUID()))
+                .isInstanceOf(UnknownOutcomeException.class);
+    }
+
+    @Test
+    void annihilateOutcome_alreadyResolved_throws() {
+        var id = UUID.randomUUID();
+        var outcome = new Outcome(UUID.randomUUID(), "only", 100);
+        var event = drafted(id, outcome);
+        event.resolve(GAME_ID, ERA_NUMBER);
+
+        assertThatThrownBy(() -> event.annihilateOutcome(outcome.outcomeId()))
+                .isInstanceOf(FutureEventAlreadyResolvedException.class);
+    }
+
+    @Test
+    void sealOutcome_marksOutcomeSealed() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.sealOutcome(a.outcomeId());
+
+        assertThat(event.outcomes().stream()
+                        .filter(o -> o.outcomeId().equals(a.outcomeId()))
+                        .findFirst()
+                        .orElseThrow()
+                        .sealed())
+                .isTrue();
+        assertThat(event.sealBreach()).isFalse();
+    }
+
+    @Test
+    void sealOutcome_unknownOutcomeId_throws() {
+        var id = UUID.randomUUID();
+        var event = drafted(id, new Outcome(UUID.randomUUID(), "only", 100));
+
+        assertThatThrownBy(() -> event.sealOutcome(UUID.randomUUID())).isInstanceOf(UnknownOutcomeException.class);
+    }
+
+    @Test
+    void sealOutcome_alreadyResolved_throws() {
+        var id = UUID.randomUUID();
+        var outcome = new Outcome(UUID.randomUUID(), "only", 100);
+        var event = drafted(id, outcome);
+        event.resolve(GAME_ID, ERA_NUMBER);
+
+        assertThatThrownBy(() -> event.sealOutcome(outcome.outcomeId()))
+                .isInstanceOf(FutureEventAlreadyResolvedException.class);
+    }
+
+    @Test
+    void applyShift_push_targetSealed_setsSealBreachWithoutChangingProbability() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(a.outcomeId());
+
+        var result = event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        assertThat(result).isInstanceOf(SealBreachRecorded.class);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(30);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(20);
+        assertThat(event.sealBreach()).isTrue();
+    }
+
+    @Test
+    void applyShift_suppress_targetSealed_setsSealBreachWithoutChangingProbability() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(b.outcomeId());
+
+        event.applyShift(new ProbabilityShift.Suppress(b.outcomeId()), -20, 0, 90);
+
+        assertThat(byId(event, b.outcomeId())).isEqualTo(30);
+        assertThat(event.sealBreach()).isTrue();
+    }
+
+    @Test
+    void applyShift_swing_sourceSealed_setsSealBreachWithoutChangingProbability() {
+        var id = UUID.randomUUID();
+        var source = new Outcome(UUID.randomUUID(), "source", 50);
+        var target = new Outcome(UUID.randomUUID(), "target", 30);
+        var other = new Outcome(UUID.randomUUID(), "other", 20);
+        var event = drafted(id, source, target, other);
+        event.sealOutcome(source.outcomeId());
+
+        event.applyShift(new ProbabilityShift.Swing(source.outcomeId(), target.outcomeId()), 30, 0, 90);
+
+        assertThat(byId(event, source.outcomeId())).isEqualTo(50);
+        assertThat(byId(event, target.outcomeId())).isEqualTo(30);
+        assertThat(event.sealBreach()).isTrue();
+    }
+
+    @Test
+    void applyShift_swing_targetSealed_setsSealBreachWithoutChangingProbability() {
+        var id = UUID.randomUUID();
+        var source = new Outcome(UUID.randomUUID(), "source", 50);
+        var target = new Outcome(UUID.randomUUID(), "target", 30);
+        var other = new Outcome(UUID.randomUUID(), "other", 20);
+        var event = drafted(id, source, target, other);
+        event.sealOutcome(target.outcomeId());
+
+        event.applyShift(new ProbabilityShift.Swing(source.outcomeId(), target.outcomeId()), 30, 0, 90);
+
+        assertThat(byId(event, source.outcomeId())).isEqualTo(50);
+        assertThat(byId(event, target.outcomeId())).isEqualTo(30);
+        assertThat(event.sealBreach()).isTrue();
+    }
+
+    @Test
+    void applyShift_unaffectedOutcomeSealFlagSurvivesAnUnrelatedShift() {
+        // Regression: replaceProbabilities must preserve sealed/annihilated flags on outcomes it rewrites
+        // the probability of, not just the outcome the shift directly targeted.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(b.outcomeId());
+
+        event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        assertThat(event.outcomes().stream()
+                        .filter(o -> o.outcomeId().equals(b.outcomeId()))
+                        .findFirst()
+                        .orElseThrow()
+                        .sealed())
+                .isTrue();
+        assertThat(event.sealBreach()).isFalse();
+    }
+
+    @Test
+    void replay_reconstructsSealedAnnihilatedAndSealBreachState() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var drafted = new FutureEventDrafted(id, List.of(a, b, c));
+        var sealed = new OutcomeSealed(id, List.of(new Outcome(a.outcomeId(), "a", 50, true, false), b, c));
+        var breach = new SealBreachRecorded(id);
+        var annihilated = new OutcomeAnnihilated(
+                id,
+                List.of(
+                        new Outcome(a.outcomeId(), "a", 50, true, false),
+                        new Outcome(b.outcomeId(), "b", 30, false, true),
+                        c));
+
+        var event = FutureEvent.replay(id, List.of(drafted, sealed, breach, annihilated));
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
+        assertThat(event.outcomes().stream()
+                        .filter(o -> o.outcomeId().equals(a.outcomeId()))
+                        .findFirst()
+                        .orElseThrow()
+                        .sealed())
+                .isTrue();
+        assertThat(event.outcomes().stream()
+                        .filter(o -> o.outcomeId().equals(b.outcomeId()))
+                        .findFirst()
+                        .orElseThrow()
+                        .annihilated())
+                .isTrue();
+        assertThat(event.sealBreach()).isTrue();
+        assertThat(event.resolved()).isFalse();
     }
 
     private static int byId(FutureEvent event, UUID outcomeId) {

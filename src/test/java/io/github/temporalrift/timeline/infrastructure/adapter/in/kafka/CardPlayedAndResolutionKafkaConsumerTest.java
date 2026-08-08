@@ -25,7 +25,10 @@ import tools.jackson.databind.json.JsonMapper;
 import io.github.temporalrift.timeline.application.port.in.ApplyProbabilityShiftUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayCardModifierUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayCardModifierUseCase.CardModifier;
+import io.github.temporalrift.timeline.application.port.in.PlaySpecialActionUseCase;
+import io.github.temporalrift.timeline.application.port.in.PlaySpecialActionUseCase.SpecialAction;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
+import io.github.temporalrift.timeline.application.port.in.ResolvePendingCorruptUseCase;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
@@ -34,6 +37,10 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
     private static final String CARD_PLAYED_EVENT_TYPE = "CardPlayed";
     private static final String CARD_PLAYED_CONSUMER = "futureevent.card-played";
+    private static final String SPECIAL_ACTION_PLAYED_EVENT_TYPE = "SpecialActionPlayed";
+    private static final String SPECIAL_ACTION_PLAYED_CONSUMER = "futureevent.special-action-played";
+    private static final String ACTION_ROUND_CLOSED_EVENT_TYPE = "ActionRoundClosed";
+    private static final String ACTION_ROUND_CLOSED_CONSUMER = "futureevent.action-round-closed";
     private static final String RESOLUTION_STARTED_EVENT_TYPE = "ResolutionStarted";
     private static final String RESOLUTION_STARTED_CONSUMER = "futureevent.resolution-started";
     private static final int ERA_NUMBER = 2;
@@ -47,6 +54,12 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
     @Mock
     PlayCardModifierUseCase playCardModifier;
+
+    @Mock
+    PlaySpecialActionUseCase playSpecialAction;
+
+    @Mock
+    ResolvePendingCorruptUseCase resolvePendingCorrupt;
 
     @Mock
     ResolveEraUseCase resolveEra;
@@ -75,6 +88,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                         eq(payload.gameId()),
                         eq(ERA_NUMBER),
                         eq(ROUND_NUMBER),
+                        eq(payload.playerId()),
                         eq(targetEventId),
                         shiftCaptor.capture());
         var shift = (ProbabilityShift.Push) shiftCaptor.getValue();
@@ -99,6 +113,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                         eq(payload.gameId()),
                         eq(ERA_NUMBER),
                         eq(ROUND_NUMBER),
+                        eq(payload.playerId()),
                         eq(targetEventId),
                         shiftCaptor.capture());
         var shift = (ProbabilityShift.Suppress) shiftCaptor.getValue();
@@ -124,6 +139,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                         eq(payload.gameId()),
                         eq(ERA_NUMBER),
                         eq(ROUND_NUMBER),
+                        eq(payload.playerId()),
                         eq(targetEventId),
                         shiftCaptor.capture());
         var shift = (ProbabilityShift.Swing) shiftCaptor.getValue();
@@ -141,7 +157,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
 
         then(playCardModifier).should().play(new CardModifier.Amplify(payload.gameId(), ERA_NUMBER, ROUND_NUMBER));
-        then(applyProbabilityShift).should(never()).apply(any(), anyInt(), anyInt(), any(), any());
+        then(applyProbabilityShift).should(never()).apply(any(), anyInt(), anyInt(), any(), any(), any());
     }
 
     @Test
@@ -211,7 +227,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         consumer.handle(KafkaTestMessages.withHeaders(
                 cardPlayed(UUID.randomUUID(), null, null, UUID.randomUUID()), eventId, CARD_PLAYED_EVENT_TYPE, 1));
 
-        then(applyProbabilityShift).should(never()).apply(any(), anyInt(), anyInt(), any(), any());
+        then(applyProbabilityShift).should(never()).apply(any(), anyInt(), anyInt(), any(), any(), any());
         then(playCardModifier).should(never()).play(any());
     }
 
@@ -224,7 +240,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         consumer.handle(KafkaTestMessages.withHeaders(
                 cardPlayed(UUID.randomUUID(), "PUSH", null, UUID.randomUUID()), eventId, CARD_PLAYED_EVENT_TYPE, 1));
 
-        then(applyProbabilityShift).should(never()).apply(any(), anyInt(), anyInt(), any(), any());
+        then(applyProbabilityShift).should(never()).apply(any(), anyInt(), anyInt(), any(), any(), any());
     }
 
     @Test
@@ -260,7 +276,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 cardPlayed(UUID.randomUUID(), "PUSH", null, UUID.randomUUID()), UUID.randomUUID(), "EraStarted", 1));
 
         then(processedEvents).should(never()).claim(any(), any());
-        then(applyProbabilityShift).should(never()).apply(any(), anyInt(), anyInt(), any(), any());
+        then(applyProbabilityShift).should(never()).apply(any(), anyInt(), anyInt(), any(), any(), any());
         then(resolveEra).should(never()).resolve(any(), anyInt());
     }
 
@@ -285,8 +301,119 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 new ResolutionStartedPayload(gameId, 1), resolutionEventId, RESOLUTION_STARTED_EVENT_TYPE, 1));
 
         var order = inOrder(applyProbabilityShift, resolveEra);
-        order.verify(applyProbabilityShift).apply(any(), anyInt(), anyInt(), eq(targetEventId), any());
+        order.verify(applyProbabilityShift).apply(any(), anyInt(), anyInt(), any(), eq(targetEventId), any());
         order.verify(resolveEra).resolve(eq(gameId), eq(1));
+    }
+
+    @Test
+    @DisplayName("SEAL — routed to PlaySpecialActionUseCase")
+    void handle_seal_playsSpecialAction() {
+        var eventId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var payload = specialActionPlayed("SEAL", targetEventId, targetOutcomeId, null);
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        then(playSpecialAction).should().play(new SpecialAction.Seal(targetEventId, targetOutcomeId));
+    }
+
+    @Test
+    @DisplayName("ANNIHILATE — routed to PlaySpecialActionUseCase")
+    void handle_annihilate_playsSpecialAction() {
+        var eventId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var payload = specialActionPlayed("ANNIHILATE", targetEventId, targetOutcomeId, null);
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        then(playSpecialAction).should().play(new SpecialAction.Annihilate(targetEventId, targetOutcomeId));
+    }
+
+    @Test
+    @DisplayName("CORRUPT — routed to PlaySpecialActionUseCase with the target player, no event/outcome required")
+    void handle_corrupt_playsSpecialAction() {
+        var eventId = UUID.randomUUID();
+        var targetPlayerId = UUID.randomUUID();
+        var payload = specialActionPlayed("CORRUPT", null, null, targetPlayerId);
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        then(playSpecialAction)
+                .should()
+                .play(new SpecialAction.Corrupt(payload.gameId(), ERA_NUMBER, ROUND_NUMBER, targetPlayerId));
+    }
+
+    @Test
+    @DisplayName("unsupported specialAction — claimed but routed as a no-op")
+    void handle_unsupportedSpecialAction_playsNoOp() {
+        var eventId = UUID.randomUUID();
+        var payload = specialActionPlayed("FORESIGHT", UUID.randomUUID(), UUID.randomUUID(), null);
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        then(playSpecialAction).should().play(new SpecialAction.NoOp());
+    }
+
+    @Test
+    @DisplayName("SpecialActionPlayed duplicate eventId — no effect applied")
+    void handle_specialActionPlayedDuplicateEventId_ignored() {
+        var eventId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(false);
+
+        consumer.handle(KafkaTestMessages.withHeaders(
+                specialActionPlayed("SEAL", UUID.randomUUID(), UUID.randomUUID(), null),
+                eventId,
+                SPECIAL_ACTION_PLAYED_EVENT_TYPE,
+                1));
+
+        then(playSpecialAction).should(never()).play(any());
+    }
+
+    @Test
+    @DisplayName("ActionRoundClosed — triggers pending CORRUPT resolution for the envelope's round")
+    void handle_actionRoundClosed_resolvesPendingCorrupt() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, ACTION_ROUND_CLOSED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(
+                new ActionRoundClosedPayload(gameId, ERA_NUMBER, ROUND_NUMBER),
+                eventId,
+                ACTION_ROUND_CLOSED_EVENT_TYPE,
+                1));
+
+        then(resolvePendingCorrupt).should().resolve(gameId, ERA_NUMBER, ROUND_NUMBER);
+    }
+
+    @Test
+    @DisplayName("ActionRoundClosed duplicate eventId — no resolution triggered")
+    void handle_actionRoundClosedDuplicateEventId_ignored() {
+        var eventId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, ACTION_ROUND_CLOSED_CONSUMER)).willReturn(false);
+
+        consumer.handle(KafkaTestMessages.withHeaders(
+                new ActionRoundClosedPayload(UUID.randomUUID(), 1, 1), eventId, ACTION_ROUND_CLOSED_EVENT_TYPE, 1));
+
+        then(resolvePendingCorrupt).should(never()).resolve(any(), anyInt(), anyInt());
+    }
+
+    private static SpecialActionPlayedPayload specialActionPlayed(
+            String specialAction, UUID targetEventId, UUID targetOutcomeId, UUID targetPlayerId) {
+        return new SpecialActionPlayedPayload(
+                UUID.randomUUID(),
+                ERA_NUMBER,
+                ROUND_NUMBER,
+                UUID.randomUUID(),
+                specialAction,
+                targetEventId,
+                targetOutcomeId,
+                targetPlayerId);
     }
 
     private static CardPlayedPayload cardPlayed(

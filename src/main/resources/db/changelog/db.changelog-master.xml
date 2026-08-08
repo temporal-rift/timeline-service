@@ -17,5 +17,7 @@
     <include file="db/changelog/roundeffect/001-create-round-last-card.xml"/>
     <include file="db/changelog/roundeffect/002-create-round-amplify-pending.xml"/>
     <include file="db/changelog/roundeffect/003-create-round-event-last-shift.xml"/>
+    <include file="db/changelog/roundeffect/004-create-round-pending-corrupt.xml"/>
+    <include file="db/changelog/roundeffect/005-create-round-card-by-player.xml"/>
 
 </databaseChangeLog>

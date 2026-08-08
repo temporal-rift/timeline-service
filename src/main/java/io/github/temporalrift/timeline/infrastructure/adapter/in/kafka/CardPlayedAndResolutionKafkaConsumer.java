@@ -11,19 +11,24 @@ import tools.jackson.databind.ObjectMapper;
 import io.github.temporalrift.timeline.application.port.in.ApplyProbabilityShiftUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayCardModifierUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayCardModifierUseCase.CardModifier;
+import io.github.temporalrift.timeline.application.port.in.PlaySpecialActionUseCase;
+import io.github.temporalrift.timeline.application.port.in.PlaySpecialActionUseCase.SpecialAction;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
+import io.github.temporalrift.timeline.application.port.in.ResolvePendingCorruptUseCase;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 /**
- * Consumes {@code CardPlayed} and {@code ResolutionStarted} from {@code game.events} in one Kafka
- * consumer group (design.md Decision 1/3, revised after PR #25 review): a single
- * {@code @KafkaListener} reading one assigned partition processes records strictly in the order
- * {@code game-service} produced them, so every accepted card's effect for an era is durably applied
- * before that era's {@code ResolutionStarted} is handled. Splitting these into two independent
- * consumer groups (the original design) let a lagging card consumer be overtaken by the resolution
- * consumer — reachable in practice (consumer rebalance, GC pause, retry), not just theoretical —
- * silently losing the card's effect.
+ * Consumes {@code CardPlayed}, {@code SpecialActionPlayed}, {@code ActionRoundClosed}, and
+ * {@code ResolutionStarted} from {@code game.events} in one Kafka consumer group (design.md Decision 1/3 of
+ * timeline-mvp4-card-modifiers, revised after PR #25 review; extended by timeline-mvp5-faction-specials
+ * Decision 2): a single {@code @KafkaListener} reading one assigned partition processes records strictly in
+ * the order {@code game-service} produced them, so a round's {@code CardPlayed}/{@code SpecialActionPlayed}
+ * effects are durably applied before that round's {@code ActionRoundClosed} resolves any pending
+ * {@code CORRUPT}, and every era's card/special effects are applied before that era's
+ * {@code ResolutionStarted} is handled. Splitting these into independent consumer groups would let a
+ * lagging one be overtaken by a faster one — reachable in practice (consumer rebalance, GC pause, retry),
+ * not just theoretical — silently losing or misordering an effect.
  */
 @Component
 class CardPlayedAndResolutionKafkaConsumer {
@@ -31,12 +36,18 @@ class CardPlayedAndResolutionKafkaConsumer {
     private static final String GROUP_ID = "timeline-service.futureevent.card-played-and-resolution";
     private static final GameEventIngestion.Spec CARD_PLAYED_SPEC =
             new GameEventIngestion.Spec("CardPlayed", "futureevent.card-played", 1);
+    private static final GameEventIngestion.Spec SPECIAL_ACTION_PLAYED_SPEC =
+            new GameEventIngestion.Spec("SpecialActionPlayed", "futureevent.special-action-played", 1);
+    private static final GameEventIngestion.Spec ACTION_ROUND_CLOSED_SPEC =
+            new GameEventIngestion.Spec("ActionRoundClosed", "futureevent.action-round-closed", 1);
     private static final GameEventIngestion.Spec RESOLUTION_STARTED_SPEC =
             new GameEventIngestion.Spec("ResolutionStarted", "futureevent.resolution-started", 1);
 
     private final ProcessedEventPort processedEvents;
     private final ApplyProbabilityShiftUseCase applyProbabilityShift;
     private final PlayCardModifierUseCase playCardModifier;
+    private final PlaySpecialActionUseCase playSpecialAction;
+    private final ResolvePendingCorruptUseCase resolvePendingCorrupt;
     private final ResolveEraUseCase resolveEra;
     private final ObjectMapper objectMapper;
 
@@ -44,11 +55,15 @@ class CardPlayedAndResolutionKafkaConsumer {
             ProcessedEventPort processedEvents,
             ApplyProbabilityShiftUseCase applyProbabilityShift,
             PlayCardModifierUseCase playCardModifier,
+            PlaySpecialActionUseCase playSpecialAction,
+            ResolvePendingCorruptUseCase resolvePendingCorrupt,
             ResolveEraUseCase resolveEra,
             ObjectMapper objectMapper) {
         this.processedEvents = processedEvents;
         this.applyProbabilityShift = applyProbabilityShift;
         this.playCardModifier = playCardModifier;
+        this.playSpecialAction = playSpecialAction;
+        this.resolvePendingCorrupt = resolvePendingCorrupt;
         this.resolveEra = resolveEra;
         this.objectMapper = objectMapper;
     }
@@ -60,6 +75,18 @@ class CardPlayedAndResolutionKafkaConsumer {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), CardPlayedPayload.class);
             handleCardPlayed(payload);
         });
+        GameEventIngestion.accept(message, SPECIAL_ACTION_PLAYED_SPEC, processedEvents)
+                .ifPresent(envelope -> {
+                    var payload = GameEventPayloads.read(
+                            objectMapper, message.getPayload(), SpecialActionPlayedPayload.class);
+                    playSpecialAction.play(toSpecialAction(payload));
+                });
+        GameEventIngestion.accept(message, ACTION_ROUND_CLOSED_SPEC, processedEvents)
+                .ifPresent(envelope -> {
+                    var payload =
+                            GameEventPayloads.read(objectMapper, message.getPayload(), ActionRoundClosedPayload.class);
+                    resolvePendingCorrupt.resolve(payload.gameId(), payload.eraNumber(), payload.roundNumber());
+                });
         GameEventIngestion.accept(message, RESOLUTION_STARTED_SPEC, processedEvents)
                 .ifPresent(envelope -> {
                     var payload =
@@ -75,6 +102,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                         payload.gameId(),
                         payload.eraNumber(),
                         payload.roundNumber(),
+                        payload.playerId(),
                         payload.targetEventId(),
                         new ProbabilityShift.Push(payload.targetOutcomeId()));
             case "SUPPRESS" ->
@@ -82,6 +110,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                         payload.gameId(),
                         payload.eraNumber(),
                         payload.roundNumber(),
+                        payload.playerId(),
                         payload.targetEventId(),
                         new ProbabilityShift.Suppress(payload.targetOutcomeId()));
             case "SWING" ->
@@ -89,6 +118,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                         payload.gameId(),
                         payload.eraNumber(),
                         payload.roundNumber(),
+                        payload.playerId(),
                         payload.targetEventId(),
                         new ProbabilityShift.Swing(payload.sourceOutcomeId(), payload.targetOutcomeId()));
             case "AMPLIFY" ->
@@ -114,5 +144,16 @@ class CardPlayedAndResolutionKafkaConsumer {
                 // Unknown/future cardType: eventId already claimed by GameEventIngestion, no effect this slice.
             }
         }
+    }
+
+    private static SpecialAction toSpecialAction(SpecialActionPlayedPayload payload) {
+        return switch (payload.specialAction()) {
+            case "SEAL" -> new SpecialAction.Seal(payload.targetEventId(), payload.targetOutcomeId());
+            case "ANNIHILATE" -> new SpecialAction.Annihilate(payload.targetEventId(), payload.targetOutcomeId());
+            case "CORRUPT" ->
+                new SpecialAction.Corrupt(
+                        payload.gameId(), payload.eraNumber(), payload.roundNumber(), payload.targetPlayerId());
+            case null, default -> new SpecialAction.NoOp();
+        };
     }
 }

@@ -1,6 +1,8 @@
 package io.github.temporalrift.timeline.application.command;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -26,6 +28,7 @@ import io.github.temporalrift.timeline.domain.port.out.EventLastShiftPort.EventS
 import io.github.temporalrift.timeline.domain.port.out.EventLastShiftPort.EventShift.ShiftType;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
+import io.github.temporalrift.timeline.domain.port.out.RoundCardByPlayerPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundLastCardPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundLastCardPort.LastCard;
 import io.github.temporalrift.timeline.domain.port.out.RoundLastCardPort.LastCard.EffectKind;
@@ -36,6 +39,7 @@ class ApplyProbabilityShiftCommandHandlerTest {
     private static final UUID GAME_ID = UUID.randomUUID();
     private static final int ERA_NUMBER = 1;
     private static final int ROUND_NUMBER = 1;
+    private static final UUID PLAYER_ID = UUID.randomUUID();
 
     @Mock
     FutureEventRepository futureEvents;
@@ -52,12 +56,15 @@ class ApplyProbabilityShiftCommandHandlerTest {
     @Mock
     EventLastShiftPort eventLastShift;
 
+    @Mock
+    RoundCardByPlayerPort roundCardByPlayer;
+
     private ApplyProbabilityShiftCommandHandler handler;
 
     @BeforeEach
     void setUp() {
         handler = new ApplyProbabilityShiftCommandHandler(
-                futureEvents, rules, amplifyState, roundLastCard, eventLastShift);
+                futureEvents, rules, amplifyState, roundLastCard, eventLastShift, roundCardByPlayer);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
     }
@@ -74,7 +81,7 @@ class ApplyProbabilityShiftCommandHandlerTest {
         given(rules.suppressShift()).willReturn(-10);
         given(amplifyState.isPending(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(true);
 
-        handler.apply(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, new ProbabilityShift.Suppress(target));
+        handler.apply(GAME_ID, ERA_NUMBER, ROUND_NUMBER, PLAYER_ID, eventId, new ProbabilityShift.Suppress(target));
 
         // -10 configured, doubled to -20 by the armed AMPLIFY
         assertThat(probabilityOf(futureEvent, target)).isEqualTo(30);
@@ -99,7 +106,7 @@ class ApplyProbabilityShiftCommandHandlerTest {
         given(rules.pushShift()).willReturn(20);
         given(amplifyState.isPending(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(false);
 
-        handler.apply(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, new ProbabilityShift.Push(target));
+        handler.apply(GAME_ID, ERA_NUMBER, ROUND_NUMBER, PLAYER_ID, eventId, new ProbabilityShift.Push(target));
 
         assertThat(probabilityOf(futureEvent, target)).isEqualTo(70);
         then(amplifyState).should(never()).clear(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
@@ -116,11 +123,54 @@ class ApplyProbabilityShiftCommandHandlerTest {
         given(rules.pushShift()).willReturn(20);
         given(amplifyState.isPending(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(false);
 
-        handler.apply(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId, new ProbabilityShift.Push(target));
+        handler.apply(GAME_ID, ERA_NUMBER, ROUND_NUMBER, PLAYER_ID, eventId, new ProbabilityShift.Push(target));
 
         then(roundLastCard)
                 .should()
                 .save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.EVENT_EFFECT, eventId));
+    }
+
+    @Test
+    void apply_recordsRoundCardByPlayerForCorrelation() {
+        var eventId = UUID.randomUUID();
+        var target = UUID.randomUUID();
+        var other1 = UUID.randomUUID();
+        var other2 = UUID.randomUUID();
+        var futureEvent = draftedFutureEvent(eventId, target, 50, other1, 30, other2, 20);
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift()).willReturn(20);
+        given(amplifyState.isPending(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(false);
+
+        handler.apply(GAME_ID, ERA_NUMBER, ROUND_NUMBER, PLAYER_ID, eventId, new ProbabilityShift.Push(target));
+
+        var cardCaptor = ArgumentCaptor.forClass(RoundCardByPlayerPort.PlayerCard.class);
+        then(roundCardByPlayer)
+                .should()
+                .save(eq(GAME_ID), eq(ERA_NUMBER), eq(ROUND_NUMBER), eq(PLAYER_ID), cardCaptor.capture());
+        assertThat(cardCaptor.getValue().futureEventId()).isEqualTo(eventId);
+        assertThat(cardCaptor.getValue().shiftType()).isEqualTo(ShiftType.PUSH);
+        assertThat(cardCaptor.getValue().targetOutcomeId()).isEqualTo(target);
+        assertThat(cardCaptor.getValue().magnitude()).isEqualTo(20);
+    }
+
+    @Test
+    void apply_targetOutcomeSealed_recordsNoOpAndSkipsCorrelationBookkeeping() {
+        var eventId = UUID.randomUUID();
+        var target = UUID.randomUUID();
+        var other1 = UUID.randomUUID();
+        var other2 = UUID.randomUUID();
+        var futureEvent = draftedFutureEvent(eventId, target, 50, other1, 30, other2, 20);
+        futureEvent.sealOutcome(target);
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift()).willReturn(20);
+        given(amplifyState.isPending(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(false);
+
+        handler.apply(GAME_ID, ERA_NUMBER, ROUND_NUMBER, PLAYER_ID, eventId, new ProbabilityShift.Push(target));
+
+        assertThat(probabilityOf(futureEvent, target)).isEqualTo(50);
+        then(roundLastCard).should().save(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
+        then(eventLastShift).should(never()).save(any(), anyInt(), anyInt(), any(), any());
+        then(roundCardByPlayer).should(never()).save(any(), anyInt(), anyInt(), any(), any());
     }
 
     private static FutureEvent draftedFutureEvent(

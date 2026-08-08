@@ -9,8 +9,11 @@ import java.util.UUID;
 import io.github.temporalrift.timeline.domain.event.EventStalled;
 import io.github.temporalrift.timeline.domain.event.EventUnstalled;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
+import io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
+import io.github.temporalrift.timeline.domain.event.OutcomeSealed;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
+import io.github.temporalrift.timeline.domain.event.SealBreachRecorded;
 
 /**
  * Event-sourced aggregate for a single drawn event. Rebuilt by {@link #replay(UUID, List)}, never loaded
@@ -22,12 +25,14 @@ public final class FutureEvent {
     private List<Outcome> outcomes;
     private boolean resolved;
     private boolean stalled;
+    private boolean sealBreach;
 
-    private FutureEvent(UUID id, List<Outcome> outcomes, boolean resolved, boolean stalled) {
+    private FutureEvent(UUID id, List<Outcome> outcomes, boolean resolved, boolean stalled, boolean sealBreach) {
         this.id = id;
         this.outcomes = outcomes;
         this.resolved = resolved;
         this.stalled = stalled;
+        this.sealBreach = sealBreach;
     }
 
     /** Rebuilds this aggregate by replaying its domain-event stream in order. */
@@ -40,16 +45,24 @@ public final class FutureEvent {
             if ((event instanceof OutcomeApplied
                             || event instanceof ProbabilityShifted
                             || event instanceof EventStalled
-                            || event instanceof EventUnstalled)
+                            || event instanceof EventUnstalled
+                            || event instanceof OutcomeSealed
+                            || event instanceof OutcomeAnnihilated
+                            || event instanceof SealBreachRecorded)
                     && (state == null || state.resolved())) {
                 throw new IllegalStateException("Event replayed outside the drafted and unresolved state for " + id);
             }
             state = switch (event) {
-                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), false, false);
-                case OutcomeApplied e -> new FutureEvent(id, e.finalOutcomes(), true, false);
-                case ProbabilityShifted e -> new FutureEvent(id, e.outcomes(), false, state.stalled());
-                case EventStalled e -> new FutureEvent(id, state.outcomes(), false, true);
-                case EventUnstalled e -> new FutureEvent(id, state.outcomes(), false, false);
+                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), false, false, false);
+                case OutcomeApplied e -> new FutureEvent(id, e.finalOutcomes(), true, false, state.sealBreach());
+                case ProbabilityShifted e ->
+                    new FutureEvent(id, e.outcomes(), false, state.stalled(), state.sealBreach());
+                case EventStalled e -> new FutureEvent(id, state.outcomes(), false, true, state.sealBreach());
+                case EventUnstalled e -> new FutureEvent(id, state.outcomes(), false, false, state.sealBreach());
+                case OutcomeSealed e -> new FutureEvent(id, e.outcomes(), false, state.stalled(), state.sealBreach());
+                case OutcomeAnnihilated e ->
+                    new FutureEvent(id, e.outcomes(), false, state.stalled(), state.sealBreach());
+                case SealBreachRecorded e -> new FutureEvent(id, state.outcomes(), false, state.stalled(), true);
                 default -> throw new IllegalArgumentException("Unknown FutureEvent domain event: " + event.getClass());
             };
         }
@@ -81,8 +94,10 @@ public final class FutureEvent {
     }
 
     /**
-     * Resolves this event by selecting the highest-probability outcome, tie-broken by the smallest
-     * {@code outcomeId} (natural UUID ordering) — no card, special-action, or paradox logic.
+     * Resolves this event by selecting the highest-probability outcome among its non-annihilated outcomes,
+     * tie-broken by the smallest {@code outcomeId} (natural UUID ordering) — no card or paradox logic beyond
+     * honoring an {@code ANNIHILATE} special's exclusion (GDD §2.2: an annihilated outcome cannot win
+     * regardless of probability).
      */
     public OutcomeApplied resolve(UUID gameId, int eraNumber) {
         if (resolved) {
@@ -92,9 +107,10 @@ public final class FutureEvent {
             throw new FutureEventStalledException(id);
         }
         var winner = outcomes.stream()
+                .filter(o -> !o.annihilated())
                 .max(Comparator.comparingInt(Outcome::probability)
                         .thenComparing(Comparator.comparing(Outcome::outcomeId).reversed()))
-                .orElseThrow(() -> new IllegalStateException("FutureEvent " + id + " has no outcomes"));
+                .orElseThrow(() -> new IllegalStateException("FutureEvent " + id + " has no eligible outcomes"));
         var event = new OutcomeApplied(gameId, eraNumber, id, winner.outcomeId(), outcomes);
         this.outcomes = event.finalOutcomes();
         this.resolved = true;
@@ -106,21 +122,89 @@ public final class FutureEvent {
      * redistribution for single-outcome shifts). {@code magnitude} is the configured shift for the given
      * {@link ProbabilityShift} variant, resolved by the caller via {@code ProbabilityRulesPort} — this
      * aggregate stays free of any config/port coupling.
+     *
+     * <p>Returns a {@link ProbabilityShifted} when the shift applied, or a {@link SealBreachRecorded} when
+     * it targeted a sealed outcome instead (faction-specials capability) — {@code Object} because callers
+     * only need to persist whichever fact resulted, mirroring {@code FutureEventRepository#append}'s own
+     * {@code Object} domain-event parameter.
      */
-    public ProbabilityShifted applyShift(ProbabilityShift shift, int magnitude, int floor, int ceiling) {
+    public Object applyShift(ProbabilityShift shift, int magnitude, int floor, int ceiling) {
         if (resolved) {
             throw new FutureEventAlreadyResolvedException(id);
         }
-        var shiftedOutcomes =
-                switch (shift) {
-                    case ProbabilityShift.Push p -> shiftSingle(p.targetOutcomeId(), magnitude, floor, ceiling);
-                    case ProbabilityShift.Suppress s -> shiftSingle(s.targetOutcomeId(), magnitude, floor, ceiling);
-                    case ProbabilityShift.Swing sw ->
-                        swing(sw.sourceOutcomeId(), sw.targetOutcomeId(), magnitude, floor, ceiling);
-                    case ProbabilityShift.Restore r -> replaceProbabilities(r.targetProbabilities());
-                };
+        return switch (shift) {
+            case ProbabilityShift.Push p -> shiftSingleOrBreach(p.targetOutcomeId(), magnitude, floor, ceiling);
+            case ProbabilityShift.Suppress s -> shiftSingleOrBreach(s.targetOutcomeId(), magnitude, floor, ceiling);
+            case ProbabilityShift.Swing sw ->
+                swingOrBreach(sw.sourceOutcomeId(), sw.targetOutcomeId(), magnitude, floor, ceiling);
+            case ProbabilityShift.Restore r -> {
+                var shiftedOutcomes = replaceProbabilities(r.targetProbabilities());
+                var event = new ProbabilityShifted(id, shiftedOutcomes);
+                this.outcomes = shiftedOutcomes;
+                yield event;
+            }
+        };
+    }
+
+    private Object shiftSingleOrBreach(UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
+        if (outcomeById(targetOutcomeId).sealed()) {
+            return recordSealBreach();
+        }
+        var shiftedOutcomes = shiftSingle(targetOutcomeId, magnitude, floor, ceiling);
         var event = new ProbabilityShifted(id, shiftedOutcomes);
         this.outcomes = shiftedOutcomes;
+        return event;
+    }
+
+    private Object swingOrBreach(UUID sourceOutcomeId, UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
+        if (Objects.equals(sourceOutcomeId, targetOutcomeId)) {
+            throw new IllegalArgumentException("SWING requires distinct source and target outcomes");
+        }
+        var source = outcomeById(sourceOutcomeId);
+        var target = outcomeById(targetOutcomeId);
+        if (source.sealed() || target.sealed()) {
+            return recordSealBreach();
+        }
+        var shiftedOutcomes = swing(sourceOutcomeId, targetOutcomeId, magnitude, floor, ceiling);
+        var event = new ProbabilityShifted(id, shiftedOutcomes);
+        this.outcomes = shiftedOutcomes;
+        return event;
+    }
+
+    private SealBreachRecorded recordSealBreach() {
+        this.sealBreach = true;
+        return new SealBreachRecorded(id);
+    }
+
+    /** Locks {@code outcomeId} ({@code SEAL}); a later shift against it records a breach instead of applying. */
+    public OutcomeSealed sealOutcome(UUID outcomeId) {
+        if (resolved) {
+            throw new FutureEventAlreadyResolvedException(id);
+        }
+        outcomeById(outcomeId);
+        var updated = outcomes.stream()
+                .map(o -> o.outcomeId().equals(outcomeId)
+                        ? new Outcome(o.outcomeId(), o.description(), o.probability(), true, o.annihilated())
+                        : o)
+                .toList();
+        var event = new OutcomeSealed(id, updated);
+        this.outcomes = updated;
+        return event;
+    }
+
+    /** Marks {@code outcomeId} annihilated ({@code ANNIHILATE}); it can never win this event's resolution. */
+    public OutcomeAnnihilated annihilateOutcome(UUID outcomeId) {
+        if (resolved) {
+            throw new FutureEventAlreadyResolvedException(id);
+        }
+        outcomeById(outcomeId);
+        var updated = outcomes.stream()
+                .map(o -> o.outcomeId().equals(outcomeId)
+                        ? new Outcome(o.outcomeId(), o.description(), o.probability(), o.sealed(), true)
+                        : o)
+                .toList();
+        var event = new OutcomeAnnihilated(id, updated);
+        this.outcomes = updated;
         return event;
     }
 
@@ -181,7 +265,11 @@ public final class FutureEvent {
     private List<Outcome> replaceProbabilities(Map<UUID, Integer> newProbabilities) {
         return outcomes.stream()
                 .map(o -> new Outcome(
-                        o.outcomeId(), o.description(), newProbabilities.getOrDefault(o.outcomeId(), o.probability())))
+                        o.outcomeId(),
+                        o.description(),
+                        newProbabilities.getOrDefault(o.outcomeId(), o.probability()),
+                        o.sealed(),
+                        o.annihilated()))
                 .toList();
     }
 
@@ -217,6 +305,10 @@ public final class FutureEvent {
 
     public boolean stalled() {
         return stalled;
+    }
+
+    public boolean sealBreach() {
+        return sealBreach;
     }
 
     public List<Outcome> outcomes() {
