@@ -293,7 +293,7 @@ class ResolutionWalkingSkeletonIT {
                         gameId,
                         "eraNumber",
                         eraNumber,
-                        "cascadedEventIds",
+                        "carryOverEventIds",
                         List.of(),
                         "playerIds",
                         List.of()));
@@ -321,8 +321,8 @@ class ResolutionWalkingSkeletonIT {
                                 futureEventId,
                                 "title",
                                 "Test Future Event",
-                                "isCascaded",
-                                false,
+                                "carryOverState",
+                                "FRESH",
                                 "outcomes",
                                 List.of(
                                         Map.of(
@@ -365,8 +365,8 @@ class ResolutionWalkingSkeletonIT {
                                 futureEventId,
                                 "title",
                                 "Test Future Event",
-                                "isCascaded",
-                                false,
+                                "carryOverState",
+                                "FRESH",
                                 "outcomes",
                                 List.of(
                                         Map.of(
