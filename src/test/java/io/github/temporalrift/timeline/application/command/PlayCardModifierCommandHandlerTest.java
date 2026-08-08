@@ -268,6 +268,41 @@ class PlayCardModifierCommandHandlerTest {
     }
 
     @Test
+    void stall_alreadyStalled_isNoOpAndRecordsRoundLastCardAsNoOp() {
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var futureEvent = draftedFutureEvent(eventId, outcomeId, 100);
+        futureEvent.markStalled();
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+
+        handler.play(new CardModifier.Stall(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId));
+
+        then(futureEvents).should(never()).append(any(), any());
+        then(roundLastCard).should().record(GAME_ID, ERA_NUMBER, ROUND_NUMBER, new LastCard(EffectKind.NOOP, null));
+    }
+
+    @Test
+    void nullify_afterRepeatedStall_leavesEventStalledBecauseEarlierStallStillApplies() {
+        // A second STALL on an already-stalled event changes nothing, so NULLIFY targeting it must cancel
+        // only that ineffective card, not the earlier STALL that's still doing the work.
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var futureEvent = draftedFutureEvent(eventId, outcomeId, 100);
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+
+        handler.play(new CardModifier.Stall(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId));
+        handler.play(new CardModifier.Stall(GAME_ID, ERA_NUMBER, ROUND_NUMBER, eventId));
+
+        // The second (ineffective) STALL is what round_last_card holds when NULLIFY reads it.
+        given(roundLastCard.find(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(Optional.of(new LastCard(EffectKind.NOOP, null)));
+
+        handler.play(new CardModifier.Nullify(GAME_ID, ERA_NUMBER, ROUND_NUMBER));
+
+        assertThat(futureEvent.stalled()).isTrue();
+    }
+
+    @Test
     void noOp_recordsLastCardAsNoOpWithoutTouchingAnyFutureEvent() {
         handler.play(new CardModifier.NoOp(GAME_ID, ERA_NUMBER, ROUND_NUMBER));
 
