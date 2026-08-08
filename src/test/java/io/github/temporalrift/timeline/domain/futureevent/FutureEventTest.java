@@ -409,6 +409,51 @@ class FutureEventTest {
     }
 
     @Test
+    void applyShift_restore_conflictingWithNowSealedOutcome_declinesEntirely() {
+        // The snapshot predates a SEAL cast on b afterward, at a different value than the snapshot holds.
+        // Restoring verbatim would silently overwrite b's frozen probability, so the whole restore must be
+        // declined rather than partially rebuilding a/c around a value it isn't allowed to touch.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 70);
+        var b = new Outcome(UUID.randomUUID(), "b", 18);
+        var c = new Outcome(UUID.randomUUID(), "c", 12);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(b.outcomeId());
+
+        event.applyShift(
+                new ProbabilityShift.Restore(Map.of(a.outcomeId(), 50, b.outcomeId(), 30, c.outcomeId(), 20)),
+                0,
+                0,
+                90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(70);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(18);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(12);
+    }
+
+    @Test
+    void applyShift_restore_consistentWithSealedOutcomesValue_stillApplies() {
+        // b is sealed but the snapshot's value for b matches its current (frozen) value exactly, so
+        // restoring a/c around it is safe — this is a no-op for b either way.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 70);
+        var b = new Outcome(UUID.randomUUID(), "b", 18);
+        var c = new Outcome(UUID.randomUUID(), "c", 12);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(b.outcomeId());
+
+        event.applyShift(
+                new ProbabilityShift.Restore(Map.of(a.outcomeId(), 50, b.outcomeId(), 18, c.outcomeId(), 32)),
+                0,
+                0,
+                90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(18);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(32);
+    }
+
+    @Test
     void resolve_annihilatedOutcome_excludedEvenAtHighestProbability() {
         var id = UUID.randomUUID();
         var highest = new Outcome(UUID.randomUUID(), "highest", 45);
@@ -561,6 +606,52 @@ class FutureEventTest {
 
         assertThat(byId(event, source.outcomeId())).isEqualTo(50);
         assertThat(byId(event, target.outcomeId())).isEqualTo(30);
+        assertThat(event.sealBreach()).isTrue();
+    }
+
+    @Test
+    void applyShift_push_oneOfTheOtherOutcomesSealed_freeOutcomeAbsorbsAllRedistribution() {
+        // Regression: PUSH's proportional redistribution must not touch a sealed outcome even when it is
+        // neither the shift's target nor source — b is sealed here, only c may absorb a's movement.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(b.outcomeId());
+
+        event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(70);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(30);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(0);
+        assertThat(event.outcomes().stream()
+                        .filter(o -> o.outcomeId().equals(b.outcomeId()))
+                        .findFirst()
+                        .orElseThrow()
+                        .sealed())
+                .isTrue();
+        assertThat(event.sealBreach()).isFalse();
+    }
+
+    @Test
+    void applyShift_push_bothOtherOutcomesSealed_setsSealBreachWithoutChangingProbability() {
+        // Neither of the two non-target outcomes can absorb the redistribution, so the PUSH cannot apply
+        // at all without touching a sealed outcome — this is itself a breach, on the sealed neighbors.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(b.outcomeId());
+        event.sealOutcome(c.outcomeId());
+
+        var result = event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        assertThat(result).isInstanceOf(SealBreachRecorded.class);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(30);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(20);
         assertThat(event.sealBreach()).isTrue();
     }
 
