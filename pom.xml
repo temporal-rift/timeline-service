@@ -54,7 +54,7 @@
         <sonar.exclusions>**/generated-sources/**/*</sonar.exclusions>
         <sonar.coverage.exclusions>**/generated-sources/**/*</sonar.coverage.exclusions>
 
-        <timeline-event.version>1.0.4</timeline-event.version>
+        <timeline-event.version>1.0.5</timeline-event.version>
         <archunit-junit5.version>1.4.2</archunit-junit5.version>
     </properties>
 

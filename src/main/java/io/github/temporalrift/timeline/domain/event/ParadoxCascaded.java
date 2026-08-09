@@ -11,9 +11,15 @@ import io.github.temporalrift.timeline.domain.futureevent.Outcome;
  * era's resolution. Not event-sourced, built and published by {@code ParadoxResolutionSaga}.
  */
 public record ParadoxCascaded(
-        UUID gameId, int eraNumber, UUID paradoxId, UUID affectedEventId, List<Outcome> carryForwardProbabilityState) {
+        UUID gameId,
+        int eraNumber,
+        UUID paradoxId,
+        UUID affectedEventId,
+        List<Outcome> carryForwardProbabilityState,
+        List<UUID> detonatedByPlayerIds) {
 
     public ParadoxCascaded {
         carryForwardProbabilityState = List.copyOf(carryForwardProbabilityState);
+        detonatedByPlayerIds = List.copyOf(detonatedByPlayerIds);
     }
 }

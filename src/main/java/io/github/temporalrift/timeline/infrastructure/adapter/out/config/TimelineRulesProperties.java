@@ -3,12 +3,14 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
+import io.github.temporalrift.timeline.domain.port.out.ProbabilityBandRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 
 @ConfigurationProperties("game.rules.probability")
 @Validated
-public record TimelineRulesProperties(int pushShift, int suppressShift, int swingShift, int floor, int ceiling)
-        implements ProbabilityRulesPort {
+public record TimelineRulesProperties(
+        int pushShift, int suppressShift, int swingShift, int floor, int ceiling, int bandLowMax, int bandMediumMax)
+        implements ProbabilityRulesPort, ProbabilityBandRulesPort {
 
     public TimelineRulesProperties {
         if (floor < 0 || ceiling > 100 || floor > ceiling) {
@@ -32,6 +34,10 @@ public record TimelineRulesProperties(int pushShift, int suppressShift, int swin
         }
         if (swingShift <= 0) {
             throw new IllegalArgumentException("game.rules.probability.swing-shift must be positive");
+        }
+        if (bandLowMax < 0 || bandMediumMax <= bandLowMax || bandMediumMax > 100) {
+            throw new IllegalArgumentException("game.rules.probability band-low-max/band-medium-max must satisfy "
+                    + "0 <= band-low-max < band-medium-max <= 100");
         }
     }
 
@@ -58,5 +64,15 @@ public record TimelineRulesProperties(int pushShift, int suppressShift, int swin
     @Override
     public int probabilityCeiling() {
         return ceiling;
+    }
+
+    @Override
+    public int bandLowMax() {
+        return bandLowMax;
+    }
+
+    @Override
+    public int bandMediumMax() {
+        return bandMediumMax;
     }
 }

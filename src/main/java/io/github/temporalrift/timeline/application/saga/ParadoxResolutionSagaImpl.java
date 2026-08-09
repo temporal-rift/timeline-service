@@ -251,9 +251,18 @@ class ParadoxResolutionSagaImpl {
                 .toList();
         var revealIndex = eventPendingParadoxes.getFirst().revealIndex();
         var futureEvent = futureEvents.findById(affectedEventId);
-        var freshParadoxes = ParadoxDetector.detect(futureEvent.outcomes(), futureEvent.sealBreach());
 
-        var allResolved = freshParadoxes.isEmpty();
+        // STABILIZE(affectedEventId) suppresses paradox re-detection entirely for this event — every
+        // originally pending finding resolves regardless of what fresh detection on the post-close state
+        // would otherwise find (GDD: "prevent a paradox from triggering", stronger than clearing only the
+        // originally-tracked finding). No fresh detection is even run in that case.
+        boolean stabilized = phase.submissions().stream()
+                .anyMatch(s -> "STABILIZE".equals(s.cardType()) && affectedEventId.equals(s.targetEventId()));
+        var freshParadoxes = stabilized
+                ? List.<DetectedParadox>of()
+                : ParadoxDetector.detect(futureEvent.outcomes(), futureEvent.sealBreach());
+
+        var allResolved = stabilized || freshParadoxes.isEmpty();
         for (var pending : eventPendingParadoxes) {
             if (stillPresent(pending, freshParadoxes)) {
                 publisher.publish(TimelineEventEnvelope.create(
@@ -266,7 +275,8 @@ class ParadoxResolutionSagaImpl {
                                 phase.eraNumber(),
                                 pending.paradoxId(),
                                 affectedEventId,
-                                futureEvent.outcomes()),
+                                futureEvent.outcomes(),
+                                detonatedByPlayerIds(phase, affectedEventId)),
                         clock));
             } else {
                 publisher.publish(TimelineEventEnvelope.create(
@@ -303,6 +313,20 @@ class ParadoxResolutionSagaImpl {
             terminalResolutions.add(new TerminalResolution(
                     affectedEventId, revealIndex, TerminalResolution.TerminalState.CASCADED, null));
         }
+    }
+
+    /**
+     * Every distinct player who submitted {@code DETONATE} targeting {@code affectedEventId} this close —
+     * deduplicated (multiple {@code DETONATE}s on the same event collapse into one set, GDD: the effect does
+     * not stack) and only meaningful when the event actually cascades; a {@code STABILIZE}-cleared event never
+     * gets a {@code ParadoxCascaded} published for it at all, so this set is simply never read in that case.
+     */
+    private static List<UUID> detonatedByPlayerIds(ParadoxResolutionPhase phase, UUID affectedEventId) {
+        return phase.submissions().stream()
+                .filter(s -> "DETONATE".equals(s.cardType()) && affectedEventId.equals(s.targetEventId()))
+                .map(Submission::playerId)
+                .distinct()
+                .toList();
     }
 
     /**

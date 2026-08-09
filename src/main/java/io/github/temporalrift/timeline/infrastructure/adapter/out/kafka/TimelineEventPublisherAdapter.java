@@ -8,6 +8,8 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 
+import io.github.temporalrift.timeline.domain.event.BandedProbabilityPublished;
+import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxCascaded;
@@ -15,6 +17,8 @@ import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolutionPhaseStarted;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
+import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
+import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
@@ -49,6 +53,10 @@ class TimelineEventPublisherAdapter implements TimelineEventPublisher {
             case ParadoxResolutionPhaseStarted e -> publish("ParadoxResolutionPhaseStarted", mapper.toWire(e), event);
             case ParadoxCascaded e -> publish("ParadoxCascaded", mapper.toWire(e), event);
             case ParadoxResolved e -> publish("ParadoxResolved", mapper.toWire(e), event);
+            case BandedProbabilityPublished e -> publish("BandedProbabilityPublished", mapper.toWire(e), event);
+            case CorruptInversionConfirmed e -> publish("CorruptInversionConfirmed", mapper.toWire(e), event);
+            case ResolutionFailed e -> publish("ResolutionFailed", mapper.toWire(e), event);
+            case ResolutionWarning e -> publish("ResolutionWarning", mapper.toWire(e), event);
             default ->
                 throw new IllegalArgumentException(
                         "Unsupported timeline event payload: " + event.payload().getClass());

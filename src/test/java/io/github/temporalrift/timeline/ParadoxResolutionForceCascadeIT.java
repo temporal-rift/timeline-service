@@ -89,6 +89,7 @@ class ParadoxResolutionForceCascadeIT {
         awaitFutureEventsIndexed(gameId, eraNumber, 3);
 
         publishSpecialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
+        publishActionRoundClosed(gameId, eraNumber, 1);
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
@@ -256,6 +257,18 @@ class ParadoxResolutionForceCascadeIT {
 
     private void publishResolutionStarted(UUID gameId, int eraNumber, UUID eventId) {
         publish(gameId, "ResolutionStarted", Map.of("gameId", gameId, "eraNumber", eraNumber), eventId);
+    }
+
+    /**
+     * timeline-mvp9-resolution-ordering-paradox-cards: {@code CardPlayed}/{@code SpecialActionPlayed} are now
+     * buffered, not applied immediately — a round's effects only take place once its {@code ActionRoundClosed}
+     * triggers the priority-ordered replay.
+     */
+    private void publishActionRoundClosed(UUID gameId, int eraNumber, int roundNumber) {
+        publish(
+                gameId,
+                "ActionRoundClosed",
+                Map.of("gameId", gameId, "eraNumber", eraNumber, "roundNumber", roundNumber));
     }
 
     private void publish(UUID gameId, String eventType, Object payload) {
