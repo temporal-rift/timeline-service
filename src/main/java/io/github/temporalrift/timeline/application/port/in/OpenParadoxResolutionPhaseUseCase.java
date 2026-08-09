@@ -14,7 +14,12 @@ import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.Pendin
  */
 public interface OpenParadoxResolutionPhaseUseCase {
 
-    void open(
+    /**
+     * @return the phase's authoritative pending paradoxes — always use these ids (not the ones passed in) when
+     *     publishing {@code ParadoxDetected}, since a duplicate/redelivered call's own ids are discarded when a
+     *     phase already existed for this era.
+     */
+    List<PendingParadox> open(
             UUID gameId,
             int eraNumber,
             List<PendingParadox> pendingParadoxes,

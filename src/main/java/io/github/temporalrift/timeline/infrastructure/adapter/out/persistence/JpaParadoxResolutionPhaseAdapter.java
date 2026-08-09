@@ -29,14 +29,31 @@ class JpaParadoxResolutionPhaseAdapter implements ParadoxResolutionPhaseReposito
     }
 
     @Override
-    public ParadoxResolutionPhase save(ParadoxResolutionPhase phase) {
-        jpaRepository.save(toEntity(phase));
-        return phase;
+    public CreateResult createIfAbsent(ParadoxResolutionPhase candidate) {
+        var insertedRows = jpaRepository.insertIfAbsent(
+                candidate.sagaId(),
+                candidate.gameId(),
+                candidate.eraNumber(),
+                candidate.status().name(),
+                objectMapper.writeValueAsString(candidate.pendingParadoxes()),
+                objectMapper.writeValueAsString(candidate.resolvedTerminalResolutions()),
+                candidate.timerExpiresAt());
+        if (insertedRows > 0) {
+            return new CreateResult(candidate, true);
+        }
+        var existing = jpaRepository
+                .findByGameIdAndEraNumber(candidate.gameId(), candidate.eraNumber())
+                .map(this::toDomain)
+                .orElseThrow(() -> new IllegalStateException("paradox_resolution_phase insert for game "
+                        + candidate.gameId() + " era " + candidate.eraNumber()
+                        + " conflicted but no existing row was found"));
+        return new CreateResult(existing, false);
     }
 
     @Override
-    public Optional<ParadoxResolutionPhase> findByGameIdAndEraNumber(UUID gameId, int eraNumber) {
-        return jpaRepository.findByGameIdAndEraNumber(gameId, eraNumber).map(this::toDomain);
+    public ParadoxResolutionPhase save(ParadoxResolutionPhase phase) {
+        jpaRepository.save(toEntity(phase));
+        return phase;
     }
 
     @Override

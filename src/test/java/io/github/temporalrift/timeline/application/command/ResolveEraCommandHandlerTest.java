@@ -345,6 +345,7 @@ class ResolveEraCommandHandlerTest {
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        givenOpenEchoesBackItsPendingParadoxes();
 
         handler.resolve(GAME_ID, ERA_NUMBER);
 
@@ -390,6 +391,7 @@ class ResolveEraCommandHandlerTest {
         given(futureEvents.findById(paradoxedEventId)).willReturn(paradoxedEvent);
         given(futureEvents.findById(eventId1)).willReturn(draftedFutureEvent(eventId1, outcomeId1));
         given(futureEvents.findById(eventId2)).willReturn(draftedFutureEvent(eventId2, outcomeId2));
+        givenOpenEchoesBackItsPendingParadoxes();
 
         handler.resolve(GAME_ID, ERA_NUMBER);
 
@@ -467,6 +469,7 @@ class ResolveEraCommandHandlerTest {
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        givenOpenEchoesBackItsPendingParadoxes();
 
         handler.resolve(GAME_ID, ERA_NUMBER);
 
@@ -483,6 +486,17 @@ class ResolveEraCommandHandlerTest {
         // Each call still asks to open a resolution phase — ResolveEraCommandHandler doesn't itself guard
         // against a duplicate open; ParadoxResolutionSaga's own (gameId, eraNumber) idempotency does.
         then(openParadoxResolutionPhase).should(times(2)).open(eq(GAME_ID), eq(ERA_NUMBER), any(), any());
+    }
+
+    /**
+     * Simulates a newly-created phase that keeps exactly the proposed pending paradoxes — the common case these
+     * tests care about. {@link OpenParadoxResolutionPhaseUseCase#open} always returns the phase's authoritative
+     * ids (design.md), so a test must stub it before any assertion that relies on {@code ParadoxDetected}'s
+     * published paradoxIds.
+     */
+    private void givenOpenEchoesBackItsPendingParadoxes() {
+        given(openParadoxResolutionPhase.open(any(), anyInt(), any(), any()))
+                .willAnswer(invocation -> invocation.getArgument(2));
     }
 
     private static FutureEvent stalledFutureEvent(UUID eventId, UUID outcomeId) {

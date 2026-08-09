@@ -8,11 +8,9 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionPhaseRepository;
+import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionPhaseRepository.CreateResult;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase;
-import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.PendingParadox;
-import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhaseStatus;
 
 @Component
 class ParadoxResolutionPhaseStateManager {
@@ -23,29 +21,9 @@ class ParadoxResolutionPhaseStateManager {
         this.repository = repository;
     }
 
-    /**
-     * Empty when a phase already exists for {@code (gameId, eraNumber)} — the caller must not publish
-     * {@code ParadoxResolutionPhaseStarted} or schedule a timer for a phase that already has one.
-     */
     @Transactional
-    Optional<ParadoxResolutionPhase> open(
-            UUID gameId,
-            int eraNumber,
-            List<PendingParadox> pendingParadoxes,
-            List<TerminalResolution> resolvedTerminalResolutions,
-            Instant timerExpiresAt) {
-        if (repository.findByGameIdAndEraNumber(gameId, eraNumber).isPresent()) {
-            return Optional.empty();
-        }
-        var phase = new ParadoxResolutionPhase(
-                UUID.randomUUID(),
-                gameId,
-                eraNumber,
-                ParadoxResolutionPhaseStatus.WAITING,
-                pendingParadoxes,
-                resolvedTerminalResolutions,
-                timerExpiresAt);
-        return Optional.of(repository.save(phase));
+    CreateResult createIfAbsent(ParadoxResolutionPhase candidate) {
+        return repository.createIfAbsent(candidate);
     }
 
     @Transactional

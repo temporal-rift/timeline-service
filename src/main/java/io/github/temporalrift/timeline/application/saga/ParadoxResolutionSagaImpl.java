@@ -1,11 +1,9 @@
 package io.github.temporalrift.timeline.application.saga;
 
 import java.time.Clock;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -61,32 +59,46 @@ class ParadoxResolutionSagaImpl {
         this.clock = clock;
     }
 
-    /** Empty when a phase already existed for this era — the opener must not (re)schedule a timer. */
-    Optional<OpenResult> openPhase(
+    /**
+     * Creates the phase if none exists yet for this era (atomic — {@link ParadoxResolutionPhaseStateManager}); the
+     * returned {@link OpenResult#phase()} is always authoritative for the era, whether this call created it or a
+     * prior one did. {@code created()} is false when a redelivered/duplicate resolution attempt raced (or simply
+     * followed) an already-open phase — the caller must not (re)announce {@code ParadoxResolutionPhaseStarted} or
+     * (re)schedule a timer in that case, but still needs the authoritative {@code pendingParadoxes} (with their
+     * real, already-published {@code paradoxId}s) to avoid announcing fresh ids nobody will ever cascade.
+     */
+    OpenResult openPhase(
             UUID gameId,
             int eraNumber,
             List<PendingParadox> pendingParadoxes,
             List<TerminalResolution> resolvedTerminalResolutions) {
         var timerSeconds = rules.paradoxResolutionTimerSeconds();
         var timerExpiresAt = clock.instant().plusSeconds(timerSeconds);
-        return stateManager
-                .open(gameId, eraNumber, pendingParadoxes, resolvedTerminalResolutions, timerExpiresAt)
-                .map(phase -> {
-                    publisher.publish(TimelineEventEnvelope.create(
+        var candidate = new ParadoxResolutionPhase(
+                UUID.randomUUID(),
+                gameId,
+                eraNumber,
+                ParadoxResolutionPhaseStatus.WAITING,
+                pendingParadoxes,
+                resolvedTerminalResolutions,
+                timerExpiresAt);
+        var result = stateManager.createIfAbsent(candidate);
+        if (result.created()) {
+            publisher.publish(TimelineEventEnvelope.create(
+                    gameId,
+                    ERA_AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new ParadoxResolutionPhaseStarted(
                             gameId,
-                            ERA_AGGREGATE_TYPE,
-                            gameId,
-                            TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                            new ParadoxResolutionPhaseStarted(
-                                    gameId,
-                                    eraNumber,
-                                    pendingParadoxes.stream()
-                                            .map(PendingParadox::paradoxId)
-                                            .toList(),
-                                    timerSeconds),
-                            clock));
-                    return new OpenResult(phase.sagaId(), timerExpiresAt);
-                });
+                            eraNumber,
+                            result.phase().pendingParadoxes().stream()
+                                    .map(PendingParadox::paradoxId)
+                                    .toList(),
+                            timerSeconds),
+                    clock));
+        }
+        return new OpenResult(result.phase(), result.created());
     }
 
     void handleTimerExpiry(UUID sagaId) {
@@ -137,5 +149,5 @@ class ParadoxResolutionSagaImpl {
                 clock));
     }
 
-    record OpenResult(UUID sagaId, Instant timerExpiresAt) {}
+    record OpenResult(ParadoxResolutionPhase phase, boolean created) {}
 }

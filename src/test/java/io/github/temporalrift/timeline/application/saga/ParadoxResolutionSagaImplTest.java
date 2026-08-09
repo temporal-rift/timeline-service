@@ -31,6 +31,7 @@ import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
+import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionPhaseRepository.CreateResult;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
@@ -75,18 +76,16 @@ class ParadoxResolutionSagaImplTest {
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
         var pending = List.of(new PendingParadox(paradoxId, affectedEventId, 0));
-        var sagaId = UUID.randomUUID();
-        var timerExpiresAt = clock.instant().plusSeconds(TIMER_SECONDS);
-        var persisted = new ParadoxResolutionPhase(
-                sagaId, GAME_ID, ERA_NUMBER, ParadoxResolutionPhaseStatus.WAITING, pending, List.of(), timerExpiresAt);
-        given(stateManager.open(GAME_ID, ERA_NUMBER, pending, List.of(), timerExpiresAt))
-                .willReturn(Optional.of(persisted));
+        given(stateManager.createIfAbsent(any()))
+                .willAnswer(invocation -> new CreateResult(invocation.getArgument(0), true));
 
         var result = saga.openPhase(GAME_ID, ERA_NUMBER, pending, List.of());
 
-        assertThat(result).isPresent();
-        assertThat(result.get().sagaId()).isEqualTo(sagaId);
-        assertThat(result.get().timerExpiresAt()).isEqualTo(timerExpiresAt);
+        assertThat(result.created()).isTrue();
+        assertThat(result.phase().gameId()).isEqualTo(GAME_ID);
+        assertThat(result.phase().eraNumber()).isEqualTo(ERA_NUMBER);
+        assertThat(result.phase().pendingParadoxes()).isEqualTo(pending);
+        assertThat(result.phase().timerExpiresAt()).isEqualTo(clock.instant().plusSeconds(TIMER_SECONDS));
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
         then(publisher).should().publish(captor.capture());
@@ -98,14 +97,23 @@ class ParadoxResolutionSagaImplTest {
     }
 
     @Test
-    void openPhase_alreadyOpenForEra_returnsEmptyAndPublishesNothing() {
+    void openPhase_alreadyOpenForEra_returnsExistingPhaseAndPublishesNothing() {
         given(rules.paradoxResolutionTimerSeconds()).willReturn(TIMER_SECONDS);
-        given(stateManager.open(any(), anyInt(), any(), any(), any())).willReturn(Optional.empty());
+        var existingPhase = new ParadoxResolutionPhase(
+                UUID.randomUUID(),
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(UUID.randomUUID(), UUID.randomUUID(), 0)),
+                List.of(),
+                clock.instant().plusSeconds(999));
+        given(stateManager.createIfAbsent(any())).willReturn(new CreateResult(existingPhase, false));
 
         var result = saga.openPhase(
                 GAME_ID, ERA_NUMBER, List.of(new PendingParadox(UUID.randomUUID(), UUID.randomUUID(), 0)), List.of());
 
-        assertThat(result).isEmpty();
+        assertThat(result.created()).isFalse();
+        assertThat(result.phase()).isEqualTo(existingPhase);
         then(publisher).should(never()).publish(any());
     }
 
