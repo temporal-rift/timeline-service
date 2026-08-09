@@ -20,4 +20,7 @@
     <include file="db/changelog/roundeffect/004-create-round-pending-corrupt.xml"/>
     <include file="db/changelog/roundeffect/005-create-round-card-by-player.xml"/>
 
+    <!-- ParadoxResolutionSaga state (sagas.md Saga 5) -->
+    <include file="db/changelog/paradoxresolution/001-create-paradox-resolution-phase.xml"/>
+
 </databaseChangeLog>

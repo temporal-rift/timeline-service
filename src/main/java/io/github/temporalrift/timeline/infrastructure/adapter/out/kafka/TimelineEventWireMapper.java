@@ -7,14 +7,19 @@ import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.E
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.EraTerminalResolution;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.OutcomeAppliedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.OutcomeAppliedProbabilityState;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ParadoxCascadedPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ParadoxCascadedProbabilityState;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ParadoxDetectedParadox;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ParadoxDetectedPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ParadoxResolutionPhaseStartedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateCalculatedEventState;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateCalculatedOutcomeState;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateCalculatedPayload;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
+import io.github.temporalrift.timeline.domain.event.ParadoxCascaded;
 import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
+import io.github.temporalrift.timeline.domain.event.ParadoxResolutionPhaseStarted;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
@@ -40,4 +45,10 @@ interface TimelineEventWireMapper {
     ParadoxDetectedPayload toWire(ParadoxDetected event);
 
     ParadoxDetectedParadox toWire(ParadoxDetected.Paradox paradox);
+
+    ParadoxResolutionPhaseStartedPayload toWire(ParadoxResolutionPhaseStarted event);
+
+    ParadoxCascadedPayload toWire(ParadoxCascaded event);
+
+    ParadoxCascadedProbabilityState toCarryForwardProbabilityState(Outcome outcome);
 }

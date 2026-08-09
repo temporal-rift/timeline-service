@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Persisted state for sagas.md Saga 5 (ParadoxResolutionSaga), force-cascade branch only this slice.
+      One row per (game_id, era_number), covering every paradox detected in that era's resolution cycle
+      behind a single shared timer. See design.md (timeline-mvp7-paradox-resolution-saga) Decision 1.
+  -->
+  <changeSet id="001-create-paradox-resolution-phase" author="timeline-service">
+    <createTable tableName="paradox_resolution_phase">
+      <column name="saga_id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="era_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="status" type="VARCHAR(20)">
+        <constraints nullable="false"/>
+      </column>
+      <!-- JSON array of {paradoxId, affectedEventId, revealIndex} entries still open in this phase. -->
+      <column name="pending_paradoxes" type="JSONB">
+        <constraints nullable="false"/>
+      </column>
+      <!--
+          JSON array of TerminalResolution entries (OUTCOME_APPLIED/STALLED) the resolution cycle already
+          produced before any paradox was found — merged with the cascaded entries at timer expiry to
+          publish one EraResolutionCompleted.
+      -->
+      <column name="resolved_terminal_resolutions" type="JSONB">
+        <constraints nullable="false"/>
+      </column>
+      <column name="timer_expires_at" type="TIMESTAMP WITH TIME ZONE">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+
+    <createIndex tableName="paradox_resolution_phase" indexName="ux_paradox_resolution_phase_game_era" unique="true">
+      <column name="game_id"/>
+      <column name="era_number"/>
+    </createIndex>
+
+    <createIndex tableName="paradox_resolution_phase" indexName="ix_paradox_resolution_phase_status_expiry">
+      <column name="status"/>
+      <column name="timer_expires_at"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>
