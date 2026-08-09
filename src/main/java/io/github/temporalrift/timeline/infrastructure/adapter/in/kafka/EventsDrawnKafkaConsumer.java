@@ -22,7 +22,10 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
  * one already carried into this era by a {@code STALL} (design.md timeline-mvp4-card-modifiers) — its aggregate
  * and era-index entry already exist from {@code ResolveEraCommandHandler}'s carry-over; drafting it again would
  * append a second {@code FutureEventDrafted} to its stream (an illegal replay state) and collide with the
- * existing era-index primary key.
+ * existing era-index primary key. Each drawn event's {@code carryOverState} is required and validated on the
+ * wire (rejecting the retired {@code isCascaded} shape) but otherwise unused this slice — the carry-over
+ * decision above is driven entirely by the era index, not by that field (design.md
+ * carry-stalled-events-forward Non-Goal: "Implement timeline-service stall resolution").
  */
 @Component
 class EventsDrawnKafkaConsumer {
