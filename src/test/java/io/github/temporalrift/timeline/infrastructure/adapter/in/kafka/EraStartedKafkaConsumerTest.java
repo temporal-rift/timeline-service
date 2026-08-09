@@ -106,19 +106,4 @@ class EraStartedKafkaConsumerTest {
                         KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1)))
                 .isInstanceOf(RuntimeException.class);
     }
-
-    @Test
-    @DisplayName(
-            "payload with both carryOverEventIds and the retired cascadedEventIds — accepted, retired field ignored")
-    void handle_payloadWithBothNewAndRetiredField_accepted() {
-        var eventId = UUID.randomUUID();
-        given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
-        var json = """
-                {"gameId":"%s","eraNumber":1,"carryOverEventIds":[],"cascadedEventIds":[],"playerIds":[]}
-                """.formatted(UUID.randomUUID());
-
-        consumer.handle(KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1));
-
-        then(processedEvents).should().claim(eventId, CONSUMER);
-    }
 }

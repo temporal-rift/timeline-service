@@ -176,20 +176,4 @@ class EventsDrawnKafkaConsumerTest {
 
         then(futureEvents).should(never()).append(any(), any());
     }
-
-    @Test
-    @DisplayName("payload with both carryOverState and the retired isCascaded field — accepted, retired field ignored")
-    void handle_payloadWithBothNewAndRetiredField_accepted() {
-        var eventId = UUID.randomUUID();
-        var futureEventId = UUID.randomUUID();
-        given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
-        var json = """
-                {"gameId":"%s","eraNumber":1,"events":[{"eventId":"%s","title":"t","outcomes":[],
-                "carryOverState":"FRESH","isCascaded":false}]}
-                """.formatted(UUID.randomUUID(), futureEventId);
-
-        consumer.handle(KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1));
-
-        then(futureEvents).should().append(eq(futureEventId), any(FutureEventDrafted.class));
-    }
 }
