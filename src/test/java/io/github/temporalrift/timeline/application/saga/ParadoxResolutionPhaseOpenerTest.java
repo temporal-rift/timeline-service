@@ -42,8 +42,8 @@ class ParadoxResolutionPhaseOpenerTest {
 
     @Test
     void open_phaseCreated_schedulesTimerAndReturnsItsPendingParadoxes() {
-        var pending =
-                List.of(new PendingParadox(UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, UUID.randomUUID(), 0));
+        var pending = List.of(new PendingParadox(
+                UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), UUID.randomUUID(), 0));
         var timerExpiresAt = Instant.parse("2026-08-09T00:01:00Z");
         var phase = new ParadoxResolutionPhase(
                 UUID.randomUUID(),
@@ -69,10 +69,10 @@ class ParadoxResolutionPhaseOpenerTest {
         // A duplicate/redelivered detection pass proposes fresh ids, but an existing phase's own ids are
         // what will ever receive a ParadoxCascaded — the caller must use those, and no second timer may
         // be scheduled for the same phase.
-        var proposedPending =
-                List.of(new PendingParadox(UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, UUID.randomUUID(), 0));
-        var existingPending =
-                List.of(new PendingParadox(UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, UUID.randomUUID(), 0));
+        var proposedPending = List.of(new PendingParadox(
+                UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), UUID.randomUUID(), 0));
+        var existingPending = List.of(new PendingParadox(
+                UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), UUID.randomUUID(), 0));
         var existingPhase = new ParadoxResolutionPhase(
                 UUID.randomUUID(),
                 GAME_ID,

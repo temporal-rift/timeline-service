@@ -55,11 +55,17 @@ public record ParadoxResolutionPhase(
     }
 
     /**
-     * Records {@code submission} and removes its player from {@code pendingPlayerIds} — a no-op on
-     * {@code pendingPlayerIds} if that player already submitted (redelivery), matching
-     * {@code ActionRoundSagaStateManager.removeFromPending}'s idempotency.
+     * Records {@code submission} and removes its player from {@code pendingPlayerIds} — a no-op (returns
+     * {@code this} unchanged) when that player is not currently pending, whether because they already submitted
+     * (redelivery under a new {@code eventId}, which {@code ProcessedEventPort} would not itself catch) or the
+     * phase never listed them, matching {@code ActionRoundSagaStateManager.removeFromPending}'s idempotency —
+     * without this guard a second submission from an already-recorded player would be appended to
+     * {@code submissions} again and applied a second time at close.
      */
     public ParadoxResolutionPhase withSubmission(Submission submission) {
+        if (!pendingPlayerIds.contains(submission.playerId())) {
+            return this;
+        }
         var updatedPending = pendingPlayerIds.stream()
                 .filter(playerId -> !playerId.equals(submission.playerId()))
                 .toList();
@@ -79,11 +85,20 @@ public record ParadoxResolutionPhase(
 
     /**
      * One paradox still open in this phase, carrying the {@code revealIndex} its affected event was drawn at and
-     * its originally detected {@code type} — needed at close time to tell whether re-detection on the affected
-     * event still reports this same type (persists) or not (resolved), timeline-mvp8-paradox-completion Decision
-     * 2.
+     * its originally detected {@code type} plus {@code affectedOutcomeIds} — needed at close time to tell whether
+     * re-detection on the affected event still reports this same finding (persists) or not (resolved),
+     * timeline-mvp8-paradox-completion Decision 2. {@code affectedOutcomeIds} disambiguates two findings of the
+     * same {@code type} on one event (e.g. two independently annihilated outcomes each tripping
+     * {@code IMPOSSIBLE_ERASURE}) — matching on {@code type} alone would treat clearing either one as clearing
+     * both.
      */
-    public record PendingParadox(UUID paradoxId, ParadoxType type, UUID affectedEventId, int revealIndex) {}
+    public record PendingParadox(
+            UUID paradoxId, ParadoxType type, List<UUID> affectedOutcomeIds, UUID affectedEventId, int revealIndex) {
+
+        public PendingParadox {
+            affectedOutcomeIds = List.copyOf(affectedOutcomeIds);
+        }
+    }
 
     /**
      * One player's recorded resolution-card submission, not yet applied to its target {@code FutureEvent}

@@ -88,7 +88,8 @@ class ParadoxResolutionSagaImplTest {
         given(rules.paradoxResolutionTimerSeconds()).willReturn(TIMER_SECONDS);
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
-        var pending = List.of(new PendingParadox(paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, affectedEventId, 0));
+        var pending = List.of(new PendingParadox(
+                paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), affectedEventId, 0));
         var playerIds = List.of(UUID.randomUUID(), UUID.randomUUID());
         given(eraPlayers.find(GAME_ID, ERA_NUMBER)).willReturn(playerIds);
         given(stateManager.createIfAbsent(any()))
@@ -116,8 +117,8 @@ class ParadoxResolutionSagaImplTest {
     @Test
     void openPhase_alreadyOpenForEra_returnsExistingPhaseAndPublishesNothing() {
         given(rules.paradoxResolutionTimerSeconds()).willReturn(TIMER_SECONDS);
-        var existingPending =
-                List.of(new PendingParadox(UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, UUID.randomUUID(), 0));
+        var existingPending = List.of(new PendingParadox(
+                UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), UUID.randomUUID(), 0));
         var existingPhase = new ParadoxResolutionPhase(
                 UUID.randomUUID(),
                 GAME_ID,
@@ -130,8 +131,8 @@ class ParadoxResolutionSagaImplTest {
                 clock.instant().plusSeconds(999));
         given(stateManager.createIfAbsent(any())).willReturn(new CreateResult(existingPhase, false));
 
-        var proposedPending =
-                List.of(new PendingParadox(UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, UUID.randomUUID(), 0));
+        var proposedPending = List.of(new PendingParadox(
+                UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), UUID.randomUUID(), 0));
         var result = saga.openPhase(GAME_ID, ERA_NUMBER, proposedPending, List.of());
 
         assertThat(result.created()).isFalse();
@@ -153,7 +154,8 @@ class ParadoxResolutionSagaImplTest {
                 GAME_ID,
                 ERA_NUMBER,
                 ParadoxResolutionPhaseStatus.WAITING,
-                List.of(new PendingParadox(paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, affectedEventId, 0)),
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
                 resolvedTerminalResolutions,
                 List.of(),
                 List.of(),
@@ -190,22 +192,34 @@ class ParadoxResolutionSagaImplTest {
         var sagaId = UUID.randomUUID();
         var eventId0 = UUID.randomUUID();
         var eventId1 = UUID.randomUUID();
+        var annihilatedId0 = UUID.randomUUID();
+        var annihilatedId1 = UUID.randomUUID();
         var phase = new ParadoxResolutionPhase(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
                 ParadoxResolutionPhaseStatus.WAITING,
                 List.of(
-                        new PendingParadox(UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, eventId0, 0),
-                        new PendingParadox(UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, eventId1, 1)),
+                        new PendingParadox(
+                                UUID.randomUUID(),
+                                ParadoxType.IMPOSSIBLE_ERASURE,
+                                List.of(annihilatedId0),
+                                eventId0,
+                                0),
+                        new PendingParadox(
+                                UUID.randomUUID(),
+                                ParadoxType.IMPOSSIBLE_ERASURE,
+                                List.of(annihilatedId1),
+                                eventId1,
+                                1)),
                 List.of(),
                 List.of(),
                 List.of(),
                 clock.instant());
 
         given(stateManager.findBySagaIdWithLock(sagaId)).willReturn(Optional.of(phase));
-        given(futureEvents.findById(eventId0)).willReturn(impossibleErasureFutureEvent(eventId0, UUID.randomUUID()));
-        given(futureEvents.findById(eventId1)).willReturn(impossibleErasureFutureEvent(eventId1, UUID.randomUUID()));
+        given(futureEvents.findById(eventId0)).willReturn(impossibleErasureFutureEvent(eventId0, annihilatedId0));
+        given(futureEvents.findById(eventId1)).willReturn(impossibleErasureFutureEvent(eventId1, annihilatedId1));
 
         saga.handleTimerExpiry(sagaId);
 
@@ -229,7 +243,12 @@ class ParadoxResolutionSagaImplTest {
                 GAME_ID,
                 ERA_NUMBER,
                 ParadoxResolutionPhaseStatus.COMPLETED,
-                List.of(new PendingParadox(UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, UUID.randomUUID(), 0)),
+                List.of(new PendingParadox(
+                        UUID.randomUUID(),
+                        ParadoxType.IMPOSSIBLE_ERASURE,
+                        List.of(UUID.randomUUID()),
+                        UUID.randomUUID(),
+                        0)),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -299,7 +318,8 @@ class ParadoxResolutionSagaImplTest {
                 GAME_ID,
                 ERA_NUMBER,
                 ParadoxResolutionPhaseStatus.WAITING,
-                List.of(new PendingParadox(paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, affectedEventId, 0)),
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
                 List.of(),
                 List.of(),
                 List.of(submission),
@@ -351,7 +371,8 @@ class ParadoxResolutionSagaImplTest {
                 GAME_ID,
                 ERA_NUMBER,
                 ParadoxResolutionPhaseStatus.WAITING,
-                List.of(new PendingParadox(paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, affectedEventId, 0)),
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
                 List.of(),
                 List.of(),
                 List.of(submission),
@@ -374,6 +395,148 @@ class ParadoxResolutionSagaImplTest {
                 .toList();
         assertThat(payloads.get(0)).isInstanceOf(ParadoxCascaded.class);
         assertThat(payloads.get(1)).isInstanceOf(EraResolutionCompleted.class);
+    }
+
+    @Test
+    void handlePlayerSubmitted_clearingCardIntroducesANewUntrackedParadox_eventStillCascadesNotResolves() {
+        // Regression: clearing the original IMPOSSIBLE_ERASURE must not resolve the event if the submitted
+        // cards incidentally leave a different paradox in place — here a SEAL_BREACH triggered by one of the
+        // two submissions, which was never part of the original detection and so has no paradoxId of its own.
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
+        var sealedOutcomeId = UUID.randomUUID();
+        var thirdOutcomeId = UUID.randomUUID();
+        var breachingPlayerId = UUID.randomUUID();
+        var suppressingPlayerId = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                affectedEventId,
+                List.of(new FutureEventDrafted(
+                        affectedEventId,
+                        List.of(
+                                new Outcome(annihilatedId, "annihilated", 50, false, true),
+                                new Outcome(sealedOutcomeId, "sealed", 30, true, false),
+                                new Outcome(thirdOutcomeId, "third", 20)))));
+        // Breaches the seal (no probability change) — then clears the erasure by suppressing the annihilated
+        // outcome; the sealed outcome is untouched by the redistribution since it's sealed, so the freed amount
+        // goes entirely to "third".
+        var breachSubmission = new Submission(breachingPlayerId, "PUSH", affectedEventId, sealedOutcomeId);
+        var suppressSubmission = new Submission(suppressingPlayerId, "SUPPRESS", affectedEventId, annihilatedId);
+        var phase = new ParadoxResolutionPhase(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(breachSubmission, suppressSubmission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, suppressSubmission))
+                .willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+        given(probabilityRules.pushShift()).willReturn(20);
+        given(probabilityRules.suppressShift()).willReturn(-30);
+        given(probabilityRules.probabilityFloor()).willReturn(0);
+        given(probabilityRules.probabilityCeiling()).willReturn(90);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, suppressSubmission);
+
+        then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
+        then(stateManager).should().complete(phase);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(2)).publish(captor.capture());
+        var payloads = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .toList();
+        // The original IMPOSSIBLE_ERASURE finding cleared...
+        var resolved = (ParadoxResolved) payloads.get(0);
+        assertThat(resolved.paradoxId()).isEqualTo(paradoxId);
+        // ...but the event must still cascade (no OutcomeApplied) because a SEAL_BREACH now exists.
+        var barrier = (EraResolutionCompleted) payloads.get(1);
+        assertThat(barrier.terminalResolutions())
+                .containsExactly(
+                        new TerminalResolution(affectedEventId, 0, TerminalResolution.TerminalState.CASCADED, null));
+    }
+
+    @Test
+    void closeEvent_twoIndependentImpossibleErasureFindingsOnOneEvent_onlyTheClearedOneIsResolved() {
+        // Regression: matching a fresh finding to an original one by type alone would treat clearing either
+        // annihilated outcome as clearing both. Two outcomes independently annihilated and both >= the sole
+        // non-annihilated outcome both trip IMPOSSIBLE_ERASURE with distinct affectedOutcomeIds.
+        var sagaId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var higherAnnihilatedId = UUID.randomUUID();
+        var lowerAnnihilatedId = UUID.randomUUID();
+        var nonAnnihilatedId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var higherParadoxId = UUID.randomUUID();
+        var lowerParadoxId = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                affectedEventId,
+                List.of(new FutureEventDrafted(
+                        affectedEventId,
+                        List.of(
+                                new Outcome(higherAnnihilatedId, "higher", 50, false, true),
+                                new Outcome(lowerAnnihilatedId, "lower", 40, false, true),
+                                new Outcome(nonAnnihilatedId, "third", 10)))));
+        // Suppresses the lower-probability annihilated outcome down to 0 — it drops below the non-annihilated
+        // outcome and clears, but the higher one (still 50 >= its share of the redistribution) persists.
+        var submission = new Submission(playerId, "SUPPRESS", affectedEventId, lowerAnnihilatedId);
+        var phase = new ParadoxResolutionPhase(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(
+                        new PendingParadox(
+                                higherParadoxId,
+                                ParadoxType.IMPOSSIBLE_ERASURE,
+                                List.of(higherAnnihilatedId),
+                                affectedEventId,
+                                0),
+                        new PendingParadox(
+                                lowerParadoxId,
+                                ParadoxType.IMPOSSIBLE_ERASURE,
+                                List.of(lowerAnnihilatedId),
+                                affectedEventId,
+                                0)),
+                List.of(),
+                List.of(),
+                List.of(submission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+        given(probabilityRules.suppressShift()).willReturn(-40);
+        given(probabilityRules.probabilityFloor()).willReturn(0);
+        given(probabilityRules.probabilityCeiling()).willReturn(90);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(3)).publish(captor.capture());
+        var payloads = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .toList();
+
+        // The lower-probability annihilated outcome's finding cleared...
+        var resolved = payloads.stream()
+                .filter(ParadoxResolved.class::isInstance)
+                .map(ParadoxResolved.class::cast)
+                .toList();
+        assertThat(resolved).extracting(ParadoxResolved::paradoxId).containsExactly(lowerParadoxId);
+        // ...but the higher one — a distinct finding despite sharing the same type — still cascades, and the
+        // whole event is CASCADED, not resolved.
+        var cascaded = payloads.stream()
+                .filter(ParadoxCascaded.class::isInstance)
+                .map(ParadoxCascaded.class::cast)
+                .toList();
+        assertThat(cascaded).extracting(ParadoxCascaded::paradoxId).containsExactly(higherParadoxId);
     }
 
     /** Three outcomes, the first annihilated and at least tied with the other two — triggers IMPOSSIBLE_ERASURE. */
