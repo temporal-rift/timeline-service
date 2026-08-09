@@ -3,6 +3,7 @@ package io.github.temporalrift.timeline.application.command;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willAnswer;
@@ -24,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import io.github.temporalrift.timeline.application.port.in.OpenParadoxResolutionPhaseUseCase;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
@@ -38,6 +40,7 @@ import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.I
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
+import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.PendingParadox;
 
 @ExtendWith(MockitoExtension.class)
 class ResolveEraCommandHandlerTest {
@@ -54,13 +57,16 @@ class ResolveEraCommandHandlerTest {
     @Mock
     TimelineEventPublisher publisher;
 
+    @Mock
+    OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase;
+
     private final Clock clock = Clock.fixed(Instant.parse("2026-07-31T00:00:00Z"), ZoneOffset.UTC);
 
     private ResolveEraCommandHandler handler;
 
     @BeforeEach
     void setUp() {
-        handler = new ResolveEraCommandHandler(eraIndex, futureEvents, publisher, clock);
+        handler = new ResolveEraCommandHandler(eraIndex, futureEvents, publisher, openParadoxResolutionPhase, clock);
     }
 
     @Test
@@ -359,7 +365,7 @@ class ResolveEraCommandHandlerTest {
     }
 
     @Test
-    void resolve_oneParadoxedAndTwoNormalEvents_publishesParadoxDetectedAndOmitsParadoxedFromTerminalResolutions() {
+    void resolve_oneParadoxedAndTwoNormalEvents_defersEraResolutionCompletedAndOpensAResolutionPhase() {
         var paradoxedEventId = UUID.randomUUID();
         var annihilatedOutcomeId = UUID.randomUUID();
         var paradoxedEvent = FutureEvent.replay(
@@ -413,17 +419,19 @@ class ResolveEraCommandHandlerTest {
                 .toList();
         assertThat(outcomeAppliedEventIds).containsExactly(eventId1, eventId2);
 
-        var eraResolutionCompleted = payloads.stream()
-                .filter(EraResolutionCompleted.class::isInstance)
-                .map(EraResolutionCompleted.class::cast)
-                .findFirst()
-                .orElseThrow();
-        assertThat(eraResolutionCompleted.terminalResolutions())
-                .containsExactly(
-                        new TerminalResolution(
-                                eventId1, 1, TerminalResolution.TerminalState.OUTCOME_APPLIED, outcomeId1),
-                        new TerminalResolution(
-                                eventId2, 2, TerminalResolution.TerminalState.OUTCOME_APPLIED, outcomeId2));
+        // The barrier is not published directly anymore — a resolution phase is opened instead, carrying
+        // the terminal resolutions already produced this cycle plus the pending paradox with its revealIndex.
+        assertThat(payloads).noneMatch(EraResolutionCompleted.class::isInstance);
+        var expectedTerminalResolutions = List.of(
+                new TerminalResolution(eventId1, 1, TerminalResolution.TerminalState.OUTCOME_APPLIED, outcomeId1),
+                new TerminalResolution(eventId2, 2, TerminalResolution.TerminalState.OUTCOME_APPLIED, outcomeId2));
+        then(openParadoxResolutionPhase)
+                .should()
+                .open(
+                        GAME_ID,
+                        ERA_NUMBER,
+                        List.of(new PendingParadox(paradox.paradoxId(), paradoxedEventId, 0)),
+                        expectedTerminalResolutions);
     }
 
     @Test
@@ -472,6 +480,9 @@ class ResolveEraCommandHandlerTest {
         then(publisher).should(times(2)).publish(captor.capture());
         assertThat(captor.getAllValues().stream().map(TimelineEventEnvelope::payload))
                 .allMatch(ParadoxDetected.class::isInstance);
+        // Each call still asks to open a resolution phase — ResolveEraCommandHandler doesn't itself guard
+        // against a duplicate open; ParadoxResolutionSaga's own (gameId, eraNumber) idempotency does.
+        then(openParadoxResolutionPhase).should(times(2)).open(eq(GAME_ID), eq(ERA_NUMBER), any(), any());
     }
 
     private static FutureEvent stalledFutureEvent(UUID eventId, UUID outcomeId) {

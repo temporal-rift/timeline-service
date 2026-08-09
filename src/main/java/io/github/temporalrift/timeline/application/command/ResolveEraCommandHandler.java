@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
+import io.github.temporalrift.timeline.application.port.in.OpenParadoxResolutionPhaseUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
@@ -21,15 +22,19 @@ import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.I
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
+import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.PendingParadox;
 
 /**
  * Resolves every {@code FutureEvent} drawn for an era: highest-probability wins, deterministic
  * {@code outcomeId} tie-break, no faction-special logic beyond the card-modifier effects
  * (AMPLIFY/NULLIFY/REDIRECT/STALL) already reflected in each {@code FutureEvent}'s current state. An event whose
  * final state trips {@link ParadoxDetector} is excluded from this era's {@code OutcomeApplied}/terminal-resolution
- * set instead (design.md) — its resolution is deferred until a future paradox-resolution capability clears it.
- * Emits one era-level {@code ProbabilityStateCalculated} before any {@code OutcomeApplied} (design.md requirement:
- * emission order).
+ * set instead (design.md) — its resolution is deferred until {@code ParadoxResolutionSaga} clears it (force-cascade
+ * only this slice). Emits one era-level {@code ProbabilityStateCalculated} before any {@code OutcomeApplied}
+ * (design.md requirement: emission order). When any paradox is detected this cycle, {@code EraResolutionCompleted}
+ * is not published here — {@link OpenParadoxResolutionPhaseUseCase} opens a resolution phase instead, and the
+ * barrier is published once that phase's paradoxes all reach a terminal state (timeline-mvp7-paradox-resolution-saga
+ * design.md).
  */
 @Service
 class ResolveEraCommandHandler implements ResolveEraUseCase {
@@ -40,16 +45,19 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     private final FutureEventEraIndexPort eraIndex;
     private final FutureEventRepository futureEvents;
     private final TimelineEventPublisher publisher;
+    private final OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase;
     private final Clock clock;
 
     ResolveEraCommandHandler(
             FutureEventEraIndexPort eraIndex,
             FutureEventRepository futureEvents,
             TimelineEventPublisher publisher,
+            OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase,
             Clock clock) {
         this.eraIndex = eraIndex;
         this.futureEvents = futureEvents;
         this.publisher = publisher;
+        this.openParadoxResolutionPhase = openParadoxResolutionPhase;
         this.clock = clock;
     }
 
@@ -104,11 +112,19 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
         } else {
             // Left neither resolved() nor stalled(): a future resolution attempt for this same
             // gameId/eraNumber (paradox-resolution capability) re-evaluates it from scratch instead
-            // of skipping it as already-handled.
-            detected.forEach(d -> accumulator
-                    .paradoxes()
-                    .add(new ParadoxDetected.Paradox(
-                            UUID.randomUUID(), d.type(), futureEvent.id(), d.affectedOutcomeIds(), d.description())));
+            // of skipping it as already-handled. Each finding's paradoxId is shared between the
+            // ParadoxDetected fact and the ParadoxResolutionSaga's pending-paradox entry so the saga's
+            // later ParadoxCascaded references the same paradoxId this cycle announced.
+            detected.forEach(d -> {
+                var paradoxId = UUID.randomUUID();
+                accumulator
+                        .paradoxes()
+                        .add(new ParadoxDetected.Paradox(
+                                paradoxId, d.type(), futureEvent.id(), d.affectedOutcomeIds(), d.description()));
+                accumulator
+                        .pendingParadoxes()
+                        .add(new PendingParadox(paradoxId, futureEvent.id(), indexedEventId.revealIndex()));
+            });
         }
     }
 
@@ -144,7 +160,13 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                     outcomeApplied,
                     clock));
         }
-        if (!accumulator.terminalResolutions().isEmpty()) {
+        if (!accumulator.pendingParadoxes().isEmpty()) {
+            // Deferred: the barrier now waits for ParadoxResolutionSaga to force-cascade every paradox
+            // detected this cycle before EraResolutionCompleted can be published (resolution-walking-skeleton
+            // MODIFIED requirement, timeline-mvp7-paradox-resolution-saga).
+            openParadoxResolutionPhase.open(
+                    gameId, eraNumber, accumulator.pendingParadoxes(), accumulator.terminalResolutions());
+        } else if (!accumulator.terminalResolutions().isEmpty()) {
             publisher.publish(TimelineEventEnvelope.create(
                     gameId,
                     ERA_AGGREGATE_TYPE,
@@ -159,10 +181,11 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     private record ResolutionAccumulator(
             List<OutcomeApplied> resolutions,
             List<TerminalResolution> terminalResolutions,
-            List<ParadoxDetected.Paradox> paradoxes) {
+            List<ParadoxDetected.Paradox> paradoxes,
+            List<PendingParadox> pendingParadoxes) {
 
         ResolutionAccumulator() {
-            this(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+            this(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
         }
     }
 

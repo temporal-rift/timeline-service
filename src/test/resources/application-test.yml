@@ -1,3 +1,8 @@
+game:
+  rules:
+    # Short timer so ParadoxResolutionForceCascadeIT doesn't wait the production 60s default.
+    paradox-resolution-timer-seconds: 2
+
 spring:
   application:
     name: timeline-service

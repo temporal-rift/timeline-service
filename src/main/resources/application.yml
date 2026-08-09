@@ -8,6 +8,10 @@ game:
       swing-shift: 30
       floor: 0
       ceiling: 90
+    # sagas.md Saga 5 / event-schema.md ParadoxResolutionPhaseStarted.timerSeconds default.
+    paradox-resolution-timer-seconds: 60
+  timers:
+    paradox-resolution-sweep-interval: 1s
 
 spring:
   application:
