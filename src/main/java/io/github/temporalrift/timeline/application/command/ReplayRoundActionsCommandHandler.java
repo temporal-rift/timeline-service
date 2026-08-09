@@ -52,11 +52,20 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final String FUTURE_EVENT_AGGREGATE_TYPE = "FutureEvent";
     private static final String ERA_AGGREGATE_TYPE = "Era";
 
+    private static final String CARD_TYPE_PUSH = "PUSH";
+    private static final String CARD_TYPE_SUPPRESS = "SUPPRESS";
+    private static final String CARD_TYPE_SWING = "SWING";
+    private static final String CARD_TYPE_COLLIDE = "COLLIDE";
+    private static final String CARD_TYPE_REDIRECT = "REDIRECT";
+    private static final String CARD_TYPE_STALL = "STALL";
+
     /** Eligible for AMPLIFY's doubling and NULLIFY's cancellation like any other remaining-tier card. */
-    private static final Set<String> AMPLIFIABLE_SHIFTER_TYPES = Set.of("PUSH", "SUPPRESS", "SWING", "COLLIDE");
+    private static final Set<String> AMPLIFIABLE_SHIFTER_TYPES =
+            Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING, CARD_TYPE_COLLIDE);
 
     /** CORRUPT correlates only to these (faction-specials capability) — COLLIDE is never invertible by it. */
-    private static final Set<String> CORRUPT_INVERTIBLE_TYPES = Set.of("PUSH", "SUPPRESS", "SWING");
+    private static final Set<String> CORRUPT_INVERTIBLE_TYPES =
+            Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING);
 
     private final RoundActionBufferPort buffer;
     private final FutureEventRepository futureEvents;
@@ -261,10 +270,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             return;
         }
         switch (a.cardType()) {
-            case "PUSH", "SUPPRESS", "SWING", "COLLIDE" ->
+            case CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING, CARD_TYPE_COLLIDE ->
                 applyShifter(a, inverted, amplified, lastShiftByEvent, touchedEventIds, tookEffectEnvelopeIds);
-            case "REDIRECT" -> applyRedirect(a, lastShiftByEvent, touchedEventIds);
-            case "STALL" -> applyStall(a);
+            case CARD_TYPE_REDIRECT -> applyRedirect(a, lastShiftByEvent, touchedEventIds);
+            case CARD_TYPE_STALL -> applyStall(a);
             default -> {
                 // INTERCEPT/SCAN/TRACE/DECOY/JAM and any unsupported future type: no probability/stalled effect.
             }
@@ -292,16 +301,31 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         if (result instanceof ProbabilityShifted) {
             tookEffectEnvelopeIds.add(a.envelopeEventId());
             if (effectiveKind != ShiftKind.COLLIDE) {
-                var appliedSource = effectiveKind == ShiftKind.SWING
-                        ? (inverted ? a.targetOutcomeId() : a.sourceOutcomeId())
-                        : null;
-                var appliedTarget =
-                        effectiveKind == ShiftKind.SWING && inverted ? a.sourceOutcomeId() : a.targetOutcomeId();
                 lastShiftByEvent.put(
                         a.targetEventId(),
-                        new AppliedShift(effectiveKind, appliedSource, appliedTarget, magnitude, preShiftSnapshot));
+                        new AppliedShift(
+                                effectiveKind,
+                                appliedSourceOutcomeId(effectiveKind, inverted, a),
+                                appliedTargetOutcomeId(effectiveKind, inverted, a),
+                                magnitude,
+                                preShiftSnapshot));
             }
         }
+    }
+
+    /** {@code null} unless this is a SWING, which alone among PUSH/SUPPRESS/SWING has a source outcome. */
+    private static UUID appliedSourceOutcomeId(ShiftKind effectiveKind, boolean inverted, BufferedAction a) {
+        if (effectiveKind != ShiftKind.SWING) {
+            return null;
+        }
+        return inverted ? a.targetOutcomeId() : a.sourceOutcomeId();
+    }
+
+    private static UUID appliedTargetOutcomeId(ShiftKind effectiveKind, boolean inverted, BufferedAction a) {
+        if (effectiveKind == ShiftKind.SWING && inverted) {
+            return a.sourceOutcomeId();
+        }
+        return a.targetOutcomeId();
     }
 
     private static ShiftKind effectiveKind(ShiftKind kind, boolean inverted) {
