@@ -13,6 +13,7 @@ import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionPhaseRepository;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.PendingParadox;
+import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.Submission;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhaseStatus;
 
 @Repository
@@ -37,6 +38,8 @@ class JpaParadoxResolutionPhaseAdapter implements ParadoxResolutionPhaseReposito
                 candidate.status().name(),
                 objectMapper.writeValueAsString(candidate.pendingParadoxes()),
                 objectMapper.writeValueAsString(candidate.resolvedTerminalResolutions()),
+                objectMapper.writeValueAsString(candidate.pendingPlayerIds()),
+                objectMapper.writeValueAsString(candidate.submissions()),
                 candidate.timerExpiresAt());
         if (insertedRows > 0) {
             return new CreateResult(candidate, true);
@@ -62,6 +65,11 @@ class JpaParadoxResolutionPhaseAdapter implements ParadoxResolutionPhaseReposito
     }
 
     @Override
+    public Optional<ParadoxResolutionPhase> findByGameIdAndEraNumberWithLock(UUID gameId, int eraNumber) {
+        return jpaRepository.findByGameIdAndEraNumberWithLock(gameId, eraNumber).map(this::toDomain);
+    }
+
+    @Override
     public List<ParadoxResolutionPhase> findWaitingDueBy(Instant deadline) {
         return jpaRepository.findWaitingDueBy(deadline, PageRequest.ofSize(SWEEP_BATCH_SIZE)).stream()
                 .map(this::toDomain)
@@ -76,6 +84,8 @@ class JpaParadoxResolutionPhaseAdapter implements ParadoxResolutionPhaseReposito
         entity.setStatus(phase.status().name());
         entity.setPendingParadoxes(objectMapper.writeValueAsString(phase.pendingParadoxes()));
         entity.setResolvedTerminalResolutions(objectMapper.writeValueAsString(phase.resolvedTerminalResolutions()));
+        entity.setPendingPlayerIds(objectMapper.writeValueAsString(phase.pendingPlayerIds()));
+        entity.setSubmissions(objectMapper.writeValueAsString(phase.submissions()));
         entity.setTimerExpiresAt(phase.timerExpiresAt());
         return entity;
     }
@@ -88,6 +98,8 @@ class JpaParadoxResolutionPhaseAdapter implements ParadoxResolutionPhaseReposito
                 ParadoxResolutionPhaseStatus.valueOf(entity.getStatus()),
                 List.of(objectMapper.readValue(entity.getPendingParadoxes(), PendingParadox[].class)),
                 List.of(objectMapper.readValue(entity.getResolvedTerminalResolutions(), TerminalResolution[].class)),
+                List.of(objectMapper.readValue(entity.getPendingPlayerIds(), UUID[].class)),
+                List.of(objectMapper.readValue(entity.getSubmissions(), Submission[].class)),
                 entity.getTimerExpiresAt());
     }
 }

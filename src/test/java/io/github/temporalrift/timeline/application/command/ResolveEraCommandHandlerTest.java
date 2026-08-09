@@ -432,7 +432,7 @@ class ResolveEraCommandHandlerTest {
                 .open(
                         GAME_ID,
                         ERA_NUMBER,
-                        List.of(new PendingParadox(paradox.paradoxId(), paradoxedEventId, 0)),
+                        List.of(new PendingParadox(paradox.paradoxId(), paradox.type(), paradoxedEventId, 0)),
                         expectedTerminalResolutions);
     }
 

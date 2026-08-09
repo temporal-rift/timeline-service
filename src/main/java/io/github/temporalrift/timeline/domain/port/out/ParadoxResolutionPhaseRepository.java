@@ -25,6 +25,13 @@ public interface ParadoxResolutionPhaseRepository {
     /** Row-level write lock, mirroring {@code ActionRoundSagaRepository}'s close-time locking convention. */
     Optional<ParadoxResolutionPhase> findBySagaIdWithLock(UUID sagaId);
 
+    /**
+     * Row-level write lock by the phase's natural key — used by the player-submission path, which only knows
+     * {@code (gameId, eraNumber)} from the inbound submission, not the phase's {@code sagaId}
+     * (timeline-mvp8-paradox-completion Decision 2).
+     */
+    Optional<ParadoxResolutionPhase> findByGameIdAndEraNumberWithLock(UUID gameId, int eraNumber);
+
     /** Phases still {@code WAITING} whose {@code timerExpiresAt} has passed — the sweep's recovery query. */
     List<ParadoxResolutionPhase> findWaitingDueBy(Instant deadline);
 

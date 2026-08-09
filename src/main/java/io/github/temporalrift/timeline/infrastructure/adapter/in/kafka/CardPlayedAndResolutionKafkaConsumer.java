@@ -11,6 +11,7 @@ import tools.jackson.databind.ObjectMapper;
 import io.github.temporalrift.timeline.application.port.in.ApplyProbabilityShiftUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayCardModifierUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayCardModifierUseCase.CardModifier;
+import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlaySpecialActionUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlaySpecialActionUseCase.SpecialAction;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
@@ -19,16 +20,19 @@ import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 /**
- * Consumes {@code CardPlayed}, {@code SpecialActionPlayed}, {@code ActionRoundClosed}, and
- * {@code ResolutionStarted} from {@code game.events} in one Kafka consumer group (design.md Decision 1/3 of
- * timeline-mvp4-card-modifiers, revised after PR #25 review; extended by timeline-mvp5-faction-specials
- * Decision 2): a single {@code @KafkaListener} reading one assigned partition processes records strictly in
- * the order {@code game-service} produced them, so a round's {@code CardPlayed}/{@code SpecialActionPlayed}
- * effects are durably applied before that round's {@code ActionRoundClosed} resolves any pending
- * {@code CORRUPT}, and every era's card/special effects are applied before that era's
- * {@code ResolutionStarted} is handled. Splitting these into independent consumer groups would let a
- * lagging one be overtaken by a faster one — reachable in practice (consumer rebalance, GC pause, retry),
- * not just theoretical — silently losing or misordering an effect.
+ * Consumes {@code CardPlayed}, {@code SpecialActionPlayed}, {@code ActionRoundClosed}, {@code ResolutionStarted},
+ * and {@code ParadoxResolutionCardPlayed} from {@code game.events} in one Kafka consumer group (design.md Decision
+ * 1/3 of timeline-mvp4-card-modifiers, revised after PR #25 review; extended by timeline-mvp5-faction-specials
+ * Decision 2, timeline-mvp8-paradox-completion): a single {@code @KafkaListener} reading one assigned partition
+ * processes records strictly in the order {@code game-service} produced them, so a round's {@code CardPlayed}/
+ * {@code SpecialActionPlayed} effects are durably applied before that round's {@code ActionRoundClosed} resolves
+ * any pending {@code CORRUPT}, every era's card/special effects are applied before that era's
+ * {@code ResolutionStarted} is handled, and a resolution-phase submission is applied in the order it was played.
+ * Splitting these into independent consumer groups would let a lagging one be overtaken by a faster one —
+ * reachable in practice (consumer rebalance, GC pause, retry), not just theoretical — silently losing or
+ * misordering an effect. {@code ParadoxResolutionCardPlayed} has no published {@code game.events} contract yet
+ * (temporal-rift/game-service#110, non-blocking) — its payload is hand-rolled against the documented shape, same
+ * as every other message this consumer already handles.
  */
 @Component
 class CardPlayedAndResolutionKafkaConsumer {
@@ -42,6 +46,8 @@ class CardPlayedAndResolutionKafkaConsumer {
             new GameEventIngestion.Spec("ActionRoundClosed", "futureevent.action-round-closed", 1);
     private static final GameEventIngestion.Spec RESOLUTION_STARTED_SPEC =
             new GameEventIngestion.Spec("ResolutionStarted", "futureevent.resolution-started", 1);
+    private static final GameEventIngestion.Spec PARADOX_RESOLUTION_CARD_PLAYED_SPEC =
+            new GameEventIngestion.Spec("ParadoxResolutionCardPlayed", "futureevent.paradox-resolution-card-played", 1);
 
     private final ProcessedEventPort processedEvents;
     private final ApplyProbabilityShiftUseCase applyProbabilityShift;
@@ -49,6 +55,7 @@ class CardPlayedAndResolutionKafkaConsumer {
     private final PlaySpecialActionUseCase playSpecialAction;
     private final ResolvePendingCorruptUseCase resolvePendingCorrupt;
     private final ResolveEraUseCase resolveEra;
+    private final PlayParadoxResolutionCardUseCase playParadoxResolutionCard;
     private final ObjectMapper objectMapper;
 
     CardPlayedAndResolutionKafkaConsumer(
@@ -58,6 +65,7 @@ class CardPlayedAndResolutionKafkaConsumer {
             PlaySpecialActionUseCase playSpecialAction,
             ResolvePendingCorruptUseCase resolvePendingCorrupt,
             ResolveEraUseCase resolveEra,
+            PlayParadoxResolutionCardUseCase playParadoxResolutionCard,
             ObjectMapper objectMapper) {
         this.processedEvents = processedEvents;
         this.applyProbabilityShift = applyProbabilityShift;
@@ -65,6 +73,7 @@ class CardPlayedAndResolutionKafkaConsumer {
         this.playSpecialAction = playSpecialAction;
         this.resolvePendingCorrupt = resolvePendingCorrupt;
         this.resolveEra = resolveEra;
+        this.playParadoxResolutionCard = playParadoxResolutionCard;
         this.objectMapper = objectMapper;
     }
 
@@ -92,6 +101,18 @@ class CardPlayedAndResolutionKafkaConsumer {
                     var payload =
                             GameEventPayloads.read(objectMapper, message.getPayload(), ResolutionStartedPayload.class);
                     resolveEra.resolve(payload.gameId(), payload.eraNumber());
+                });
+        GameEventIngestion.accept(message, PARADOX_RESOLUTION_CARD_PLAYED_SPEC, processedEvents)
+                .ifPresent(envelope -> {
+                    var payload = GameEventPayloads.read(
+                            objectMapper, message.getPayload(), ParadoxResolutionCardPlayedPayload.class);
+                    playParadoxResolutionCard.play(
+                            payload.gameId(),
+                            payload.eraNumber(),
+                            payload.playerId(),
+                            payload.cardType(),
+                            payload.targetEventId(),
+                            payload.targetOutcomeId());
                 });
     }
 
