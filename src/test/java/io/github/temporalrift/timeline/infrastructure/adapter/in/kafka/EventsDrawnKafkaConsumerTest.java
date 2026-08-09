@@ -98,6 +98,7 @@ class EventsDrawnKafkaConsumerTest {
         var eraNumber = 2;
         var carriedOverEventId = UUID.randomUUID();
         var freshEventId = UUID.randomUUID();
+        var stalledEventId = UUID.randomUUID();
         given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
         given(eraIndex.findByGameIdAndEraNumber(gameId, eraNumber))
                 .willReturn(List.of(new IndexedEventId(carriedOverEventId, 0)));
@@ -114,7 +115,12 @@ class EventsDrawnKafkaConsumerTest {
                                 freshEventId,
                                 "fresh",
                                 List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "b", 100)),
-                                EventsDrawnPayload.CarryOverState.FRESH)));
+                                EventsDrawnPayload.CarryOverState.FRESH),
+                        new EventsDrawnPayload.FutureEvent(
+                                stalledEventId,
+                                "stalled",
+                                List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "c", 100)),
+                                EventsDrawnPayload.CarryOverState.STALLED)));
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
 
@@ -122,6 +128,8 @@ class EventsDrawnKafkaConsumerTest {
         then(eraIndex).should(never()).add(eq(carriedOverEventId), any(), anyInt(), anyInt());
         then(futureEvents).should().append(eq(freshEventId), any(FutureEventDrafted.class));
         then(eraIndex).should().add(freshEventId, gameId, eraNumber, 1);
+        then(futureEvents).should().append(eq(stalledEventId), any(FutureEventDrafted.class));
+        then(eraIndex).should().add(stalledEventId, gameId, eraNumber, 2);
     }
 
     @Test

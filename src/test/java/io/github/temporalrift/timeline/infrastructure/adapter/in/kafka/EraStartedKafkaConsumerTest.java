@@ -92,4 +92,18 @@ class EraStartedKafkaConsumerTest {
                         KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1)))
                 .isInstanceOf(RuntimeException.class);
     }
+
+    @Test
+    @DisplayName("payload omitting carryOverEventIds — rejected")
+    void handle_payloadOmittingCarryOverEventIds_rejected() {
+        var eventId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
+        var json = """
+                {"gameId":"%s","eraNumber":1,"playerIds":[]}
+                """.formatted(UUID.randomUUID());
+
+        assertThatThrownBy(() -> consumer.handle(
+                        KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1)))
+                .isInstanceOf(RuntimeException.class);
+    }
 }
