@@ -123,7 +123,12 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                                 paradoxId, d.type(), futureEvent.id(), d.affectedOutcomeIds(), d.description()));
                 accumulator
                         .pendingParadoxes()
-                        .add(new PendingParadox(paradoxId, d.type(), futureEvent.id(), indexedEventId.revealIndex()));
+                        .add(new PendingParadox(
+                                paradoxId,
+                                d.type(),
+                                d.affectedOutcomeIds(),
+                                futureEvent.id(),
+                                indexedEventId.revealIndex()));
             });
         }
     }

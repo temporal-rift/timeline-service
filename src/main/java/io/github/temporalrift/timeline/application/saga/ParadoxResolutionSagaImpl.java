@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -233,9 +232,14 @@ class ParadoxResolutionSagaImpl {
 
     /**
      * Re-runs detection on one affected event's current state; for each of its originally detected paradoxes,
-     * publishes {@code ParadoxResolved} when that type is no longer present or {@code ParadoxCascaded} when it
-     * still is. The event resolves normally (Decision 5) only when every one of its original paradoxes cleared;
-     * otherwise the whole event cascades exactly once even if it had multiple paradoxes.
+     * publishes {@code ParadoxResolved} when that exact finding (type + affected outcomes, not type alone — two
+     * independently annihilated outcomes can both trip {@code IMPOSSIBLE_ERASURE} on the same event) is no
+     * longer present, or {@code ParadoxCascaded} when it still is. The event resolves normally (Decision 5) only
+     * when re-detection finds no paradox at all — not merely when the originally-tracked findings are gone — so a
+     * card that clears one paradox but incidentally introduces a different one (e.g. a SUPPRESS that ties two
+     * outcomes into a fresh {@code DEAD_HEAT}) still cascades the event; that new, untracked finding has no
+     * {@code paradoxId} of its own and so gets no dedicated {@code ParadoxCascaded} fact this cycle
+     * (design.md Non-Goals), but the event itself never wrongly resolves out from under it.
      */
     private void closeEvent(
             ParadoxResolutionPhase phase,
@@ -247,14 +251,11 @@ class ParadoxResolutionSagaImpl {
                 .toList();
         var revealIndex = eventPendingParadoxes.getFirst().revealIndex();
         var futureEvent = futureEvents.findById(affectedEventId);
-        var freshTypes = ParadoxDetector.detect(futureEvent.outcomes(), futureEvent.sealBreach()).stream()
-                .map(DetectedParadox::type)
-                .collect(Collectors.toSet());
+        var freshParadoxes = ParadoxDetector.detect(futureEvent.outcomes(), futureEvent.sealBreach());
 
-        var allResolved = true;
+        var allResolved = freshParadoxes.isEmpty();
         for (var pending : eventPendingParadoxes) {
-            if (freshTypes.contains(pending.type())) {
-                allResolved = false;
+            if (stillPresent(pending, freshParadoxes)) {
                 publisher.publish(TimelineEventEnvelope.create(
                         affectedEventId,
                         FUTURE_EVENT_AGGREGATE_TYPE,
@@ -302,6 +303,18 @@ class ParadoxResolutionSagaImpl {
             terminalResolutions.add(new TerminalResolution(
                     affectedEventId, revealIndex, TerminalResolution.TerminalState.CASCADED, null));
         }
+    }
+
+    /**
+     * A finding "persists" only when a fresh detection reports the same type against the same set of affected
+     * outcome ids — comparing {@code type} alone would conflate two distinct same-type findings on one event
+     * (Decision 2 / review finding).
+     */
+    private static boolean stillPresent(PendingParadox pending, List<DetectedParadox> freshParadoxes) {
+        var pendingOutcomeIds = Set.copyOf(pending.affectedOutcomeIds());
+        return freshParadoxes.stream()
+                .anyMatch(fresh -> fresh.type() == pending.type()
+                        && Set.copyOf(fresh.affectedOutcomeIds()).equals(pendingOutcomeIds));
     }
 
     record OpenResult(ParadoxResolutionPhase phase, boolean created) {}
