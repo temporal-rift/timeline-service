@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -229,7 +230,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             sorted.stream()
                     .filter(c -> !cancelled.contains(c.envelopeEventId()))
                     .filter(c -> c.kind() == ActionKind.CARD_PLAYED && CORRUPT_INVERTIBLE_TYPES.contains(c.cardType()))
-                    .filter(c -> corrupt.targetPlayerId().equals(c.playerId()))
+                    .filter(c -> Objects.equals(corrupt.targetPlayerId(), c.playerId()))
                     .findFirst()
                     .ifPresent(correlated ->
                             targets.put(correlated.envelopeEventId(), new CorruptCorrelation(corrupt.playerId())));
@@ -378,6 +379,14 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 rules.probabilityFloor(),
                 rules.probabilityCeiling());
         futureEvents.append(a.targetEventId(), restored);
+        if (!(restored instanceof ProbabilityShifted)) {
+            // Declined as a seal breach (should not be reachable given SEAL's tier-2 precedence over every
+            // shifter and REDIRECT itself, but reapplying on top of an un-restored, already-shifted state
+            // would double the original effect if it ever were) — every other applyShift caller in this
+            // class checks its result the same way; matching that here for consistency and defense in depth.
+            touchedEventIds.add(a.targetEventId());
+            return;
+        }
 
         var reappliedShift =
                 switch (last.kind()) {
@@ -402,7 +411,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     private static boolean isInvalidRedirectTarget(UUID targetOutcomeId, AppliedShift last) {
-        return last.kind() == ShiftKind.SWING && targetOutcomeId.equals(last.sourceOutcomeId());
+        return last.kind() == ShiftKind.SWING && Objects.equals(targetOutcomeId, last.sourceOutcomeId());
     }
 
     private void applyStall(BufferedAction a) {
