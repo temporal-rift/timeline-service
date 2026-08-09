@@ -98,7 +98,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             addStalled(gameId, eraNumber, indexedEventId, futureEvent, accumulator.terminalResolutions());
             return;
         }
-        var detected = ParadoxDetector.detect(futureEvent.outcomes());
+        var detected = ParadoxDetector.detect(futureEvent.outcomes(), futureEvent.sealBreach());
         if (detected.isEmpty()) {
             var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
             accumulator.resolutions().add(outcomeApplied);
@@ -123,7 +123,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                                 paradoxId, d.type(), futureEvent.id(), d.affectedOutcomeIds(), d.description()));
                 accumulator
                         .pendingParadoxes()
-                        .add(new PendingParadox(paradoxId, futureEvent.id(), indexedEventId.revealIndex()));
+                        .add(new PendingParadox(paradoxId, d.type(), futureEvent.id(), indexedEventId.revealIndex()));
             });
         }
     }

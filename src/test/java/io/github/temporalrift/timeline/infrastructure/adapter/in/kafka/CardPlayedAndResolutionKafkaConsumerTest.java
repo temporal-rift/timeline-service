@@ -25,6 +25,7 @@ import tools.jackson.databind.json.JsonMapper;
 import io.github.temporalrift.timeline.application.port.in.ApplyProbabilityShiftUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayCardModifierUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayCardModifierUseCase.CardModifier;
+import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlaySpecialActionUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlaySpecialActionUseCase.SpecialAction;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
@@ -43,6 +44,8 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     private static final String ACTION_ROUND_CLOSED_CONSUMER = "futureevent.action-round-closed";
     private static final String RESOLUTION_STARTED_EVENT_TYPE = "ResolutionStarted";
     private static final String RESOLUTION_STARTED_CONSUMER = "futureevent.resolution-started";
+    private static final String PARADOX_RESOLUTION_CARD_PLAYED_EVENT_TYPE = "ParadoxResolutionCardPlayed";
+    private static final String PARADOX_RESOLUTION_CARD_PLAYED_CONSUMER = "futureevent.paradox-resolution-card-played";
     private static final int ERA_NUMBER = 2;
     private static final int ROUND_NUMBER = 3;
 
@@ -63,6 +66,9 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
     @Mock
     ResolveEraUseCase resolveEra;
+
+    @Mock
+    PlayParadoxResolutionCardUseCase playParadoxResolutionCard;
 
     @Spy
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
@@ -401,6 +407,46 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 new ActionRoundClosedPayload(UUID.randomUUID(), 1, 1), eventId, ACTION_ROUND_CLOSED_EVENT_TYPE, 1));
 
         then(resolvePendingCorrupt).should(never()).resolve(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("ParadoxResolutionCardPlayed — routed to PlayParadoxResolutionCardUseCase")
+    void handle_paradoxResolutionCardPlayed_playsResolutionCard() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var payload = new ParadoxResolutionCardPlayedPayload(
+                gameId, ERA_NUMBER, playerId, UUID.randomUUID(), "PUSH", targetEventId, targetOutcomeId);
+        given(processedEvents.claim(eventId, PARADOX_RESOLUTION_CARD_PLAYED_CONSUMER))
+                .willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, PARADOX_RESOLUTION_CARD_PLAYED_EVENT_TYPE, 1));
+
+        then(playParadoxResolutionCard)
+                .should()
+                .play(gameId, ERA_NUMBER, playerId, "PUSH", targetEventId, targetOutcomeId);
+    }
+
+    @Test
+    @DisplayName("ParadoxResolutionCardPlayed duplicate eventId — no effect applied")
+    void handle_paradoxResolutionCardPlayedDuplicateEventId_ignored() {
+        var eventId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, PARADOX_RESOLUTION_CARD_PLAYED_CONSUMER))
+                .willReturn(false);
+        var payload = new ParadoxResolutionCardPlayedPayload(
+                UUID.randomUUID(),
+                ERA_NUMBER,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "PUSH",
+                UUID.randomUUID(),
+                UUID.randomUUID());
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, PARADOX_RESOLUTION_CARD_PLAYED_EVENT_TYPE, 1));
+
+        then(playParadoxResolutionCard).should(never()).play(any(), anyInt(), any(), any(), any(), any());
     }
 
     private static SpecialActionPlayedPayload specialActionPlayed(

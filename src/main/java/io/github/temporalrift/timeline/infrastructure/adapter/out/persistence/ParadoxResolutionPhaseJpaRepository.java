@@ -29,10 +29,11 @@ interface ParadoxResolutionPhaseJpaRepository extends JpaRepository<ParadoxResol
     @Query(value = """
                     INSERT INTO paradox_resolution_phase
                         (saga_id, game_id, era_number, status, pending_paradoxes,
-                         resolved_terminal_resolutions, timer_expires_at)
+                         resolved_terminal_resolutions, pending_player_ids, submissions, timer_expires_at)
                     VALUES
                         (:sagaId, :gameId, :eraNumber, :status, CAST(:pendingParadoxes AS JSONB),
-                         CAST(:resolvedTerminalResolutions AS JSONB), :timerExpiresAt)
+                         CAST(:resolvedTerminalResolutions AS JSONB), CAST(:pendingPlayerIds AS JSONB),
+                         CAST(:submissions AS JSONB), :timerExpiresAt)
                     ON CONFLICT (game_id, era_number) DO NOTHING
                     """, nativeQuery = true)
     int insertIfAbsent(
@@ -42,11 +43,18 @@ interface ParadoxResolutionPhaseJpaRepository extends JpaRepository<ParadoxResol
             @Param("status") String status,
             @Param("pendingParadoxes") String pendingParadoxes,
             @Param("resolvedTerminalResolutions") String resolvedTerminalResolutions,
+            @Param("pendingPlayerIds") String pendingPlayerIds,
+            @Param("submissions") String submissions,
             @Param("timerExpiresAt") Instant timerExpiresAt);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM ParadoxResolutionPhaseEntity p WHERE p.sagaId = :sagaId")
     Optional<ParadoxResolutionPhaseEntity> findBySagaIdWithLock(@Param("sagaId") UUID sagaId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM ParadoxResolutionPhaseEntity p WHERE p.gameId = :gameId AND p.eraNumber = :eraNumber")
+    Optional<ParadoxResolutionPhaseEntity> findByGameIdAndEraNumberWithLock(
+            @Param("gameId") UUID gameId, @Param("eraNumber") int eraNumber);
 
     @Query("SELECT p FROM ParadoxResolutionPhaseEntity p "
             + "WHERE p.status = 'WAITING' AND p.timerExpiresAt <= :deadline ORDER BY p.timerExpiresAt")

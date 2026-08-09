@@ -35,6 +35,14 @@ class ParadoxResolutionPhaseEntity {
     @Column(name = "resolved_terminal_resolutions", nullable = false)
     private String resolvedTerminalResolutions;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "pending_player_ids", nullable = false)
+    private String pendingPlayerIds;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "submissions", nullable = false)
+    private String submissions;
+
     @Column(name = "timer_expires_at", nullable = false)
     private Instant timerExpiresAt;
 
@@ -88,6 +96,22 @@ class ParadoxResolutionPhaseEntity {
 
     void setResolvedTerminalResolutions(String resolvedTerminalResolutions) {
         this.resolvedTerminalResolutions = resolvedTerminalResolutions;
+    }
+
+    String getPendingPlayerIds() {
+        return pendingPlayerIds;
+    }
+
+    void setPendingPlayerIds(String pendingPlayerIds) {
+        this.pendingPlayerIds = pendingPlayerIds;
+    }
+
+    String getSubmissions() {
+        return submissions;
+    }
+
+    void setSubmissions(String submissions) {
+        this.submissions = submissions;
     }
 
     Instant getTimerExpiresAt() {

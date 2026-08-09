@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      The player roster EraStarted carries (event-schema.md §3.2), persisted per (game_id, era_number) so
+      ParadoxResolutionSagaImpl can populate a resolution phase's pending-player set (design.md Decision 3).
+  -->
+  <changeSet id="001-create-era-players" author="timeline-service">
+    <createTable tableName="era_players">
+      <column name="id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="era_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="player_ids" type="JSONB">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+
+    <createIndex tableName="era_players" indexName="ux_era_players_game_era" unique="true">
+      <column name="game_id"/>
+      <column name="era_number"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>

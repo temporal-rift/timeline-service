@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
+import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 
 class TimelineEventWireMapperTest {
@@ -48,5 +49,20 @@ class TimelineEventWireMapperTest {
         assertThat(cascadedWire.revealIndex()).isEqualTo(1);
         assertThat(cascadedWire.terminalState()).isEqualTo("CASCADED");
         assertThat(cascadedWire.winningOutcomeId()).isNull();
+    }
+
+    @Test
+    void toWire_paradoxResolved_mapsEveryField() {
+        var gameId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var resolvedByPlayerId = UUID.randomUUID();
+        var event = new ParadoxResolved(gameId, 1, paradoxId, resolvedByPlayerId);
+
+        var wire = mapper.toWire(event);
+
+        assertThat(wire.gameId()).isEqualTo(gameId);
+        assertThat(wire.eraNumber()).isEqualTo(1);
+        assertThat(wire.paradoxId()).isEqualTo(paradoxId);
+        assertThat(wire.resolvedByPlayerId()).isEqualTo(resolvedByPlayerId);
     }
 }

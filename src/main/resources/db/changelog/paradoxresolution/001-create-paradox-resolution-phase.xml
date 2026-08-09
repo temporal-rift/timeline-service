@@ -6,9 +6,10 @@
             https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
 
   <!--
-      Persisted state for sagas.md Saga 5 (ParadoxResolutionSaga), force-cascade branch only this slice.
-      One row per (game_id, era_number), covering every paradox detected in that era's resolution cycle
-      behind a single shared timer. See design.md (timeline-mvp7-paradox-resolution-saga) Decision 1.
+      Persisted state for sagas.md Saga 5 (ParadoxResolutionSaga): force-cascade (timer expiry) and
+      player-submission (all-submitted) close branches. One row per (game_id, era_number), covering every
+      paradox detected in that era's resolution cycle behind a single shared timer. See design.md
+      (timeline-mvp7-paradox-resolution-saga Decision 1, timeline-mvp8-paradox-completion Decision 2).
   -->
   <changeSet id="001-create-paradox-resolution-phase" author="timeline-service">
     <createTable tableName="paradox_resolution_phase">
@@ -34,6 +35,14 @@
           publish one EraResolutionCompleted.
       -->
       <column name="resolved_terminal_resolutions" type="JSONB">
+        <constraints nullable="false"/>
+      </column>
+      <!-- JSON array of player-id UUIDs this phase is still waiting on a resolution-card submission from. -->
+      <column name="pending_player_ids" type="JSONB">
+        <constraints nullable="false"/>
+      </column>
+      <!-- JSON array of {playerId, cardType, targetEventId, targetOutcomeId} recorded submissions, applied at close. -->
+      <column name="submissions" type="JSONB">
         <constraints nullable="false"/>
       </column>
       <column name="timer_expires_at" type="TIMESTAMP WITH TIME ZONE">

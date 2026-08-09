@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,6 +31,9 @@ class EraStartedKafkaConsumerTest {
 
     @Mock
     ProcessedEventPort processedEvents;
+
+    @Mock
+    EraPlayersPort eraPlayers;
 
     @Spy
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
@@ -47,6 +51,21 @@ class EraStartedKafkaConsumerTest {
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
 
         then(processedEvents).should().claim(eventId, CONSUMER);
+    }
+
+    @Test
+    @DisplayName("matching event type — persists the era's player roster")
+    void handle_matchingEventType_persistsPlayerRoster() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        var playerId1 = UUID.randomUUID();
+        var playerId2 = UUID.randomUUID();
+        given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
+        var payload = new EraStartedPayload(gameId, 1, List.of(), List.of(playerId1, playerId2));
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
+
+        then(eraPlayers).should().save(gameId, 1, List.of(playerId1, playerId2));
     }
 
     @Test

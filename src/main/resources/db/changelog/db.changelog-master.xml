@@ -13,6 +13,9 @@
     <!-- FutureEvent: era index -->
     <include file="db/changelog/futureevent/001-create-future-event-era-index.xml"/>
 
+    <!-- Era: player roster carried by EraStarted -->
+    <include file="db/changelog/era/001-create-era-players.xml"/>
+
     <!-- Round-scoped card-modifier coordination state (AMPLIFY/NULLIFY/REDIRECT) -->
     <include file="db/changelog/roundeffect/001-create-round-last-card.xml"/>
     <include file="db/changelog/roundeffect/002-create-round-amplify-pending.xml"/>
