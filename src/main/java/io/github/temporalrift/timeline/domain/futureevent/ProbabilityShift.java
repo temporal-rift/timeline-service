@@ -16,6 +16,13 @@ public sealed interface ProbabilityShift {
     record Swing(UUID sourceOutcomeId, UUID targetOutcomeId) implements ProbabilityShift {}
 
     /**
+     * Forces {@code outcomeAId} and {@code outcomeBId} toward their combined midpoint, redistributing the
+     * remainder to the third outcome (GDD §3 "Group 4 — Paradox", the mechanical inverse of {@link Swing}).
+     * Unlike {@code PUSH}/{@code SUPPRESS}/{@code SWING}, has no configured magnitude of its own.
+     */
+    record Collide(UUID outcomeAId, UUID outcomeBId) implements ProbabilityShift {}
+
+    /**
      * Sets each outcome's probability to an exact recorded value, bypassing magnitude/floor/ceiling — used to
      * undo a prior shift by restoring its pre-shift snapshot ({@code NULLIFY}, the undo half of {@code REDIRECT}),
      * since inverting a clamped shift arithmetically is not guaranteed to reproduce the original values exactly.

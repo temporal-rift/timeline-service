@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Round-scoped buffer of not-yet-applied CardPlayed/SpecialActionPlayed actions (design.md Decision 1,
+      timeline-mvp9-resolution-ordering-paradox-cards). Written once per consumed message, read back once at
+      ActionRoundClosed and replayed in priority-tier order in a single pass — never updated in place. Replaces
+      round_last_card/round_amplify_pending/round_event_last_shift/round_pending_corrupt/round_card_by_player
+      (design.md Decision 7), which are left in place unwritten rather than dropped here.
+  -->
+  <changeSet id="006-create-round-action-buffer" author="timeline-service">
+    <createTable tableName="round_action_buffer">
+      <column name="id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="era_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="round_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <!-- CARD_PLAYED, SPECIAL_ACTION_PLAYED -->
+      <column name="kind" type="VARCHAR(32)">
+        <constraints nullable="false"/>
+      </column>
+      <!-- populated for CARD_PLAYED only -->
+      <column name="card_type" type="VARCHAR(32)"/>
+      <!-- populated for SPECIAL_ACTION_PLAYED only -->
+      <column name="special_action" type="VARCHAR(32)"/>
+      <column name="player_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="card_instance_id" type="UUID"/>
+      <column name="target_event_id" type="UUID"/>
+      <column name="source_outcome_id" type="UUID"/>
+      <column name="target_outcome_id" type="UUID"/>
+      <!-- CORRUPT only -->
+      <column name="target_player_id" type="UUID"/>
+      <column name="occurred_at" type="TIMESTAMP WITH TIME ZONE">
+        <constraints nullable="false"/>
+      </column>
+      <column name="envelope_event_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+
+    <createIndex tableName="round_action_buffer" indexName="ix_round_action_buffer_game_era_round">
+      <column name="game_id"/>
+      <column name="era_number"/>
+      <column name="round_number"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>

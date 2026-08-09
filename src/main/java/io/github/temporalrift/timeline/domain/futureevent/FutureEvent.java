@@ -137,6 +137,7 @@ public final class FutureEvent {
             case ProbabilityShift.Suppress s -> shiftSingleOrBreach(s.targetOutcomeId(), magnitude, floor, ceiling);
             case ProbabilityShift.Swing sw ->
                 swingOrBreach(sw.sourceOutcomeId(), sw.targetOutcomeId(), magnitude, floor, ceiling);
+            case ProbabilityShift.Collide c -> collideOrBreach(c.outcomeAId(), c.outcomeBId(), floor, ceiling);
             case ProbabilityShift.Restore r -> {
                 // A snapshot predates any SEAL cast on this event since — restoring it verbatim would
                 // silently overwrite a sealed outcome's now-frozen probability if the two disagree. Decline
@@ -214,6 +215,30 @@ public final class FutureEvent {
             return recordSealBreach();
         }
         var shiftedOutcomes = swing(sourceOutcomeId, targetOutcomeId, magnitude, floor, ceiling);
+        var event = new ProbabilityShifted(id, shiftedOutcomes);
+        this.outcomes = shiftedOutcomes;
+        return event;
+    }
+
+    /**
+     * Forces the two named outcomes to their combined-total midpoint (an odd combined total splits as
+     * {@code floor}/{@code ceiling} of half, e.g. 51 -> 25/26), clamped to the configured floor/ceiling while
+     * preserving their combined total exactly — the third outcome is untouched, so the 100 total is preserved
+     * automatically (COLLIDE, GDD §3 "Group 4 — Paradox").
+     */
+    private Object collideOrBreach(UUID outcomeAId, UUID outcomeBId, int floor, int ceiling) {
+        if (Objects.equals(outcomeAId, outcomeBId)) {
+            throw new IllegalArgumentException("COLLIDE requires distinct outcomes");
+        }
+        var a = outcomeById(outcomeAId);
+        var b = outcomeById(outcomeBId);
+        if (a.sealed() || b.sealed()) {
+            return recordSealBreach();
+        }
+        int combined = a.probability() + b.probability();
+        int half = combined / 2;
+        var rebalanced = clampPairPreservingSum(half, combined - half, floor, ceiling);
+        var shiftedOutcomes = replaceProbabilities(Map.of(outcomeAId, rebalanced[0], outcomeBId, rebalanced[1]));
         var event = new ProbabilityShifted(id, shiftedOutcomes);
         this.outcomes = shiftedOutcomes;
         return event;

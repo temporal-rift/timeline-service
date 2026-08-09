@@ -149,12 +149,14 @@ class ResolutionWalkingSkeletonIT {
         awaitFutureEventIndexed(gameId, eraNumber);
 
         // Configured push-shift is +20 (application.yml game.rules.probability.push-shift): 35 + 20 = 55,
-        // enough to overtake the initial 50-probability winner. Published immediately followed by
-        // ResolutionStarted with no synchronization in between — CardPlayedAndResolutionKafkaConsumer
-        // handles both event types on the same consumer group/partition, so Kafka's in-partition
+        // enough to overtake the initial 50-probability winner. CardPlayed only buffers the shift —
+        // ActionRoundClosed triggers the priority-ordered replay that actually applies it — then
+        // ResolutionStarted follows with no synchronization in between: CardPlayedAndResolutionKafkaConsumer
+        // handles all three event types on the same consumer group/partition, so Kafka's in-partition
         // ordering alone (not a test-only wait) guarantees the shift is applied before resolution runs
-        // (design.md Decision 1/3, revised after PR #25 review).
+        // (design.md Decision 1, timeline-mvp9-resolution-ordering-paradox-cards).
         publishCardPlayed(gameId, eraNumber, futureEventId, "PUSH", null, pushedOutcomeId);
+        publishActionRoundClosed(gameId, eraNumber, 1);
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
@@ -186,6 +188,7 @@ class ResolutionWalkingSkeletonIT {
 
         publishCardPlayed(gameId, eraNumber, futureEventId, "AMPLIFY", null, null);
         publishCardPlayed(gameId, eraNumber, futureEventId, "SUPPRESS", null, initialWinnerOutcomeId);
+        publishActionRoundClosed(gameId, eraNumber, 1);
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
@@ -219,6 +222,7 @@ class ResolutionWalkingSkeletonIT {
                         .isEqualTo(2));
 
         publishCardPlayed(gameId, eraNumber, stalledEventId, "STALL", null, null);
+        publishActionRoundClosed(gameId, eraNumber, 1);
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
@@ -414,6 +418,18 @@ class ResolutionWalkingSkeletonIT {
 
     private void publishResolutionStarted(UUID gameId, int eraNumber, UUID eventId) {
         publish(gameId, "ResolutionStarted", Map.of("gameId", gameId, "eraNumber", eraNumber), eventId);
+    }
+
+    /**
+     * timeline-mvp9-resolution-ordering-paradox-cards: {@code CardPlayed}/{@code SpecialActionPlayed} are now
+     * buffered, not applied immediately — a round's effects only take place once its {@code ActionRoundClosed}
+     * triggers the priority-ordered replay.
+     */
+    private void publishActionRoundClosed(UUID gameId, int eraNumber, int roundNumber) {
+        publish(
+                gameId,
+                "ActionRoundClosed",
+                Map.of("gameId", gameId, "eraNumber", eraNumber, "roundNumber", roundNumber));
     }
 
     private void publish(UUID gameId, String eventType, Object payload) {

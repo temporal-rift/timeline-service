@@ -539,6 +539,156 @@ class ParadoxResolutionSagaImplTest {
         assertThat(cascaded).extracting(ParadoxCascaded::paradoxId).containsExactly(higherParadoxId);
     }
 
+    @Test
+    void handlePlayerSubmitted_stabilizeTargetsEvent_resolvesDespiteStillParadoxed() {
+        // STABILIZE suppresses re-detection entirely for its targeted event — the event resolves even
+        // though its outcome state (untouched, since STABILIZE isn't a probability shift) would still trip
+        // IMPOSSIBLE_ERASURE on a fresh detection.
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
+        var stabilizingPlayerId = UUID.randomUUID();
+        var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
+        var submission = new Submission(stabilizingPlayerId, "STABILIZE", affectedEventId, null);
+        var phase = new ParadoxResolutionPhase(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(submission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
+
+        then(eraIndex).should(never()).add(any(), any(), anyInt(), anyInt());
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(3)).publish(captor.capture());
+        var payloads = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .toList();
+        assertThat(payloads.get(0)).isInstanceOf(ParadoxResolved.class);
+        assertThat(payloads.get(1)).isInstanceOf(OutcomeApplied.class);
+        var barrier = (EraResolutionCompleted) payloads.get(2);
+        assertThat(barrier.terminalResolutions())
+                .extracting(TerminalResolution::terminalState)
+                .containsExactly(TerminalResolution.TerminalState.OUTCOME_APPLIED);
+    }
+
+    @Test
+    void handlePlayerSubmitted_detonateOnStillCascadingEvent_recordsDetonatingPlayer() {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
+        var detonatingPlayerId = UUID.randomUUID();
+        var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
+        // DETONATE doesn't clear the paradox itself (no probability effect) — the event still cascades.
+        var submission = new Submission(detonatingPlayerId, "DETONATE", affectedEventId, null);
+        var phase = new ParadoxResolutionPhase(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(submission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
+
+        then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(2)).publish(captor.capture());
+        var cascaded = (ParadoxCascaded) captor.getAllValues().get(0).payload();
+        assertThat(cascaded.detonatedByPlayerIds()).containsExactly(detonatingPlayerId);
+    }
+
+    @Test
+    void handlePlayerSubmitted_multipleDetonatesOnSameEvent_deduplicatedIntoOneSet() {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
+        var firstDetonator = UUID.randomUUID();
+        var secondDetonator = UUID.randomUUID();
+        var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
+        var firstSubmission = new Submission(firstDetonator, "DETONATE", affectedEventId, null);
+        var secondSubmission = new Submission(secondDetonator, "DETONATE", affectedEventId, null);
+        var phase = new ParadoxResolutionPhase(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(firstSubmission, secondSubmission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, secondSubmission)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, secondSubmission);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(2)).publish(captor.capture());
+        var cascaded = (ParadoxCascaded) captor.getAllValues().get(0).payload();
+        assertThat(cascaded.detonatedByPlayerIds()).containsExactlyInAnyOrder(firstDetonator, secondDetonator);
+    }
+
+    @Test
+    void handlePlayerSubmitted_stabilizeAndDetonateSameEvent_stabilizeWinsNoCascadeNoDetonation() {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
+        var stabilizingPlayerId = UUID.randomUUID();
+        var detonatingPlayerId = UUID.randomUUID();
+        var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
+        var stabilizeSubmission = new Submission(stabilizingPlayerId, "STABILIZE", affectedEventId, null);
+        var detonateSubmission = new Submission(detonatingPlayerId, "DETONATE", affectedEventId, null);
+        var phase = new ParadoxResolutionPhase(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(stabilizeSubmission, detonateSubmission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, detonateSubmission))
+                .willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, detonateSubmission);
+
+        then(eraIndex).should(never()).add(any(), any(), anyInt(), anyInt());
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(3)).publish(captor.capture());
+        var payloads = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .toList();
+        assertThat(payloads).noneMatch(ParadoxCascaded.class::isInstance);
+        assertThat(payloads.get(0)).isInstanceOf(ParadoxResolved.class);
+    }
+
     /** Three outcomes, the first annihilated and at least tied with the other two — triggers IMPOSSIBLE_ERASURE. */
     private static FutureEvent impossibleErasureFutureEvent(UUID eventId, UUID annihilatedOutcomeId) {
         return impossibleErasureFutureEvent(eventId, annihilatedOutcomeId, UUID.randomUUID(), UUID.randomUUID());

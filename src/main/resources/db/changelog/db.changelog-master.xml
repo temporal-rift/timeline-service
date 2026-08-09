@@ -16,12 +16,19 @@
     <!-- Era: player roster carried by EraStarted -->
     <include file="db/changelog/era/001-create-era-players.xml"/>
 
-    <!-- Round-scoped card-modifier coordination state (AMPLIFY/NULLIFY/REDIRECT) -->
+    <!--
+        Round-scoped card-modifier coordination state (AMPLIFY/NULLIFY/REDIRECT). Superseded by
+        round_action_buffer below (design.md Decision 7, timeline-mvp9-resolution-ordering-paradox-cards) —
+        left in place, unwritten, rather than dropped; see that change's Migration Plan.
+    -->
     <include file="db/changelog/roundeffect/001-create-round-last-card.xml"/>
     <include file="db/changelog/roundeffect/002-create-round-amplify-pending.xml"/>
     <include file="db/changelog/roundeffect/003-create-round-event-last-shift.xml"/>
     <include file="db/changelog/roundeffect/004-create-round-pending-corrupt.xml"/>
     <include file="db/changelog/roundeffect/005-create-round-card-by-player.xml"/>
+
+    <!-- Round-scoped buffer of not-yet-applied actions, replayed in priority order at ActionRoundClosed -->
+    <include file="db/changelog/roundeffect/006-create-round-action-buffer.xml"/>
 
     <!-- ParadoxResolutionSaga state (sagas.md Saga 5) -->
     <include file="db/changelog/paradoxresolution/001-create-paradox-resolution-phase.xml"/>

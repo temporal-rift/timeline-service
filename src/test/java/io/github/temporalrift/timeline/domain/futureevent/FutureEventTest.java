@@ -270,6 +270,82 @@ class FutureEventTest {
     }
 
     @Test
+    void applyShift_collide_equalizesTwoOutcomesPreservingSum() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(40);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(40);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(20);
+        assertThat(sum(event)).isEqualTo(100);
+    }
+
+    @Test
+    void applyShift_collide_oddCombinedTotal_splitsFloorCeilingOfHalf() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 51);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 19);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(40);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(41);
+        assertThat(sum(event)).isEqualTo(100);
+    }
+
+    @Test
+    void applyShift_collide_clampedByCeiling() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 5);
+        var b = new Outcome(UUID.randomUUID(), "b", 90);
+        var c = new Outcome(UUID.randomUUID(), "c", 5);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(byId(event, a.outcomeId()) + byId(event, b.outcomeId())).isEqualTo(95);
+        assertThat(byId(event, a.outcomeId())).isLessThanOrEqualTo(90);
+        assertThat(byId(event, b.outcomeId())).isLessThanOrEqualTo(90);
+        assertThat(sum(event)).isEqualTo(100);
+    }
+
+    @Test
+    void applyShift_collide_oneOutcomeSealed_setsSealBreachWithoutChangingProbability() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(a.outcomeId());
+
+        var result = event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(result).isInstanceOf(SealBreachRecorded.class);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(30);
+        assertThat(event.sealBreach()).isTrue();
+    }
+
+    @Test
+    void applyShift_collide_sameOutcomeTwice_throws() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        var shift = new ProbabilityShift.Collide(a.outcomeId(), a.outcomeId());
+
+        assertThatThrownBy(() -> event.applyShift(shift, 0, 0, 90)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void applyShift_swing_sameSourceAndTarget_throws() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
