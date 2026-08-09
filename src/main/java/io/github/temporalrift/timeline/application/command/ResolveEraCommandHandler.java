@@ -133,6 +133,19 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                 && accumulator.paradoxes().isEmpty()) {
             return;
         }
+        var paradoxes = accumulator.paradoxes();
+        if (!accumulator.pendingParadoxes().isEmpty()) {
+            // Deferred: the barrier now waits for ParadoxResolutionSaga to force-cascade every paradox
+            // detected this cycle before EraResolutionCompleted can be published (resolution-walking-skeleton
+            // MODIFIED requirement, timeline-mvp7-paradox-resolution-saga). Opened before ParadoxDetected is
+            // published, and its authoritative pendingParadoxes (not our own freshly-generated ids) are what
+            // gets announced: if a phase already existed for this era (a duplicate/redelivered resolution
+            // attempt), our ids belong to nothing the saga will ever cascade — only the existing phase's ids
+            // ever get a ParadoxCascaded.
+            var authoritativePendingParadoxes = openParadoxResolutionPhase.open(
+                    gameId, eraNumber, accumulator.pendingParadoxes(), accumulator.terminalResolutions());
+            paradoxes = reconcileParadoxIds(accumulator.paradoxes(), authoritativePendingParadoxes);
+        }
         if (!accumulator.resolutions().isEmpty()) {
             publisher.publish(TimelineEventEnvelope.create(
                     gameId,
@@ -142,13 +155,13 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                     toProbabilityStateCalculated(gameId, eraNumber, accumulator.resolutions()),
                     clock));
         }
-        if (!accumulator.paradoxes().isEmpty()) {
+        if (!paradoxes.isEmpty()) {
             publisher.publish(TimelineEventEnvelope.create(
                     gameId,
                     ERA_AGGREGATE_TYPE,
                     gameId,
                     TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new ParadoxDetected(gameId, eraNumber, accumulator.paradoxes()),
+                    new ParadoxDetected(gameId, eraNumber, paradoxes),
                     clock));
         }
         for (var outcomeApplied : accumulator.resolutions()) {
@@ -160,13 +173,8 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                     outcomeApplied,
                     clock));
         }
-        if (!accumulator.pendingParadoxes().isEmpty()) {
-            // Deferred: the barrier now waits for ParadoxResolutionSaga to force-cascade every paradox
-            // detected this cycle before EraResolutionCompleted can be published (resolution-walking-skeleton
-            // MODIFIED requirement, timeline-mvp7-paradox-resolution-saga).
-            openParadoxResolutionPhase.open(
-                    gameId, eraNumber, accumulator.pendingParadoxes(), accumulator.terminalResolutions());
-        } else if (!accumulator.terminalResolutions().isEmpty()) {
+        if (accumulator.pendingParadoxes().isEmpty()
+                && !accumulator.terminalResolutions().isEmpty()) {
             publisher.publish(TimelineEventEnvelope.create(
                     gameId,
                     ERA_AGGREGATE_TYPE,
@@ -175,6 +183,29 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                     new EraResolutionCompleted(gameId, eraNumber, accumulator.terminalResolutions()),
                     clock));
         }
+    }
+
+    /**
+     * Rebuilds each candidate paradox with its authoritative {@code paradoxId} in place of the provisional one
+     * generated during detection. Matches positionally: {@code candidates} and {@code authoritativePendingParadoxes}
+     * are both built/returned in the same detection order, which is deterministic for a given era's active events
+     * (nothing else mutates a paradoxed FutureEvent's state between two resolution attempts for the same era in
+     * this slice — no player-submission path exists yet), so index-based pairing is safe even when the
+     * authoritative list belongs to an earlier call's already-persisted phase.
+     */
+    private static List<ParadoxDetected.Paradox> reconcileParadoxIds(
+            List<ParadoxDetected.Paradox> candidates, List<PendingParadox> authoritativePendingParadoxes) {
+        var reconciled = new ArrayList<ParadoxDetected.Paradox>(candidates.size());
+        for (var i = 0; i < candidates.size(); i++) {
+            var candidate = candidates.get(i);
+            reconciled.add(new ParadoxDetected.Paradox(
+                    authoritativePendingParadoxes.get(i).paradoxId(),
+                    candidate.type(),
+                    candidate.affectedEventId(),
+                    candidate.affectedOutcomeIds(),
+                    candidate.description()));
+        }
+        return reconciled;
     }
 
     /** Mutable per-call collector, populated by {@link #resolveEvent} and drained by {@link #publishResolution}. */

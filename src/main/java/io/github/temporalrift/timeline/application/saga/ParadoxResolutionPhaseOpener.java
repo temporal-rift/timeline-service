@@ -26,13 +26,24 @@ class ParadoxResolutionPhaseOpener implements OpenParadoxResolutionPhaseUseCase 
         this.timerScheduler = timerScheduler;
     }
 
+    /**
+     * Returns the phase's authoritative pending paradoxes — the caller (e.g. {@code ResolveEraCommandHandler}) must
+     * publish {@code ParadoxDetected} using these ids, not the ones it originally proposed: when a phase already
+     * existed for this era, the proposed ids belong to a duplicate/redelivered detection pass and will never be
+     * cascaded, since the existing phase's own ids are what {@code handleTimerExpiry} eventually publishes
+     * {@code ParadoxCascaded} for.
+     */
     @Override
-    public void open(
+    public List<PendingParadox> open(
             UUID gameId,
             int eraNumber,
             List<PendingParadox> pendingParadoxes,
             List<TerminalResolution> resolvedTerminalResolutions) {
-        saga.openPhase(gameId, eraNumber, pendingParadoxes, resolvedTerminalResolutions)
-                .ifPresent(result -> timerScheduler.scheduleAfterCommit(result.sagaId(), result.timerExpiresAt()));
+        var result = saga.openPhase(gameId, eraNumber, pendingParadoxes, resolvedTerminalResolutions);
+        if (result.created()) {
+            timerScheduler.scheduleAfterCommit(
+                    result.phase().sagaId(), result.phase().timerExpiresAt());
+        }
+        return result.phase().pendingParadoxes();
     }
 }

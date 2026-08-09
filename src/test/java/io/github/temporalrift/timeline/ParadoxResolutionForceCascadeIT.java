@@ -117,6 +117,12 @@ class ParadoxResolutionForceCascadeIT {
                 .payload();
         var terminalResolutions = (List<?>) eraResolutionCompletedPayload.get("terminalResolutions");
         assertThat(terminalResolutions).hasSize(3);
+        // Membership/field checks below don't prove list order — assert the actual sequence too, since a
+        // payload ordered [entry1, entry2, paradoxedEntry] would otherwise still pass.
+        assertThat(terminalResolutions.stream()
+                        .map(entry -> asMap(entry).get("eventId"))
+                        .toList())
+                .containsExactly(paradoxedEventId.toString(), eventId1.toString(), eventId2.toString());
 
         var paradoxedEntry = terminalResolutionFor(terminalResolutions, paradoxedEventId);
         assertThat(paradoxedEntry)
