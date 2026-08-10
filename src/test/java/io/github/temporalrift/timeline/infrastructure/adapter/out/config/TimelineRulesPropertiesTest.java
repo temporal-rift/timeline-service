@@ -94,4 +94,24 @@ class TimelineRulesPropertiesTest {
         assertThatThrownBy(() -> new TimelineRulesProperties(20, -20, 30, 0, 90, 30, 60, 10, 1.0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void rallyMultiplierNaN_throws() {
+        assertThatThrownBy(() -> new TimelineRulesProperties(20, -20, 30, 0, 90, 30, 60, 10, Double.NaN))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rallyMultiplierPositiveInfinity_throws() {
+        assertThatThrownBy(() -> new TimelineRulesProperties(20, -20, 30, 0, 90, 30, 60, 10, Double.POSITIVE_INFINITY))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rallyMultiplierOverflowsBoostedMagnitude_throws() {
+        // 2 * swingShift(30) * 4e17 vastly exceeds Integer.MAX_VALUE — finite, but would silently wrap
+        // once rallyAdjustedMagnitude rounds and narrows it to an int.
+        assertThatThrownBy(() -> new TimelineRulesProperties(20, -20, 30, 0, 90, 30, 60, 10, 4e17))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }
