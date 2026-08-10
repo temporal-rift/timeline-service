@@ -43,18 +43,34 @@ class ParadoxResolutionPhaseStateManager {
      * opened before its era's roster was persisted adopts it here, under the same row lock that records the
      * submission, so the all-submitted trigger becomes available again for the rest of the phase.
      *
-     * @return the updated phase when the submission was recorded, {@link Optional#empty()} when there is no phase
-     *     for {@code (gameId, eraNumber)}, it is no longer accepting submissions, or it has no pending slot for
-     *     this player (already submitted, or absent from a known roster)
+     * @return the updated phase only when the submission was recorded — so the caller never evaluates the
+     *     all-submitted trigger for a submission that changed nothing — and {@link Optional#empty()} when there is
+     *     no phase for {@code (gameId, eraNumber)}, it is no longer accepting submissions, or it has no pending
+     *     slot for this player (already submitted, or absent from a known roster)
      */
     @Transactional
     Optional<ParadoxResolutionPhase> markSubmitted(UUID gameId, int eraNumber, Submission submission) {
         return repository
                 .findByGameIdAndEraNumberWithLock(gameId, eraNumber)
                 .filter(phase -> phase.status() == ParadoxResolutionPhaseStatus.WAITING)
-                .map(this::adoptRosterIfNowAvailable)
-                .filter(phase -> phase.accepts(submission.playerId()))
-                .map(phase -> repository.save(phase.withSubmission(submission)));
+                .flatMap(phase -> recordSubmission(phase, submission));
+    }
+
+    /**
+     * Adopts the era roster if it has landed since {@code phase} opened, then records {@code submission} against
+     * the result. A just-adopted roster is persisted even when the submission itself is rejected — otherwise that
+     * read is discarded and the phase stays roster-unknown, leaving a later non-roster submission to be accepted
+     * on the weaker "has not submitted yet" rule.
+     */
+    private Optional<ParadoxResolutionPhase> recordSubmission(ParadoxResolutionPhase phase, Submission submission) {
+        var adopted = adoptRosterIfNowAvailable(phase);
+        if (!adopted.accepts(submission.playerId())) {
+            if (adopted.rosterKnown() && !phase.rosterKnown()) {
+                repository.save(adopted);
+            }
+            return Optional.empty();
+        }
+        return Optional.of(repository.save(adopted.withSubmission(submission)));
     }
 
     private ParadoxResolutionPhase adoptRosterIfNowAvailable(ParadoxResolutionPhase phase) {

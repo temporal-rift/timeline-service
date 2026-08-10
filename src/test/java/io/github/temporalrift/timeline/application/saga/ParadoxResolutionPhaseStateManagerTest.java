@@ -15,6 +15,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -96,6 +97,24 @@ class ParadoxResolutionPhaseStateManagerTest {
 
         assertThat(phase).isEmpty();
         then(repository).should(never()).save(any());
+    }
+
+    @Test
+    void markSubmitted_rosterLandedButSubmissionRejected_stillPersistsTheAdoptedRoster() {
+        var alreadySubmittedPlayerId = UUID.randomUUID();
+        var otherPlayerId = UUID.randomUUID();
+        givenLockedPhase(unknownRosterPhase(List.of(push(alreadySubmittedPlayerId))));
+        given(eraPlayers.find(GAME_ID, ERA_NUMBER))
+                .willReturn(Optional.of(List.of(alreadySubmittedPlayerId, otherPlayerId)));
+
+        var phase = stateManager.markSubmitted(GAME_ID, ERA_NUMBER, push(alreadySubmittedPlayerId));
+
+        assertThat(phase).isEmpty();
+        var saved = ArgumentCaptor.forClass(ParadoxResolutionPhase.class);
+        then(repository).should().save(saved.capture());
+        assertThat(saved.getValue().rosterKnown()).isTrue();
+        assertThat(saved.getValue().pendingPlayerIds()).containsExactly(otherPlayerId);
+        assertThat(saved.getValue().submissions()).hasSize(1);
     }
 
     @Test
