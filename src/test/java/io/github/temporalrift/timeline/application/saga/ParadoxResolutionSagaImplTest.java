@@ -91,7 +91,7 @@ class ParadoxResolutionSagaImplTest {
         var pending = List.of(new PendingParadox(
                 paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), affectedEventId, 0));
         var playerIds = List.of(UUID.randomUUID(), UUID.randomUUID());
-        given(eraPlayers.find(GAME_ID, ERA_NUMBER)).willReturn(playerIds);
+        given(eraPlayers.find(GAME_ID, ERA_NUMBER)).willReturn(Optional.of(playerIds));
         given(stateManager.createIfAbsent(any()))
                 .willAnswer(invocation -> new CreateResult(invocation.getArgument(0), true));
 
@@ -101,6 +101,7 @@ class ParadoxResolutionSagaImplTest {
         assertThat(result.phase().gameId()).isEqualTo(GAME_ID);
         assertThat(result.phase().eraNumber()).isEqualTo(ERA_NUMBER);
         assertThat(result.phase().pendingParadoxes()).isEqualTo(pending);
+        assertThat(result.phase().rosterKnown()).isTrue();
         assertThat(result.phase().pendingPlayerIds()).isEqualTo(playerIds);
         assertThat(result.phase().submissions()).isEmpty();
         assertThat(result.phase().timerExpiresAt()).isEqualTo(clock.instant().plusSeconds(TIMER_SECONDS));
@@ -119,7 +120,7 @@ class ParadoxResolutionSagaImplTest {
         given(rules.paradoxResolutionTimerSeconds()).willReturn(TIMER_SECONDS);
         var existingPending = List.of(new PendingParadox(
                 UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), UUID.randomUUID(), 0));
-        var existingPhase = new ParadoxResolutionPhase(
+        var existingPhase = ParadoxResolutionPhase.withKnownRoster(
                 UUID.randomUUID(),
                 GAME_ID,
                 ERA_NUMBER,
@@ -141,6 +142,44 @@ class ParadoxResolutionSagaImplTest {
     }
 
     @Test
+    void openPhase_rosterNotPersistedYet_opensWithAnUnknownRosterRatherThanAnEmptyOne() {
+        // EraStartedKafkaConsumer runs in its own consumer group — nothing orders it against the group that
+        // opens phases, so an absent roster must not read as "nobody left to submit" (issue #41).
+        given(rules.paradoxResolutionTimerSeconds()).willReturn(TIMER_SECONDS);
+        var pending = List.of(new PendingParadox(
+                UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), UUID.randomUUID(), 0));
+        given(eraPlayers.find(GAME_ID, ERA_NUMBER)).willReturn(Optional.empty());
+        given(stateManager.createIfAbsent(any()))
+                .willAnswer(invocation -> new CreateResult(invocation.getArgument(0), true));
+
+        var result = saga.openPhase(GAME_ID, ERA_NUMBER, pending, List.of());
+
+        assertThat(result.phase().rosterKnown()).isFalse();
+        assertThat(result.phase().pendingPlayerIds()).isEmpty();
+        assertThat(result.phase().allPlayersSubmitted()).isFalse();
+    }
+
+    @Test
+    void handlePlayerSubmitted_phaseRosterStillUnknown_doesNotClose() {
+        var submission = new Submission(UUID.randomUUID(), "PUSH", UUID.randomUUID(), UUID.randomUUID());
+        var unknownRosterPhase = ParadoxResolutionPhase.withUnknownRoster(
+                UUID.randomUUID(),
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(),
+                List.of(),
+                List.of(submission),
+                clock.instant());
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(unknownRosterPhase));
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
+
+        then(publisher).should(never()).publish(any());
+        then(stateManager).should(never()).complete(any());
+    }
+
+    @Test
     void handleTimerExpiry_singlePendingParadoxUntouched_stillCascadesAndCarriesEventForward() {
         var sagaId = UUID.randomUUID();
         var paradoxId = UUID.randomUUID();
@@ -149,7 +188,7 @@ class ParadoxResolutionSagaImplTest {
         var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
         var resolvedTerminalResolutions = List.of(new TerminalResolution(
                 UUID.randomUUID(), 1, TerminalResolution.TerminalState.OUTCOME_APPLIED, UUID.randomUUID()));
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
@@ -194,7 +233,7 @@ class ParadoxResolutionSagaImplTest {
         var eventId1 = UUID.randomUUID();
         var annihilatedId0 = UUID.randomUUID();
         var annihilatedId1 = UUID.randomUUID();
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
@@ -238,7 +277,7 @@ class ParadoxResolutionSagaImplTest {
     @Test
     void handleTimerExpiry_phaseAlreadyCompleted_doesNothing() {
         var sagaId = UUID.randomUUID();
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
@@ -275,7 +314,7 @@ class ParadoxResolutionSagaImplTest {
     @Test
     void handlePlayerSubmitted_notAllSubmittedYet_doesNotClose() {
         var submission = new Submission(UUID.randomUUID(), "PUSH", UUID.randomUUID(), UUID.randomUUID());
-        var stillPendingPhase = new ParadoxResolutionPhase(
+        var stillPendingPhase = ParadoxResolutionPhase.withKnownRoster(
                 UUID.randomUUID(),
                 GAME_ID,
                 ERA_NUMBER,
@@ -313,7 +352,7 @@ class ParadoxResolutionSagaImplTest {
         var playerId = UUID.randomUUID();
         var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
         var submission = new Submission(playerId, "SUPPRESS", affectedEventId, annihilatedId);
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
@@ -366,7 +405,7 @@ class ParadoxResolutionSagaImplTest {
                 impossibleErasureFutureEvent(affectedEventId, annihilatedId, secondOutcomeId, UUID.randomUUID());
         // A small PUSH to the non-annihilated "second" outcome — the annihilated outcome stays >= both others.
         var submission = new Submission(playerId, "PUSH", affectedEventId, secondOutcomeId);
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
@@ -423,7 +462,7 @@ class ParadoxResolutionSagaImplTest {
         // goes entirely to "third".
         var breachSubmission = new Submission(breachingPlayerId, "PUSH", affectedEventId, sealedOutcomeId);
         var suppressSubmission = new Submission(suppressingPlayerId, "SUPPRESS", affectedEventId, annihilatedId);
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
@@ -487,7 +526,7 @@ class ParadoxResolutionSagaImplTest {
         // Suppresses the lower-probability annihilated outcome down to 0 — it drops below the non-annihilated
         // outcome and clears, but the higher one (still 50 >= its share of the redistribution) persists.
         var submission = new Submission(playerId, "SUPPRESS", affectedEventId, lowerAnnihilatedId);
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
@@ -551,7 +590,7 @@ class ParadoxResolutionSagaImplTest {
         var stabilizingPlayerId = UUID.randomUUID();
         var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
         var submission = new Submission(stabilizingPlayerId, "STABILIZE", affectedEventId, null);
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
@@ -592,7 +631,7 @@ class ParadoxResolutionSagaImplTest {
         var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
         // DETONATE doesn't clear the paradox itself (no probability effect) — the event still cascades.
         var submission = new Submission(detonatingPlayerId, "DETONATE", affectedEventId, null);
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
@@ -627,7 +666,7 @@ class ParadoxResolutionSagaImplTest {
         var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
         var firstSubmission = new Submission(firstDetonator, "DETONATE", affectedEventId, null);
         var secondSubmission = new Submission(secondDetonator, "DETONATE", affectedEventId, null);
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
@@ -661,7 +700,7 @@ class ParadoxResolutionSagaImplTest {
         var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
         var stabilizeSubmission = new Submission(stabilizingPlayerId, "STABILIZE", affectedEventId, null);
         var detonateSubmission = new Submission(detonatingPlayerId, "DETONATE", affectedEventId, null);
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,

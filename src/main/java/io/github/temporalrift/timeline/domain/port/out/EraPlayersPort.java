@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline.domain.port.out;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -12,5 +13,11 @@ public interface EraPlayersPort {
 
     void save(UUID gameId, int eraNumber, List<UUID> playerIds);
 
-    List<UUID> find(UUID gameId, int eraNumber);
+    /**
+     * @return {@link Optional#empty()} when no roster has been persisted for this era yet — distinct from a
+     *     persisted but empty one, which a resolution phase must treat as final rather than as still pending
+     *     ({@code EraStartedKafkaConsumer} consumes {@code game.events} in its own consumer group, so nothing
+     *     orders it against the group that opens resolution phases)
+     */
+    Optional<List<UUID>> find(UUID gameId, int eraNumber);
 }

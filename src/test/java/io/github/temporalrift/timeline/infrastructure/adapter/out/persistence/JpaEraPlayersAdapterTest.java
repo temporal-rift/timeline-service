@@ -44,12 +44,20 @@ class JpaEraPlayersAdapterTest {
 
         eraPlayers.save(gameId, 1, List.of(playerId1, playerId2));
 
-        assertThat(eraPlayers.find(gameId, 1)).containsExactly(playerId1, playerId2);
+        assertThat(eraPlayers.find(gameId, 1)).contains(List.of(playerId1, playerId2));
     }
 
     @Test
-    void find_noRowForGameAndEra_returnsEmptyList() {
+    void find_noRowForGameAndEra_returnsEmptyOptional() {
         assertThat(eraPlayers.find(UUID.randomUUID(), 1)).isEmpty();
+    }
+
+    @Test
+    void find_rowWithNoPlayers_returnsPresentEmptyRoster() {
+        var gameId = UUID.randomUUID();
+        eraPlayers.save(gameId, 1, List.of());
+
+        assertThat(eraPlayers.find(gameId, 1)).contains(List.of());
     }
 
     @Test
@@ -60,7 +68,7 @@ class JpaEraPlayersAdapterTest {
         eraPlayers.save(gameId, 1, List.of(era1PlayerId));
         eraPlayers.save(gameId, 2, List.of(era2PlayerId));
 
-        assertThat(eraPlayers.find(gameId, 1)).containsExactly(era1PlayerId);
-        assertThat(eraPlayers.find(gameId, 2)).containsExactly(era2PlayerId);
+        assertThat(eraPlayers.find(gameId, 1)).contains(List.of(era1PlayerId));
+        assertThat(eraPlayers.find(gameId, 2)).contains(List.of(era2PlayerId));
     }
 }

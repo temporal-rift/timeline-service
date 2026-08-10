@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
@@ -18,6 +19,12 @@ import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
  * back the player-submission close trigger: every game player starts pending; a recorded submission moves a
  * player out of {@code pendingPlayerIds} and into {@code submissions}, and the phase closes (by either trigger)
  * once {@code pendingPlayerIds} is empty or the timer expires, whichever first.
+ *
+ * <p>{@code rosterKnown} is false when the era's roster had not been persisted yet when the phase opened —
+ * {@code EraStarted} is consumed in its own consumer group, unordered against the one that opens phases, so a
+ * phase can legitimately open before it lands. Such a phase carries no pending players but is not "everyone has
+ * submitted": {@link #allPlayersSubmitted()} stays false until {@link #withRoster} adopts the real roster, so the
+ * timer is its only close trigger in the meantime and no submission is lost.
  */
 public record ParadoxResolutionPhase(
         UUID sagaId,
@@ -26,6 +33,7 @@ public record ParadoxResolutionPhase(
         ParadoxResolutionPhaseStatus status,
         List<PendingParadox> pendingParadoxes,
         List<TerminalResolution> resolvedTerminalResolutions,
+        boolean rosterKnown,
         List<UUID> pendingPlayerIds,
         List<Submission> submissions,
         Instant timerExpiresAt) {
@@ -35,6 +43,98 @@ public record ParadoxResolutionPhase(
         resolvedTerminalResolutions = List.copyOf(resolvedTerminalResolutions);
         pendingPlayerIds = List.copyOf(pendingPlayerIds);
         submissions = List.copyOf(submissions);
+        if (!rosterKnown && !pendingPlayerIds.isEmpty()) {
+            throw new IllegalArgumentException("a phase with an unknown roster cannot have pending players");
+        }
+    }
+
+    /** A phase whose era roster was available when it opened, {@code playerIds} being every player still pending. */
+    public static ParadoxResolutionPhase withKnownRoster(
+            UUID sagaId,
+            UUID gameId,
+            int eraNumber,
+            ParadoxResolutionPhaseStatus status,
+            List<PendingParadox> pendingParadoxes,
+            List<TerminalResolution> resolvedTerminalResolutions,
+            List<UUID> pendingPlayerIds,
+            List<Submission> submissions,
+            Instant timerExpiresAt) {
+        return new ParadoxResolutionPhase(
+                sagaId,
+                gameId,
+                eraNumber,
+                status,
+                pendingParadoxes,
+                resolvedTerminalResolutions,
+                true,
+                pendingPlayerIds,
+                submissions,
+                timerExpiresAt);
+    }
+
+    /** A phase whose era roster is not available yet — see the record javadoc. */
+    public static ParadoxResolutionPhase withUnknownRoster(
+            UUID sagaId,
+            UUID gameId,
+            int eraNumber,
+            ParadoxResolutionPhaseStatus status,
+            List<PendingParadox> pendingParadoxes,
+            List<TerminalResolution> resolvedTerminalResolutions,
+            List<Submission> submissions,
+            Instant timerExpiresAt) {
+        return new ParadoxResolutionPhase(
+                sagaId,
+                gameId,
+                eraNumber,
+                status,
+                pendingParadoxes,
+                resolvedTerminalResolutions,
+                false,
+                List.of(),
+                submissions,
+                timerExpiresAt);
+    }
+
+    /** Whether the all-submitted close trigger has been met — never true while the roster is unknown. */
+    public boolean allPlayersSubmitted() {
+        return rosterKnown && pendingPlayerIds.isEmpty();
+    }
+
+    /**
+     * Whether a submission from {@code playerId} would be recorded: for a known roster, that the player is still
+     * pending; for an unknown one, that they have not already submitted — membership cannot be checked, so the
+     * recorded submissions are the only guard against applying a redelivered card twice at close.
+     */
+    public boolean accepts(UUID playerId) {
+        return rosterKnown
+                ? pendingPlayerIds.contains(playerId)
+                : submissions.stream()
+                        .noneMatch(submission -> submission.playerId().equals(playerId));
+    }
+
+    /**
+     * Adopts {@code playerIds} as this phase's roster once it becomes available, leaving pending every player who
+     * has not already submitted — from here on the phase can close on all-submitted like any other. Returns
+     * {@code this} unchanged when the roster is already known.
+     */
+    public ParadoxResolutionPhase withRoster(List<UUID> playerIds) {
+        if (rosterKnown) {
+            return this;
+        }
+        var submittedPlayerIds = submissions.stream().map(Submission::playerId).collect(Collectors.toSet());
+        return new ParadoxResolutionPhase(
+                sagaId,
+                gameId,
+                eraNumber,
+                status,
+                pendingParadoxes,
+                resolvedTerminalResolutions,
+                true,
+                playerIds.stream()
+                        .filter(playerId -> !submittedPlayerIds.contains(playerId))
+                        .toList(),
+                submissions,
+                timerExpiresAt);
     }
 
     public ParadoxResolutionPhase withStatus(ParadoxResolutionPhaseStatus newStatus) {
@@ -45,6 +145,7 @@ public record ParadoxResolutionPhase(
                 newStatus,
                 pendingParadoxes,
                 resolvedTerminalResolutions,
+                rosterKnown,
                 pendingPlayerIds,
                 submissions,
                 timerExpiresAt);
@@ -60,10 +161,10 @@ public record ParadoxResolutionPhase(
      * (redelivery under a new {@code eventId}, which {@code ProcessedEventPort} would not itself catch) or the
      * phase never listed them, matching {@code ActionRoundSagaStateManager.removeFromPending}'s idempotency —
      * without this guard a second submission from an already-recorded player would be appended to
-     * {@code submissions} again and applied a second time at close.
+     * {@code submissions} again and applied a second time at close ({@link #accepts}).
      */
     public ParadoxResolutionPhase withSubmission(Submission submission) {
-        if (!pendingPlayerIds.contains(submission.playerId())) {
+        if (!accepts(submission.playerId())) {
             return this;
         }
         var updatedPending = pendingPlayerIds.stream()
@@ -78,6 +179,7 @@ public record ParadoxResolutionPhase(
                 status,
                 pendingParadoxes,
                 resolvedTerminalResolutions,
+                rosterKnown,
                 updatedPending,
                 updatedSubmissions,
                 timerExpiresAt);

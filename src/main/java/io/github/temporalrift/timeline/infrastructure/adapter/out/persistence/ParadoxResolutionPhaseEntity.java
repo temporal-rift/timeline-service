@@ -35,8 +35,9 @@ class ParadoxResolutionPhaseEntity {
     @Column(name = "resolved_terminal_resolutions", nullable = false)
     private String resolvedTerminalResolutions;
 
+    /** {@code null} when this era's player roster was not known at open time — see the column's changelog comment. */
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "pending_player_ids", nullable = false)
+    @Column(name = "pending_player_ids")
     private String pendingPlayerIds;
 
     @JdbcTypeCode(SqlTypes.JSON)
