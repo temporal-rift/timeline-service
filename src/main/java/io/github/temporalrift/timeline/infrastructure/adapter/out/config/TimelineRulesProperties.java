@@ -50,8 +50,18 @@ public record TimelineRulesProperties(
         if (momentumBonus <= 0) {
             throw new IllegalArgumentException("game.rules.probability.momentum-bonus must be positive");
         }
-        if (rallyMultiplier <= 1.0) {
-            throw new IllegalArgumentException("game.rules.probability.rally-multiplier must be greater than 1.0");
+        if (!Double.isFinite(rallyMultiplier) || rallyMultiplier <= 1.0) {
+            throw new IllegalArgumentException(
+                    "game.rules.probability.rally-multiplier must be a finite number greater than 1.0");
+        }
+        // rallyAdjustedMagnitude rounds magnitude * rallyMultiplier into a long, then narrows to int — an
+        // overflowing long silently wraps instead of throwing, so the largest boostable base magnitude
+        // (AMPLIFY doubles PUSH/SWING before Rally multiplies it) must stay within int range up front.
+        double maxBoostedMagnitude = 2.0 * Math.max(pushShift, swingShift) * rallyMultiplier;
+        if (maxBoostedMagnitude > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "game.rules.probability.rally-multiplier is too large: it would let a boosted PUSH/SWING "
+                            + "magnitude overflow an int");
         }
     }
 
