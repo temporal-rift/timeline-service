@@ -22,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import io.github.temporalrift.timeline.application.port.in.ApplyMomentumBonusUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
@@ -43,6 +44,8 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     private static final String RESOLUTION_STARTED_CONSUMER = "futureevent.resolution-started";
     private static final String PARADOX_RESOLUTION_CARD_PLAYED_EVENT_TYPE = "ParadoxResolutionCardPlayed";
     private static final String PARADOX_RESOLUTION_CARD_PLAYED_CONSUMER = "futureevent.paradox-resolution-card-played";
+    private static final String ACTIVIST_DECLARATION_RECORDED_EVENT_TYPE = "ActivistDeclarationRecorded";
+    private static final String ACTIVIST_DECLARATION_RECORDED_CONSUMER = "futureevent.activist-declaration-recorded";
     private static final int ERA_NUMBER = 2;
     private static final int ROUND_NUMBER = 3;
 
@@ -60,6 +63,9 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
     @Mock
     PlayParadoxResolutionCardUseCase playParadoxResolutionCard;
+
+    @Mock
+    ApplyMomentumBonusUseCase applyMomentumBonus;
 
     @Spy
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
@@ -246,10 +252,48 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     }
 
     @Test
+    @DisplayName("MIMIC — buffered as a SpecialActionPlayed action, event-targeting like SEAL")
+    void handle_mimic_buffersSpecialAction() {
+        var eventId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var payload = specialActionPlayed("MIMIC", targetEventId, targetOutcomeId, null);
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
+        then(buffer).should().save(eq(payload.gameId()), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
+        var action = actionCaptor.getValue();
+        assertThat(action.kind()).isEqualTo(ActionKind.SPECIAL_ACTION_PLAYED);
+        assertThat(action.specialAction()).isEqualTo("MIMIC");
+        assertThat(action.targetEventId()).isEqualTo(targetEventId);
+        assertThat(action.targetOutcomeId()).isEqualTo(targetOutcomeId);
+    }
+
+    @Test
+    @DisplayName("permanent no-op specialActions — claimed but buffer nothing (faction-specials capability)")
+    void handle_permanentNoOpSpecialActions_buffersNothing() {
+        // FORESIGHT/FULFILLMENT/REWRITE/OBSCURE/EXPOSE have no probability effect by design; RALLY/MOMENTUM
+        // are handled only via the separate ActivistDeclarationRecorded consumer, never via this event.
+        for (var specialAction :
+                new String[] {"FORESIGHT", "FULFILLMENT", "REWRITE", "OBSCURE", "EXPOSE", "RALLY", "MOMENTUM"}) {
+            var eventId = UUID.randomUUID();
+            var payload = specialActionPlayed(specialAction, UUID.randomUUID(), UUID.randomUUID(), null);
+            given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER))
+                    .willReturn(true);
+
+            consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+            then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
+        }
+    }
+
+    @Test
     @DisplayName("unsupported specialAction — claimed but buffers nothing")
     void handle_unsupportedSpecialAction_buffersNothing() {
         var eventId = UUID.randomUUID();
-        var payload = specialActionPlayed("FORESIGHT", UUID.randomUUID(), UUID.randomUUID(), null);
+        var payload = specialActionPlayed("CASCADE", UUID.randomUUID(), UUID.randomUUID(), null);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
@@ -338,6 +382,67 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, PARADOX_RESOLUTION_CARD_PLAYED_EVENT_TYPE, 1));
 
         then(playParadoxResolutionCard).should(never()).play(any(), anyInt(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("ActivistDeclarationRecorded MOMENTUM — applies the bonus immediately, nothing buffered")
+    void handle_activistDeclarationMomentum_appliesBonusImmediately() {
+        var eventId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var payload = activistDeclarationRecorded("MOMENTUM", targetEventId, targetOutcomeId);
+        given(processedEvents.claim(eventId, ACTIVIST_DECLARATION_RECORDED_CONSUMER))
+                .willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, ACTIVIST_DECLARATION_RECORDED_EVENT_TYPE, 1));
+
+        then(applyMomentumBonus).should().apply(targetEventId, targetOutcomeId);
+        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("ActivistDeclarationRecorded RALLY — buffered into round 1, bonus never applied")
+    void handle_activistDeclarationRally_buffersIntoRoundOne() {
+        var eventId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var payload = activistDeclarationRecorded("RALLY", targetEventId, targetOutcomeId);
+        given(processedEvents.claim(eventId, ACTIVIST_DECLARATION_RECORDED_CONSUMER))
+                .willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, ACTIVIST_DECLARATION_RECORDED_EVENT_TYPE, 1));
+
+        var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
+        then(buffer).should().save(eq(payload.gameId()), eq(ERA_NUMBER), eq(1), actionCaptor.capture());
+        var action = actionCaptor.getValue();
+        assertThat(action.kind()).isEqualTo(ActionKind.SPECIAL_ACTION_PLAYED);
+        assertThat(action.specialAction()).isEqualTo("RALLY");
+        assertThat(action.targetEventId()).isEqualTo(targetEventId);
+        assertThat(action.targetOutcomeId()).isEqualTo(targetOutcomeId);
+        then(applyMomentumBonus).should(never()).apply(any(), any());
+    }
+
+    @Test
+    @DisplayName("ActivistDeclarationRecorded duplicate eventId — nothing buffered or applied")
+    void handle_activistDeclarationDuplicateEventId_ignored() {
+        var eventId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, ACTIVIST_DECLARATION_RECORDED_CONSUMER))
+                .willReturn(false);
+
+        consumer.handle(KafkaTestMessages.withHeaders(
+                activistDeclarationRecorded("RALLY", UUID.randomUUID(), UUID.randomUUID()),
+                eventId,
+                ACTIVIST_DECLARATION_RECORDED_EVENT_TYPE,
+                1));
+
+        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
+        then(applyMomentumBonus).should(never()).apply(any(), any());
+    }
+
+    private static ActivistDeclarationRecordedPayload activistDeclarationRecorded(
+            String mode, UUID targetEventId, UUID targetOutcomeId) {
+        return new ActivistDeclarationRecordedPayload(
+                UUID.randomUUID(), ERA_NUMBER, 1, UUID.randomUUID(), mode, targetEventId, targetOutcomeId);
     }
 
     private static SpecialActionPlayedPayload specialActionPlayed(
