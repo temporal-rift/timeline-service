@@ -95,20 +95,32 @@ class ParadoxResolutionSagaImpl {
         // Unlike ActionRoundSagaImpl.start(), this never checks for an already-empty pendingPlayerIds and
         // auto-closes: ActionRoundSaga's equivalent check exists because Activist players can arrive at
         // round-start already implicitly submitted (Rally/Momentum declarations). There is no equivalent
-        // "already submitted" path here — an empty roster only ever means a missing/misconfigured EraStarted,
+        // "already submitted" path here — a known-empty roster only ever means a misconfigured EraStarted,
         // never "nobody needs to submit," so the phase is left WAITING for its timer either way.
         var timerSeconds = rules.paradoxResolutionTimerSeconds();
         var timerExpiresAt = clock.instant().plusSeconds(timerSeconds);
-        var candidate = new ParadoxResolutionPhase(
-                UUID.randomUUID(),
-                gameId,
-                eraNumber,
-                ParadoxResolutionPhaseStatus.WAITING,
-                pendingParadoxes,
-                resolvedTerminalResolutions,
-                eraPlayers.find(gameId, eraNumber),
-                List.of(),
-                timerExpiresAt);
+        var sagaId = UUID.randomUUID();
+        var candidate = eraPlayers
+                .find(gameId, eraNumber)
+                .map(playerIds -> ParadoxResolutionPhase.withKnownRoster(
+                        sagaId,
+                        gameId,
+                        eraNumber,
+                        ParadoxResolutionPhaseStatus.WAITING,
+                        pendingParadoxes,
+                        resolvedTerminalResolutions,
+                        playerIds,
+                        List.of(),
+                        timerExpiresAt))
+                .orElseGet(() -> ParadoxResolutionPhase.withUnknownRoster(
+                        sagaId,
+                        gameId,
+                        eraNumber,
+                        ParadoxResolutionPhaseStatus.WAITING,
+                        pendingParadoxes,
+                        resolvedTerminalResolutions,
+                        List.of(),
+                        timerExpiresAt));
         var result = stateManager.createIfAbsent(candidate);
         if (result.created()) {
             publisher.publish(TimelineEventEnvelope.create(
@@ -140,12 +152,13 @@ class ParadoxResolutionSagaImpl {
      * Records a player's resolution-card submission; when it leaves no player still pending, closes the phase
      * immediately by the same {@link #tryClose} the timer-expiry path uses (design.md Decision 2) — the returned
      * phase from {@code markSubmitted} already holds the row lock for the remainder of this transaction, so no
-     * second fetch is needed.
+     * second fetch is needed. {@code markSubmitted} returns a phase only when it actually recorded the
+     * submission, so a duplicate or non-roster player never reaches the close trigger.
      */
     void handlePlayerSubmitted(UUID gameId, int eraNumber, Submission submission) {
         stateManager
                 .markSubmitted(gameId, eraNumber, submission)
-                .filter(phase -> phase.pendingPlayerIds().isEmpty())
+                .filter(ParadoxResolutionPhase::allPlayersSubmitted)
                 .ifPresent(phase -> tryClose(phase, CLOSE_REASON_ALL_SUBMITTED));
     }
 

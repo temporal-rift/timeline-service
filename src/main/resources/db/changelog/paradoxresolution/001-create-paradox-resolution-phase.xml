@@ -37,10 +37,14 @@
       <column name="resolved_terminal_resolutions" type="JSONB">
         <constraints nullable="false"/>
       </column>
-      <!-- JSON array of player-id UUIDs this phase is still waiting on a resolution-card submission from. -->
-      <column name="pending_player_ids" type="JSONB">
-        <constraints nullable="false"/>
-      </column>
+      <!--
+          JSON array of player-id UUIDs this phase is still waiting on a resolution-card submission from.
+          NULL when the era's player roster was not yet known at open time (EraStarted consumed in its own
+          consumer group, unordered against this one) — distinct from an empty array, which means the roster is
+          known and nobody is left pending. A phase with a NULL roster never closes on all-submitted; it adopts
+          the roster on the first submission processed once it lands, and otherwise waits for its timer.
+      -->
+      <column name="pending_player_ids" type="JSONB"/>
       <!-- JSON array of {playerId, cardType, targetEventId, targetOutcomeId} recorded submissions, applied at close. -->
       <column name="submissions" type="JSONB">
         <constraints nullable="false"/>

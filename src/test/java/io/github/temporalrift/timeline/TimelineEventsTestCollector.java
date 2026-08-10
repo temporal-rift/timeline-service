@@ -2,6 +2,7 @@ package io.github.temporalrift.timeline;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.springframework.boot.test.context.TestComponent;
@@ -33,6 +34,16 @@ class TimelineEventsTestCollector {
                 : (Map<String, Object>) message.getPayload();
         var eventType = message.getHeaders().get("eventType", String.class);
         received.add(new CollectedMessage(eventType, payload));
+    }
+
+    List<CollectedMessage> messagesFor(UUID gameId) {
+        return received.stream()
+                .filter(message -> gameId.toString().equals(message.payload().get("gameId")))
+                .toList();
+    }
+
+    List<String> eventTypesFor(UUID gameId) {
+        return messagesFor(gameId).stream().map(CollectedMessage::eventType).toList();
     }
 
     record CollectedMessage(String eventType, Map<String, Object> payload) {}

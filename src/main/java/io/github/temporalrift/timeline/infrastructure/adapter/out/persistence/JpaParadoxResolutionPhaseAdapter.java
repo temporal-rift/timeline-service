@@ -38,7 +38,7 @@ class JpaParadoxResolutionPhaseAdapter implements ParadoxResolutionPhaseReposito
                 candidate.status().name(),
                 objectMapper.writeValueAsString(candidate.pendingParadoxes()),
                 objectMapper.writeValueAsString(candidate.resolvedTerminalResolutions()),
-                objectMapper.writeValueAsString(candidate.pendingPlayerIds()),
+                pendingPlayerIdsColumn(candidate),
                 objectMapper.writeValueAsString(candidate.submissions()),
                 candidate.timerExpiresAt());
         if (insertedRows > 0) {
@@ -84,22 +84,43 @@ class JpaParadoxResolutionPhaseAdapter implements ParadoxResolutionPhaseReposito
         entity.setStatus(phase.status().name());
         entity.setPendingParadoxes(objectMapper.writeValueAsString(phase.pendingParadoxes()));
         entity.setResolvedTerminalResolutions(objectMapper.writeValueAsString(phase.resolvedTerminalResolutions()));
-        entity.setPendingPlayerIds(objectMapper.writeValueAsString(phase.pendingPlayerIds()));
+        entity.setPendingPlayerIds(pendingPlayerIdsColumn(phase));
         entity.setSubmissions(objectMapper.writeValueAsString(phase.submissions()));
         entity.setTimerExpiresAt(phase.timerExpiresAt());
         return entity;
     }
 
+    /** {@code null} — not {@code "[]"} — for a phase whose era roster is not known yet (design.md Decision 1). */
+    private String pendingPlayerIdsColumn(ParadoxResolutionPhase phase) {
+        return phase.rosterKnown() ? objectMapper.writeValueAsString(phase.pendingPlayerIds()) : null;
+    }
+
     private ParadoxResolutionPhase toDomain(ParadoxResolutionPhaseEntity entity) {
-        return new ParadoxResolutionPhase(
+        var status = ParadoxResolutionPhaseStatus.valueOf(entity.getStatus());
+        var pendingParadoxes = List.of(objectMapper.readValue(entity.getPendingParadoxes(), PendingParadox[].class));
+        var resolvedTerminalResolutions =
+                List.of(objectMapper.readValue(entity.getResolvedTerminalResolutions(), TerminalResolution[].class));
+        var submissions = List.of(objectMapper.readValue(entity.getSubmissions(), Submission[].class));
+        if (entity.getPendingPlayerIds() == null) {
+            return ParadoxResolutionPhase.withUnknownRoster(
+                    entity.getSagaId(),
+                    entity.getGameId(),
+                    entity.getEraNumber(),
+                    status,
+                    pendingParadoxes,
+                    resolvedTerminalResolutions,
+                    submissions,
+                    entity.getTimerExpiresAt());
+        }
+        return ParadoxResolutionPhase.withKnownRoster(
                 entity.getSagaId(),
                 entity.getGameId(),
                 entity.getEraNumber(),
-                ParadoxResolutionPhaseStatus.valueOf(entity.getStatus()),
-                List.of(objectMapper.readValue(entity.getPendingParadoxes(), PendingParadox[].class)),
-                List.of(objectMapper.readValue(entity.getResolvedTerminalResolutions(), TerminalResolution[].class)),
+                status,
+                pendingParadoxes,
+                resolvedTerminalResolutions,
                 List.of(objectMapper.readValue(entity.getPendingPlayerIds(), UUID[].class)),
-                List.of(objectMapper.readValue(entity.getSubmissions(), Submission[].class)),
+                submissions,
                 entity.getTimerExpiresAt());
     }
 }

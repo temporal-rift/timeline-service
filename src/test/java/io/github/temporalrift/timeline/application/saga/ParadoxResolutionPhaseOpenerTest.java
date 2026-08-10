@@ -45,7 +45,7 @@ class ParadoxResolutionPhaseOpenerTest {
         var pending = List.of(new PendingParadox(
                 UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), UUID.randomUUID(), 0));
         var timerExpiresAt = Instant.parse("2026-08-09T00:01:00Z");
-        var phase = new ParadoxResolutionPhase(
+        var phase = ParadoxResolutionPhase.withKnownRoster(
                 UUID.randomUUID(),
                 GAME_ID,
                 ERA_NUMBER,
@@ -73,7 +73,7 @@ class ParadoxResolutionPhaseOpenerTest {
                 UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), UUID.randomUUID(), 0));
         var existingPending = List.of(new PendingParadox(
                 UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), UUID.randomUUID(), 0));
-        var existingPhase = new ParadoxResolutionPhase(
+        var existingPhase = ParadoxResolutionPhase.withKnownRoster(
                 UUID.randomUUID(),
                 GAME_ID,
                 ERA_NUMBER,

@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Repository;
@@ -27,10 +28,9 @@ class JpaEraPlayersAdapter implements EraPlayersPort {
     }
 
     @Override
-    public List<UUID> find(UUID gameId, int eraNumber) {
+    public Optional<List<UUID>> find(UUID gameId, int eraNumber) {
         return jpaRepository
                 .findByGameIdAndEraNumber(gameId, eraNumber)
-                .map(entity -> List.of(objectMapper.readValue(entity.getPlayerIds(), UUID[].class)))
-                .orElseGet(List::of);
+                .map(entity -> List.of(objectMapper.readValue(entity.getPlayerIds(), UUID[].class)));
     }
 }

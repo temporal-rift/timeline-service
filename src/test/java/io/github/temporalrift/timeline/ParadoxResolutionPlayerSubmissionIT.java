@@ -4,8 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -16,10 +14,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.support.KafkaHeaders;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
@@ -30,10 +24,9 @@ import org.springframework.test.context.ActiveProfiles;
  */
 @SpringBootTest
 @ActiveProfiles("test")
-@Import({TestcontainersConfiguration.class, TimelineEventsTestCollector.class})
+@Import({TestcontainersConfiguration.class, TimelineEventsTestCollector.class, GameEventsTestPublisher.class})
 class ParadoxResolutionPlayerSubmissionIT {
 
-    private static final String GAME_EVENTS_TOPIC = "game.events";
     private static final String PARADOX_DETECTED = "ParadoxDetected";
     private static final String PARADOX_RESOLUTION_PHASE_STARTED = "ParadoxResolutionPhaseStarted";
     private static final String PARADOX_RESOLVED = "ParadoxResolved";
@@ -42,7 +35,7 @@ class ParadoxResolutionPlayerSubmissionIT {
     private static final String ERA_RESOLUTION_COMPLETED = "EraResolutionCompleted";
 
     @Autowired
-    KafkaTemplate<Object, Object> kafkaTemplate;
+    GameEventsTestPublisher publisher;
 
     @Autowired
     TimelineEventsTestCollector collector;
@@ -65,15 +58,15 @@ class ParadoxResolutionPlayerSubmissionIT {
         var thirdOutcomeId = UUID.randomUUID();
         var players = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
 
-        publishEraStarted(gameId, eraNumber, players);
-        publishThreeOutcomeEvent(
+        publisher.eraStarted(gameId, eraNumber, players);
+        publisher.threeOutcomeEventDrawn(
                 gameId, eraNumber, paradoxedEventId, annihilatedOutcomeId, 60, secondOutcomeId, 25, thirdOutcomeId, 15);
         awaitFutureEventsIndexed(gameId, eraNumber, 1);
         awaitEraPlayersIndexed(gameId, eraNumber, players.size());
 
-        publishSpecialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
-        publishActionRoundClosed(gameId, eraNumber, 1);
-        publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
+        publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
+        publisher.actionRoundClosed(gameId, eraNumber, 1);
+        publisher.resolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(eventTypesOf(messagesFor(gameId)))
@@ -82,7 +75,7 @@ class ParadoxResolutionPlayerSubmissionIT {
         // Every player submits a SUPPRESS on the annihilated outcome — the cumulative effect (each applied in
         // turn against the prior submission's result) clears IMPOSSIBLE_ERASURE well before the 2s test timer.
         for (var playerId : players) {
-            publishParadoxResolutionCardPlayed(
+            publisher.paradoxResolutionCardPlayed(
                     gameId, eraNumber, playerId, "SUPPRESS", paradoxedEventId, annihilatedOutcomeId);
         }
 
@@ -112,22 +105,22 @@ class ParadoxResolutionPlayerSubmissionIT {
         var thirdOutcomeId = UUID.randomUUID();
         var players = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
 
-        publishEraStarted(gameId, eraNumber, players);
-        publishThreeOutcomeEvent(
+        publisher.eraStarted(gameId, eraNumber, players);
+        publisher.threeOutcomeEventDrawn(
                 gameId, eraNumber, paradoxedEventId, annihilatedOutcomeId, 60, secondOutcomeId, 25, thirdOutcomeId, 15);
         awaitFutureEventsIndexed(gameId, eraNumber, 1);
         awaitEraPlayersIndexed(gameId, eraNumber, players.size());
 
-        publishSpecialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
-        publishActionRoundClosed(gameId, eraNumber, 1);
-        publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
+        publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
+        publisher.actionRoundClosed(gameId, eraNumber, 1);
+        publisher.resolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(
                         () -> assertThat(eventTypesOf(messagesFor(gameId))).contains(PARADOX_RESOLUTION_PHASE_STARTED));
 
         // Only the first two players submit — the phase must be force-cascaded by the timer.
-        publishParadoxResolutionCardPlayed(
+        publisher.paradoxResolutionCardPlayed(
                 gameId, eraNumber, players.get(0), "PUSH", paradoxedEventId, annihilatedOutcomeId);
 
         await().atMost(Duration.ofSeconds(30))
@@ -135,7 +128,7 @@ class ParadoxResolutionPlayerSubmissionIT {
                         .contains(PARADOX_CASCADED, ERA_RESOLUTION_COMPLETED));
 
         // The last player's submission arrives after the phase already closed via timer expiry.
-        publishParadoxResolutionCardPlayed(
+        publisher.paradoxResolutionCardPlayed(
                 gameId, eraNumber, players.get(2), "PUSH", paradoxedEventId, annihilatedOutcomeId);
         Thread.sleep(2000);
 
@@ -158,20 +151,20 @@ class ParadoxResolutionPlayerSubmissionIT {
         var thirdOutcomeId = UUID.randomUUID();
         var players = List.of(UUID.randomUUID(), UUID.randomUUID());
 
-        publishEraStarted(gameId, eraNumber, players);
+        publisher.eraStarted(gameId, eraNumber, players);
         // annihilatedOutcomeId holds the highest probability so ANNIHILATE-ing it also trips IMPOSSIBLE_ERASURE.
-        publishThreeOutcomeEvent(
+        publisher.threeOutcomeEventDrawn(
                 gameId, eraNumber, paradoxedEventId, sealedOutcomeId, 30, annihilatedOutcomeId, 45, thirdOutcomeId, 25);
         awaitFutureEventsIndexed(gameId, eraNumber, 1);
         awaitEraPlayersIndexed(gameId, eraNumber, players.size());
 
         // Seal one outcome, then breach it with a PUSH — SEAL_BREACH is permanent (nothing ever clears it).
-        publishSpecialActionPlayed(gameId, eraNumber, paradoxedEventId, "SEAL", sealedOutcomeId);
-        publishCardPlayed(gameId, eraNumber, paradoxedEventId, "PUSH", null, sealedOutcomeId);
+        publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "SEAL", sealedOutcomeId);
+        publisher.cardPlayed(gameId, eraNumber, paradoxedEventId, "PUSH", null, sealedOutcomeId);
         // Annihilate the highest-probability outcome too — IMPOSSIBLE_ERASURE, alongside the seal breach.
-        publishSpecialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
-        publishActionRoundClosed(gameId, eraNumber, 1);
-        publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
+        publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
+        publisher.actionRoundClosed(gameId, eraNumber, 1);
+        publisher.resolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(eventTypesOf(messagesFor(gameId)))
@@ -187,7 +180,7 @@ class ParadoxResolutionPlayerSubmissionIT {
         // Both players submit a card that only clears IMPOSSIBLE_ERASURE (suppressing the annihilated outcome
         // does not touch the seal breach flag, which nothing can ever clear).
         for (var playerId : players) {
-            publishParadoxResolutionCardPlayed(
+            publisher.paradoxResolutionCardPlayed(
                     gameId, eraNumber, playerId, "SUPPRESS", paradoxedEventId, annihilatedOutcomeId);
         }
 
@@ -223,7 +216,9 @@ class ParadoxResolutionPlayerSubmissionIT {
     /**
      * {@code EraStartedKafkaConsumer} runs in its own consumer group, independent of the group that processes
      * {@code ANNIHILATE}/{@code ResolutionStarted} — nothing otherwise guarantees the player roster is persisted
-     * before a resolution phase opens and reads it.
+     * before a resolution phase opens and reads it. A phase that opens without it stays open for its timer
+     * instead ({@code ParadoxResolutionMissingRosterIT}); these tests want the all-submitted trigger, so they
+     * wait for the roster first.
      */
     private void awaitEraPlayersIndexed(UUID gameId, int eraNumber, int expectedPlayerCount) {
         await().atMost(Duration.ofSeconds(30))
@@ -236,158 +231,8 @@ class ParadoxResolutionPlayerSubmissionIT {
                         .isEqualTo(expectedPlayerCount));
     }
 
-    private void publishEraStarted(UUID gameId, int eraNumber, List<UUID> playerIds) {
-        publish(
-                gameId,
-                "EraStarted",
-                Map.of(
-                        "gameId",
-                        gameId,
-                        "eraNumber",
-                        eraNumber,
-                        "carryOverEventIds",
-                        List.of(),
-                        "playerIds",
-                        playerIds));
-    }
-
-    private void publishThreeOutcomeEvent(
-            UUID gameId,
-            int eraNumber,
-            UUID eventId,
-            UUID outcomeIdA,
-            int probabilityA,
-            UUID outcomeIdB,
-            int probabilityB,
-            UUID outcomeIdC,
-            int probabilityC) {
-        publish(
-                gameId,
-                "EventsDrawn",
-                Map.of(
-                        "gameId",
-                        gameId,
-                        "eraNumber",
-                        eraNumber,
-                        "events",
-                        List.of(Map.of(
-                                "eventId",
-                                eventId,
-                                "title",
-                                "Test Future Event",
-                                "carryOverState",
-                                "FRESH",
-                                "outcomes",
-                                List.of(
-                                        Map.of(
-                                                "outcomeId",
-                                                outcomeIdA,
-                                                "description",
-                                                "a",
-                                                "initialProbability",
-                                                probabilityA),
-                                        Map.of(
-                                                "outcomeId",
-                                                outcomeIdB,
-                                                "description",
-                                                "b",
-                                                "initialProbability",
-                                                probabilityB),
-                                        Map.of(
-                                                "outcomeId",
-                                                outcomeIdC,
-                                                "description",
-                                                "c",
-                                                "initialProbability",
-                                                probabilityC))))));
-    }
-
-    private void publishSpecialActionPlayed(
-            UUID gameId, int eraNumber, UUID targetEventId, String specialAction, UUID targetOutcomeId) {
-        var payload = new HashMap<String, Object>();
-        payload.put("gameId", gameId);
-        payload.put("eraNumber", eraNumber);
-        payload.put("roundNumber", 1);
-        payload.put("playerId", UUID.randomUUID());
-        payload.put("specialAction", specialAction);
-        payload.put("targetEventId", targetEventId);
-        payload.put("targetOutcomeId", targetOutcomeId);
-        payload.put("targetPlayerId", null);
-        publish(gameId, "SpecialActionPlayed", payload);
-    }
-
-    private void publishCardPlayed(
-            UUID gameId,
-            int eraNumber,
-            UUID targetEventId,
-            String cardType,
-            UUID sourceOutcomeId,
-            UUID targetOutcomeId) {
-        var payload = new HashMap<String, Object>();
-        payload.put("gameId", gameId);
-        payload.put("eraNumber", eraNumber);
-        payload.put("roundNumber", 1);
-        payload.put("playerId", UUID.randomUUID());
-        payload.put("cardInstanceId", UUID.randomUUID());
-        payload.put("cardType", cardType);
-        payload.put("targetEventId", targetEventId);
-        payload.put("sourceOutcomeId", sourceOutcomeId);
-        payload.put("targetOutcomeId", targetOutcomeId);
-        publish(gameId, "CardPlayed", payload);
-    }
-
-    private void publishParadoxResolutionCardPlayed(
-            UUID gameId, int eraNumber, UUID playerId, String cardType, UUID targetEventId, UUID targetOutcomeId) {
-        var payload = new HashMap<String, Object>();
-        payload.put("gameId", gameId);
-        payload.put("eraNumber", eraNumber);
-        payload.put("playerId", playerId);
-        payload.put("cardInstanceId", UUID.randomUUID());
-        payload.put("cardType", cardType);
-        payload.put("targetEventId", targetEventId);
-        payload.put("targetOutcomeId", targetOutcomeId);
-        publish(gameId, "ParadoxResolutionCardPlayed", payload);
-    }
-
-    private void publishResolutionStarted(UUID gameId, int eraNumber, UUID eventId) {
-        publish(gameId, "ResolutionStarted", Map.of("gameId", gameId, "eraNumber", eraNumber), eventId);
-    }
-
-    /**
-     * timeline-mvp9-resolution-ordering-paradox-cards: {@code CardPlayed}/{@code SpecialActionPlayed} are now
-     * buffered, not applied immediately — a round's effects only take place once its {@code ActionRoundClosed}
-     * triggers the priority-ordered replay.
-     */
-    private void publishActionRoundClosed(UUID gameId, int eraNumber, int roundNumber) {
-        publish(
-                gameId,
-                "ActionRoundClosed",
-                Map.of("gameId", gameId, "eraNumber", eraNumber, "roundNumber", roundNumber));
-    }
-
-    private void publish(UUID gameId, String eventType, Object payload) {
-        publish(gameId, eventType, payload, UUID.randomUUID());
-    }
-
-    private void publish(UUID gameId, String eventType, Object payload, UUID eventId) {
-        Message<Object> message = MessageBuilder.withPayload(payload)
-                .setHeader(KafkaHeaders.TOPIC, GAME_EVENTS_TOPIC)
-                .setHeader(KafkaHeaders.KEY, gameId.toString())
-                .setHeader("eventId", eventId.toString())
-                .setHeader("aggregateId", gameId.toString())
-                .setHeader("aggregateType", "Game")
-                .setHeader("gameId", gameId.toString())
-                .setHeader("occurredAt", Instant.now())
-                .setHeader("version", 1)
-                .setHeader("eventType", eventType)
-                .build();
-        kafkaTemplate.send(message);
-    }
-
     private List<TimelineEventsTestCollector.CollectedMessage> messagesFor(UUID gameId) {
-        return collector.received.stream()
-                .filter(m -> gameId.toString().equals(m.payload().get("gameId")))
-                .toList();
+        return collector.messagesFor(gameId);
     }
 
     private static List<String> eventTypesOf(List<TimelineEventsTestCollector.CollectedMessage> messages) {
