@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -59,6 +60,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final String CARD_TYPE_COLLIDE = "COLLIDE";
     private static final String CARD_TYPE_REDIRECT = "REDIRECT";
     private static final String CARD_TYPE_STALL = "STALL";
+
+    private static final String SPECIAL_ACTION_MIMIC = "MIMIC";
 
     /** Eligible for AMPLIFY's doubling and NULLIFY's cancellation like any other remaining-tier card. */
     private static final Set<String> AMPLIFIABLE_SHIFTER_TYPES =
@@ -138,7 +141,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var touchedEventIds = new LinkedHashSet<UUID>();
         var tookEffectEnvelopeIds = new HashSet<UUID>();
 
-        applyMimicTier(sorted, mimicCorrelations, rallyDeclaredOutcomes, touchedEventIds);
+        applyMimicTier(mimicCorrelations, rallyDeclaredOutcomes, touchedEventIds);
 
         for (var a : sorted) {
             if (cancelled.contains(a.envelopeEventId()) || isPriorityTierAction(a)) {
@@ -263,9 +266,11 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * by player"). A {@code MIMIC} with no matching card in that round has no effect.
      */
     private static Map<UUID, BufferedAction> resolveMimicTargets(List<BufferedAction> sorted, Set<UUID> cancelled) {
-        var correlations = new HashMap<UUID, BufferedAction>();
+        // LinkedHashMap so applyMimicTier can iterate its values directly in sorted order, without a second
+        // pass over `sorted` to re-filter down to just the MIMIC entries (also avoids a second continue there).
+        var correlations = new LinkedHashMap<UUID, BufferedAction>();
         for (var mimic : sorted) {
-            if (!isSpecial(mimic, "MIMIC") || cancelled.contains(mimic.envelopeEventId())) {
+            if (!isSpecial(mimic, SPECIAL_ACTION_MIMIC) || cancelled.contains(mimic.envelopeEventId())) {
                 continue;
             }
             sorted.stream()
@@ -290,18 +295,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * transfer' concept").
      */
     private void applyMimicTier(
-            List<BufferedAction> sorted,
-            Map<UUID, BufferedAction> mimicCorrelations,
-            Set<UUID> rallyDeclaredOutcomes,
-            Set<UUID> touchedEventIds) {
-        for (var mimic : sorted) {
-            if (!isSpecial(mimic, "MIMIC")) {
-                continue;
-            }
-            var correlated = mimicCorrelations.get(mimic.envelopeEventId());
-            if (correlated == null) {
-                continue;
-            }
+            Map<UUID, BufferedAction> mimicCorrelations, Set<UUID> rallyDeclaredOutcomes, Set<UUID> touchedEventIds) {
+        for (var correlated : mimicCorrelations.values()) {
             var kind = ShiftKind.valueOf(correlated.cardType());
             var futureEvent = futureEvents.findById(correlated.targetEventId());
             int magnitude = rallyAdjustedMagnitude(
@@ -643,7 +638,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 || isSpecial(a, "SEAL")
                 || isSpecial(a, "ANNIHILATE")
                 || isSpecial(a, "CORRUPT")
-                || isSpecial(a, "MIMIC")
+                || isSpecial(a, SPECIAL_ACTION_MIMIC)
                 || isSpecial(a, "RALLY");
     }
 
