@@ -9,7 +9,15 @@ import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 @ConfigurationProperties("game.rules.probability")
 @Validated
 public record TimelineRulesProperties(
-        int pushShift, int suppressShift, int swingShift, int floor, int ceiling, int bandLowMax, int bandMediumMax)
+        int pushShift,
+        int suppressShift,
+        int swingShift,
+        int floor,
+        int ceiling,
+        int bandLowMax,
+        int bandMediumMax,
+        int momentumBonus,
+        double rallyMultiplier)
         implements ProbabilityRulesPort, ProbabilityBandRulesPort {
 
     public TimelineRulesProperties {
@@ -39,6 +47,12 @@ public record TimelineRulesProperties(
             throw new IllegalArgumentException("game.rules.probability band-low-max/band-medium-max must satisfy "
                     + "0 <= band-low-max < band-medium-max <= 100");
         }
+        if (momentumBonus <= 0) {
+            throw new IllegalArgumentException("game.rules.probability.momentum-bonus must be positive");
+        }
+        if (rallyMultiplier <= 1.0) {
+            throw new IllegalArgumentException("game.rules.probability.rally-multiplier must be greater than 1.0");
+        }
     }
 
     @Override
@@ -64,6 +78,16 @@ public record TimelineRulesProperties(
     @Override
     public int probabilityCeiling() {
         return ceiling;
+    }
+
+    @Override
+    public int momentumBonus() {
+        return momentumBonus;
+    }
+
+    @Override
+    public double rallyMultiplier() {
+        return rallyMultiplier;
     }
 
     @Override

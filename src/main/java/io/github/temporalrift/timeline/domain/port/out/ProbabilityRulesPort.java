@@ -21,4 +21,10 @@ public interface ProbabilityRulesPort {
 
     /** Inclusive upper bound for any outcome's probability. */
     int probabilityCeiling();
+
+    /** One-time percentage-point bonus a Momentum declaration applies to its declared outcome (GDD §2.2). */
+    int momentumBonus();
+
+    /** Multiplier Rally applies to a Round 1 direct transfer's magnitude toward its declared outcome (GDD §2.2). */
+    double rallyMultiplier();
 }

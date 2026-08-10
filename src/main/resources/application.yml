@@ -8,6 +8,9 @@ game:
       swing-shift: 30
       floor: 0
       ceiling: 90
+      # GDD §2.2 Activist specials: Momentum's declaration-time bonus and Rally's Round 1 transfer multiplier.
+      momentum-bonus: 10
+      rally-multiplier: 1.5
       # GDD §4.3 banded-probability-publication capability: LOW 0-30 / MEDIUM 31-60 / HIGH 61-90.
       band-low-max: 30
       band-medium-max: 60

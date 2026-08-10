@@ -265,6 +265,299 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
+    void replay_mimicCopiesCorrelatedPush_appliesTwoIndependentPushes() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift()).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        var pushingPlayer = UUID.randomUUID();
+        var mimicPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
+                        mimic(mimicPlayer, eventId, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // Two independent 20-point pushes from 50 clamp exactly at the configured ceiling of 90.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(90);
+        assertThat(probabilityOf(futureEvent, a) + probabilityOf(futureEvent, b) + probabilityOf(futureEvent, c))
+                .isEqualTo(100);
+    }
+
+    @Test
+    void replay_mimicSelectsEarliestOfMultipleQualifyingCards() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift()).willReturn(20);
+        given(rules.swingShift()).willReturn(15);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        var pushingPlayer = UUID.randomUUID();
+        var swingingPlayer = UUID.randomUUID();
+        var mimicPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
+                        cardPlayedBy(swingingPlayer, "SWING", eventId, c, a, at(1)),
+                        mimic(mimicPlayer, eventId, a, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // If MIMIC had instead correlated to the later SWING, `b` would be untouched by it — the exact
+        // values below only result from copying the earliest candidate, the PUSH.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(90);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(6);
+        assertThat(probabilityOf(futureEvent, c)).isEqualTo(4);
+    }
+
+    @Test
+    void replay_mimicDoesNotCopyANullifiedCard() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var mimicPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
+                        cardPlayedType("NULLIFY", at(1)),
+                        mimic(mimicPlayer, eventId, a, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // The only candidate PUSH was cancelled by NULLIFY, so MIMIC has nothing to copy — proven by the
+        // fact its target FutureEvent is never even looked up.
+        then(futureEvents).should(never()).findById(any());
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_mimicAgainstSealedTarget_setsSealBreachInsteadOfApplying() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift()).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        var pushingPlayer = UUID.randomUUID();
+        var mimicPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialAction("SEAL", eventId, a, at(0)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
+                        mimic(mimicPlayer, eventId, a, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
+        assertThat(futureEvent.sealBreach()).isTrue();
+    }
+
+    @Test
+    void replay_mimicWithNoCorrelatedCard_hasNoEffect() {
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(mimic(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).findById(any());
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_rallyBoostsRound1PushToDeclaredOutcome() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift()).willReturn(20);
+        given(rules.rallyMultiplier()).willReturn(1.5);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        rally(UUID.randomUUID(), eventId, a, at(0)), cardPlayed("PUSH", eventId, null, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // 20 * 1.5 = 30, not the unboosted 20.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(80);
+    }
+
+    @Test
+    void replay_rallyBoostsSwingIntoDeclaredOutcome() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.swingShift()).willReturn(10);
+        given(rules.rallyMultiplier()).willReturn(1.5);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        rally(UUID.randomUUID(), eventId, a, at(0)), cardPlayed("SWING", eventId, c, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // 10 * 1.5 = 15 moved from c into the declared outcome a, not the unboosted 10.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(65);
+        assertThat(probabilityOf(futureEvent, c)).isEqualTo(5);
+    }
+
+    @Test
+    void replay_rallyDoesNotBoostASwingAwayFromTheDeclaredOutcome() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.swingShift()).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        rally(UUID.randomUUID(), eventId, a, at(0)), cardPlayed("SWING", eventId, a, b, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // Unboosted 10 moved away from the declared outcome a, not a boosted 15.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(40);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(40);
+    }
+
+    @Test
+    void replay_rallyDoesNotBoostASuppressTargetingTheDeclaredOutcome() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.suppressShift()).willReturn(-20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        rally(UUID.randomUUID(), eventId, a, at(0)), cardPlayed("SUPPRESS", eventId, null, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // Unboosted -20, not a boosted -30.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(30);
+    }
+
+    @Test
+    void replay_rallyBoostedPushAgainstSealedTarget_setsSealBreachInsteadOfApplying() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialAction("SEAL", eventId, a, at(0)),
+                        rally(UUID.randomUUID(), eventId, a, at(1)),
+                        cardPlayed("PUSH", eventId, null, a, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
+        assertThat(futureEvent.sealBreach()).isTrue();
+    }
+
+    @Test
+    void replay_rallyDoesNotBoostRound2() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift()).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).willReturn(List.of());
+        // A RALLY entry should never reach round 2's buffer in production, but the replay handler still
+        // must not consult it defensively (design.md/spec: Round 1 only).
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, 2))
+                .willReturn(List.of(
+                        rally(UUID.randomUUID(), eventId, a, at(0)), cardPlayed("PUSH", eventId, null, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(70);
+    }
+
+    @Test
+    void replay_mimicCopyLandingOnDeclaredOutcomeIsBoosted() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift()).willReturn(20);
+        given(rules.rallyMultiplier()).willReturn(1.5);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        var pushingPlayer = UUID.randomUUID();
+        var mimicPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        rally(UUID.randomUUID(), eventId, a, at(0)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
+                        mimic(mimicPlayer, eventId, a, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // Both the ordinary PUSH and MIMIC's copy are boosted: 50 + 30 + 30 clamped at the 90 ceiling.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(90);
+    }
+
+    @Test
+    void replay_twoRallyDeclarationsOnSameOutcome_boostOnce() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift()).willReturn(20);
+        given(rules.rallyMultiplier()).willReturn(1.5);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        rally(UUID.randomUUID(), eventId, a, at(0)),
+                        rally(UUID.randomUUID(), eventId, a, at(1)),
+                        cardPlayed("PUSH", eventId, null, a, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // Still a single 1.5x boost (30), not 2.25x (45) from two declarations.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(80);
+    }
+
+    @Test
     void replay_collide_equalizesTwoOutcomes() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
@@ -556,6 +849,36 @@ class ReplayRoundActionsCommandHandlerTest {
                 null,
                 null,
                 targetPlayerId,
+                occurredAt,
+                UUID.randomUUID());
+    }
+
+    private static BufferedAction mimic(UUID playerId, UUID targetEventId, UUID targetOutcomeId, Instant occurredAt) {
+        return new BufferedAction(
+                ActionKind.SPECIAL_ACTION_PLAYED,
+                null,
+                "MIMIC",
+                playerId,
+                null,
+                targetEventId,
+                null,
+                targetOutcomeId,
+                null,
+                occurredAt,
+                UUID.randomUUID());
+    }
+
+    private static BufferedAction rally(UUID playerId, UUID targetEventId, UUID targetOutcomeId, Instant occurredAt) {
+        return new BufferedAction(
+                ActionKind.SPECIAL_ACTION_PLAYED,
+                null,
+                "RALLY",
+                playerId,
+                null,
+                targetEventId,
+                null,
+                targetOutcomeId,
+                null,
                 occurredAt,
                 UUID.randomUUID());
     }

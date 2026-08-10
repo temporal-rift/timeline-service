@@ -68,6 +68,15 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final Set<String> CORRUPT_INVERTIBLE_TYPES =
             Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING);
 
+    /**
+     * MIMIC correlates only to these (faction-specials capability) — the same "direct transfer" vocabulary Rally
+     * boosts (activist-declaration-effects capability), though Rally's own eligibility additionally excludes
+     * SUPPRESS and a SWING's source side (design.md "Rally/Momentum eligibility is a shared 'direct transfer'
+     * concept").
+     */
+    private static final Set<String> DIRECT_TRANSFER_TYPES =
+            Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING);
+
     private final RoundActionBufferPort buffer;
     private final FutureEventRepository futureEvents;
     private final FutureEventEraIndexPort eraIndex;
@@ -119,10 +128,18 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
         var corruptTargets = resolveCorruptTargets(sorted, cancelled);
         var amplifiedEnvelopeId = resolveAmplifyTarget(sorted, cancelled);
+        var mimicCorrelations = resolveMimicTargets(sorted, cancelled);
+        // Defensive, not just relying on the producer-side invariant that RALLY is only ever buffered into
+        // round 1 (activist-declaration-effects capability requirement: "Round 1 ActionRoundClosed replay
+        // only") — even if a RALLY entry somehow reached another round's buffer, it would not be consulted.
+        var rallyDeclaredOutcomes = roundNumber == 1 ? resolveRallyDeclaredOutcomes(sorted, cancelled) : Set.<UUID>of();
 
         var lastShiftByEvent = new HashMap<UUID, AppliedShift>();
         var touchedEventIds = new LinkedHashSet<UUID>();
         var tookEffectEnvelopeIds = new HashSet<UUID>();
+
+        applyMimicTier(sorted, mimicCorrelations, rallyDeclaredOutcomes, touchedEventIds);
+
         for (var a : sorted) {
             if (cancelled.contains(a.envelopeEventId()) || isPriorityTierAction(a)) {
                 continue;
@@ -131,6 +148,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                     a,
                     corruptTargets.containsKey(a.envelopeEventId()),
                     a.envelopeEventId().equals(amplifiedEnvelopeId),
+                    rallyDeclaredOutcomes,
                     lastShiftByEvent,
                     touchedEventIds,
                     tookEffectEnvelopeIds);
@@ -239,6 +257,105 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     /**
+     * Maps each {@code MIMIC}'s {@code envelopeEventId} to the same-round {@code PUSH}/{@code SUPPRESS}/
+     * {@code SWING} played by a different player targeting the same outcome of the same {@code FutureEvent} — the
+     * earliest such card by submission order (design.md "MIMIC correlates by (targetEventId, targetOutcomeId), not
+     * by player"). A {@code MIMIC} with no matching card in that round has no effect.
+     */
+    private static Map<UUID, BufferedAction> resolveMimicTargets(List<BufferedAction> sorted, Set<UUID> cancelled) {
+        var correlations = new HashMap<UUID, BufferedAction>();
+        for (var mimic : sorted) {
+            if (!isSpecial(mimic, "MIMIC") || cancelled.contains(mimic.envelopeEventId())) {
+                continue;
+            }
+            sorted.stream()
+                    .filter(c -> !cancelled.contains(c.envelopeEventId()))
+                    .filter(c -> c.kind() == ActionKind.CARD_PLAYED && DIRECT_TRANSFER_TYPES.contains(c.cardType()))
+                    .filter(c -> !Objects.equals(c.playerId(), mimic.playerId()))
+                    .filter(c -> Objects.equals(c.targetEventId(), mimic.targetEventId()))
+                    .filter(c -> Objects.equals(c.targetOutcomeId(), mimic.targetOutcomeId()))
+                    .findFirst()
+                    .ifPresent(correlated -> correlations.put(mimic.envelopeEventId(), correlated));
+        }
+        return correlations;
+    }
+
+    /**
+     * Replays each correlated card's effect a second time, independently, at its configured base magnitude — not
+     * the original's post-amplify magnitude, and independent of whether that same card was also the subject of a
+     * same-round {@code CORRUPT} (design.md "MIMIC's copy is a fresh, independent shift..."). Runs before the
+     * remaining-cards tier so a {@code MIMIC} copy of a sealed target still records {@code SEAL_BREACH} rather than
+     * applying (SEAL/ANNIHILATE already ran in their own tiers above). A copy landing on a Rally-declared outcome
+     * is boosted identically to an ordinary card (design.md "Rally/Momentum eligibility is a shared 'direct
+     * transfer' concept").
+     */
+    private void applyMimicTier(
+            List<BufferedAction> sorted,
+            Map<UUID, BufferedAction> mimicCorrelations,
+            Set<UUID> rallyDeclaredOutcomes,
+            Set<UUID> touchedEventIds) {
+        for (var mimic : sorted) {
+            if (!isSpecial(mimic, "MIMIC")) {
+                continue;
+            }
+            var correlated = mimicCorrelations.get(mimic.envelopeEventId());
+            if (correlated == null) {
+                continue;
+            }
+            var kind = ShiftKind.valueOf(correlated.cardType());
+            var futureEvent = futureEvents.findById(correlated.targetEventId());
+            int magnitude = rallyAdjustedMagnitude(
+                    rallyDeclaredOutcomes, kind, correlated.targetOutcomeId(), baseMagnitude(kind));
+            applyDirectShift(futureEvent, toProbabilityShift(kind, correlated, false), magnitude, touchedEventIds);
+        }
+    }
+
+    /**
+     * Every still-live (not {@code NULLIFY}-cancelled) {@code RALLY} entry's declared outcome — a set membership
+     * check, not a per-declaration multiplier stack, so two Activists declaring the same outcome still boost a
+     * matching transfer only once (design.md "Rally declarations are durably buffered per era..."). Only ever
+     * non-empty for round 1: {@code CardPlayedAndResolutionKafkaConsumer} buffers a {@code RALLY} declaration into
+     * round 1's own buffer unconditionally, so it can never appear in any other round's {@code sorted} list.
+     */
+    private static Set<UUID> resolveRallyDeclaredOutcomes(List<BufferedAction> sorted, Set<UUID> cancelled) {
+        return sorted.stream()
+                .filter(a -> isSpecial(a, "RALLY") && !cancelled.contains(a.envelopeEventId()))
+                .map(BufferedAction::targetOutcomeId)
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * {@code SUPPRESS} is never Rally-boosted — it has no destination outcome of its own, only a target that
+     * decreases, and the corresponding increase is an indirect redistribution the GDD explicitly excludes
+     * (design.md "Rally's multiplier ... SUPPRESS is never Rally-boosted"). {@code COLLIDE} has no configured
+     * magnitude to boost. A {@code PUSH}/{@code SWING} landing on a declared outcome applies at the configured
+     * Rally multiplier of its otherwise-determined magnitude.
+     */
+    private int rallyAdjustedMagnitude(
+            Set<UUID> rallyDeclaredOutcomes, ShiftKind kind, UUID destinationOutcomeId, int magnitude) {
+        if (kind == ShiftKind.SUPPRESS
+                || kind == ShiftKind.COLLIDE
+                || !rallyDeclaredOutcomes.contains(destinationOutcomeId)) {
+            return magnitude;
+        }
+        return (int) Math.round(magnitude * rules.rallyMultiplier());
+    }
+
+    /**
+     * Applies and persists one direct transfer against an already-loaded {@link FutureEvent} (design.md "Rally/
+     * Momentum eligibility is a shared 'direct transfer' concept") — shared by the ordinary remaining-cards tier
+     * ({@link #applyShifter}) and {@link #applyMimicTier}, so both go through identical floor/ceiling/
+     * redistribution and sealed-outcome handling.
+     */
+    private Object applyDirectShift(
+            FutureEvent futureEvent, ProbabilityShift shift, int magnitude, Set<UUID> touchedEventIds) {
+        var result = futureEvent.applyShift(shift, magnitude, rules.probabilityFloor(), rules.probabilityCeiling());
+        futureEvents.append(futureEvent.id(), result);
+        touchedEventIds.add(futureEvent.id());
+        return result;
+    }
+
+    /**
      * Multiple {@code AMPLIFY}s collapse to one pending doubling (matching the pre-existing single-flag
      * semantic): the earliest live remaining-tier shifter-eligible action strictly after the earliest live
      * {@code AMPLIFY}'s timestamp.
@@ -264,6 +381,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             BufferedAction a,
             boolean inverted,
             boolean amplified,
+            Set<UUID> rallyDeclaredOutcomes,
             Map<UUID, AppliedShift> lastShiftByEvent,
             Set<UUID> touchedEventIds,
             Set<UUID> tookEffectEnvelopeIds) {
@@ -272,7 +390,14 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         }
         switch (a.cardType()) {
             case CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING, CARD_TYPE_COLLIDE ->
-                applyShifter(a, inverted, amplified, lastShiftByEvent, touchedEventIds, tookEffectEnvelopeIds);
+                applyShifter(
+                        a,
+                        inverted,
+                        amplified,
+                        rallyDeclaredOutcomes,
+                        lastShiftByEvent,
+                        touchedEventIds,
+                        tookEffectEnvelopeIds);
             case CARD_TYPE_REDIRECT -> applyRedirect(a, lastShiftByEvent, touchedEventIds);
             case CARD_TYPE_STALL -> applyStall(a);
             default -> {
@@ -285,6 +410,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             BufferedAction a,
             boolean inverted,
             boolean amplified,
+            Set<UUID> rallyDeclaredOutcomes,
             Map<UUID, AppliedShift> lastShiftByEvent,
             Set<UUID> touchedEventIds,
             Set<UUID> tookEffectEnvelopeIds) {
@@ -293,11 +419,14 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var futureEvent = futureEvents.findById(a.targetEventId());
         var preShiftSnapshot = snapshotOf(futureEvent);
         var shift = toProbabilityShift(effectiveKind, a, inverted);
-        int magnitude = amplified ? 2 * baseMagnitude(effectiveKind) : baseMagnitude(effectiveKind);
+        int baseOrAmplifiedMagnitude = amplified ? 2 * baseMagnitude(effectiveKind) : baseMagnitude(effectiveKind);
+        int magnitude = rallyAdjustedMagnitude(
+                rallyDeclaredOutcomes,
+                effectiveKind,
+                appliedTargetOutcomeId(effectiveKind, inverted, a),
+                baseOrAmplifiedMagnitude);
 
-        var result = futureEvent.applyShift(shift, magnitude, rules.probabilityFloor(), rules.probabilityCeiling());
-        futureEvents.append(a.targetEventId(), result);
-        touchedEventIds.add(a.targetEventId());
+        var result = applyDirectShift(futureEvent, shift, magnitude, touchedEventIds);
 
         if (result instanceof ProbabilityShifted) {
             tookEffectEnvelopeIds.add(a.envelopeEventId());
@@ -503,13 +632,19 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         return a.kind() == ActionKind.CARD_PLAYED && cardType.equals(a.cardType());
     }
 
-    /** NULLIFY/AMPLIFY have no tier-6 effect of their own; SEAL/ANNIHILATE/CORRUPT already ran in their tiers. */
+    /**
+     * NULLIFY/AMPLIFY have no tier-6 effect of their own; SEAL/ANNIHILATE/CORRUPT/MIMIC already ran in their
+     * tiers; RALLY has no effect of its own at all — it is only ever consulted as a magnitude modifier for other
+     * transfers (activist-declaration-effects capability).
+     */
     private static boolean isPriorityTierAction(BufferedAction a) {
         return isCardType(a, "NULLIFY")
                 || isCardType(a, "AMPLIFY")
                 || isSpecial(a, "SEAL")
                 || isSpecial(a, "ANNIHILATE")
-                || isSpecial(a, "CORRUPT");
+                || isSpecial(a, "CORRUPT")
+                || isSpecial(a, "MIMIC")
+                || isSpecial(a, "RALLY");
     }
 
     private enum ShiftKind {
