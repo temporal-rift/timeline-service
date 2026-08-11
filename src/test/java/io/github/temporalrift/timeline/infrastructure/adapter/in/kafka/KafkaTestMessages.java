@@ -17,8 +17,8 @@ final class KafkaTestMessages {
                 .setHeader("aggregateId", UUID.randomUUID().toString())
                 .setHeader("aggregateType", "Game")
                 .setHeader("gameId", UUID.randomUUID().toString())
-                .setHeader("occurredAt", Instant.now())
-                .setHeader("version", version)
+                .setHeader("occurredAt", Instant.now().toString())
+                .setHeader("version", version == null ? null : version.toString())
                 .setHeader("eventType", eventType)
                 .build();
     }
