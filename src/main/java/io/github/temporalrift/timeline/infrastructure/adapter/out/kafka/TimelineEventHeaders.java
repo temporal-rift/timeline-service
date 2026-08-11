@@ -15,8 +15,8 @@ final class TimelineEventHeaders {
         headers.put("aggregateId", event.aggregateId().toString());
         headers.put("aggregateType", event.aggregateType());
         headers.put("gameId", event.gameId().toString());
-        headers.put("occurredAt", event.occurredAt());
-        headers.put("version", event.version());
+        headers.put("occurredAt", event.occurredAt().toString());
+        headers.put("version", String.valueOf(event.version()));
         return headers;
     }
 }
