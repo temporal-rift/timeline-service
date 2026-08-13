@@ -22,6 +22,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActionRoundClosedPayload;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActivistDeclarationMode;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActivistDeclarationRecordedPayload;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardPlayedPayload;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardType;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ParadoxResolutionCardPlayedPayload;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialAction;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialActionPlayedPayload;
+import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.ResolutionStartedPayload;
 import io.github.temporalrift.timeline.application.port.in.ApplyMomentumBonusUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
@@ -79,7 +88,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         var eventId = UUID.randomUUID();
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
-        var payload = cardPlayed(targetEventId, "PUSH", null, targetOutcomeId);
+        var payload = cardPlayed(targetEventId, CardType.PUSH, null, targetOutcomeId);
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
@@ -103,7 +112,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         var targetEventId = UUID.randomUUID();
         var sourceOutcomeId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
-        var payload = cardPlayed(targetEventId, "SWING", sourceOutcomeId, targetOutcomeId);
+        var payload = cardPlayed(targetEventId, CardType.SWING, sourceOutcomeId, targetOutcomeId);
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
@@ -117,8 +126,17 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     @Test
     @DisplayName("every known CardPlayed type is buffered, not just shifters")
     void handle_everyKnownCardType_buffersAction() {
-        for (var cardType : new String[] {
-            "AMPLIFY", "NULLIFY", "REDIRECT", "STALL", "COLLIDE", "INTERCEPT", "SCAN", "TRACE", "DECOY", "JAM"
+        for (var cardType : new CardType[] {
+            CardType.AMPLIFY,
+            CardType.NULLIFY,
+            CardType.REDIRECT,
+            CardType.STALL,
+            CardType.COLLIDE,
+            CardType.INTERCEPT,
+            CardType.SCAN,
+            CardType.TRACE,
+            CardType.DECOY,
+            CardType.JAM
         }) {
             var eventId = UUID.randomUUID();
             var payload = cardPlayed(UUID.randomUUID(), cardType, UUID.randomUUID(), UUID.randomUUID());
@@ -149,7 +167,10 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(false);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                cardPlayed(UUID.randomUUID(), "PUSH", null, UUID.randomUUID()), eventId, CARD_PLAYED_EVENT_TYPE, 1));
+                cardPlayed(UUID.randomUUID(), CardType.PUSH, null, UUID.randomUUID()),
+                eventId,
+                CARD_PLAYED_EVENT_TYPE,
+                1));
 
         then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
     }
@@ -184,7 +205,10 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     @DisplayName("unrelated event type — ignored, nothing buffered or resolved")
     void handle_unrelatedEventType_ignored() {
         consumer.handle(KafkaTestMessages.withHeaders(
-                cardPlayed(UUID.randomUUID(), "PUSH", null, UUID.randomUUID()), UUID.randomUUID(), "EraStarted", 1));
+                cardPlayed(UUID.randomUUID(), CardType.PUSH, null, UUID.randomUUID()),
+                UUID.randomUUID(),
+                "EraStarted",
+                1));
 
         then(processedEvents).should(never()).claim(any(), any());
         then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
@@ -207,7 +231,10 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         // time — this is what actually prevents the cross-consumer-group race (design.md revision):
         // there is no second thread/group that could observe pre-buffer state.
         consumer.handle(KafkaTestMessages.withHeaders(
-                cardPlayed(targetEventId, "PUSH", null, targetOutcomeId), cardEventId, CARD_PLAYED_EVENT_TYPE, 1));
+                cardPlayed(targetEventId, CardType.PUSH, null, targetOutcomeId),
+                cardEventId,
+                CARD_PLAYED_EVENT_TYPE,
+                1));
         consumer.handle(KafkaTestMessages.withHeaders(
                 new ResolutionStartedPayload(gameId, 1), resolutionEventId, RESOLUTION_STARTED_EVENT_TYPE, 1));
 
@@ -222,7 +249,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         var eventId = UUID.randomUUID();
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
-        var payload = specialActionPlayed("SEAL", targetEventId, targetOutcomeId, null);
+        var payload = specialActionPlayed(SpecialAction.SEAL, targetEventId, targetOutcomeId, null);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
@@ -241,7 +268,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     void handle_corrupt_buffersTargetPlayer() {
         var eventId = UUID.randomUUID();
         var targetPlayerId = UUID.randomUUID();
-        var payload = specialActionPlayed("CORRUPT", null, null, targetPlayerId);
+        var payload = specialActionPlayed(SpecialAction.CORRUPT, null, null, targetPlayerId);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
@@ -257,7 +284,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         var eventId = UUID.randomUUID();
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
-        var payload = specialActionPlayed("MIMIC", targetEventId, targetOutcomeId, null);
+        var payload = specialActionPlayed(SpecialAction.MIMIC, targetEventId, targetOutcomeId, null);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
@@ -276,8 +303,15 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     void handle_permanentNoOpSpecialActions_buffersNothing() {
         // FORESIGHT/FULFILLMENT/REWRITE/OBSCURE/EXPOSE have no probability effect by design; RALLY/MOMENTUM
         // are handled only via the separate ActivistDeclarationRecorded consumer, never via this event.
-        for (var specialAction :
-                new String[] {"FORESIGHT", "FULFILLMENT", "REWRITE", "OBSCURE", "EXPOSE", "RALLY", "MOMENTUM"}) {
+        for (var specialAction : new SpecialAction[] {
+            SpecialAction.FORESIGHT,
+            SpecialAction.FULFILLMENT,
+            SpecialAction.REWRITE,
+            SpecialAction.OBSCURE,
+            SpecialAction.EXPOSE,
+            SpecialAction.RALLY,
+            SpecialAction.MOMENTUM
+        }) {
             var eventId = UUID.randomUUID();
             var payload = specialActionPlayed(specialAction, UUID.randomUUID(), UUID.randomUUID(), null);
             given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER))
@@ -293,7 +327,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     @DisplayName("unsupported specialAction — claimed but buffers nothing")
     void handle_unsupportedSpecialAction_buffersNothing() {
         var eventId = UUID.randomUUID();
-        var payload = specialActionPlayed("CASCADE", UUID.randomUUID(), UUID.randomUUID(), null);
+        var payload = specialActionPlayed(SpecialAction.CASCADE, UUID.randomUUID(), UUID.randomUUID(), null);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
@@ -308,7 +342,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(false);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                specialActionPlayed("SEAL", UUID.randomUUID(), UUID.randomUUID(), null),
+                specialActionPlayed(SpecialAction.SEAL, UUID.randomUUID(), UUID.randomUUID(), null),
                 eventId,
                 SPECIAL_ACTION_PLAYED_EVENT_TYPE,
                 1));
@@ -324,7 +358,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, ACTION_ROUND_CLOSED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                new ActionRoundClosedPayload(gameId, ERA_NUMBER, ROUND_NUMBER),
+                new ActionRoundClosedPayload(gameId, ERA_NUMBER, ROUND_NUMBER, "ALL_SUBMITTED", 3),
                 eventId,
                 ACTION_ROUND_CLOSED_EVENT_TYPE,
                 1));
@@ -339,7 +373,10 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         given(processedEvents.claim(eventId, ACTION_ROUND_CLOSED_CONSUMER)).willReturn(false);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                new ActionRoundClosedPayload(UUID.randomUUID(), 1, 1), eventId, ACTION_ROUND_CLOSED_EVENT_TYPE, 1));
+                new ActionRoundClosedPayload(UUID.randomUUID(), 1, 1, "ALL_SUBMITTED", 3),
+                eventId,
+                ACTION_ROUND_CLOSED_EVENT_TYPE,
+                1));
 
         then(replayRoundActions).should(never()).replay(any(), anyInt(), anyInt());
     }
@@ -353,7 +390,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
         var payload = new ParadoxResolutionCardPlayedPayload(
-                gameId, ERA_NUMBER, playerId, UUID.randomUUID(), "PUSH", targetEventId, targetOutcomeId);
+                gameId, ERA_NUMBER, playerId, UUID.randomUUID(), CardType.PUSH, targetEventId, targetOutcomeId);
         given(processedEvents.claim(eventId, PARADOX_RESOLUTION_CARD_PLAYED_CONSUMER))
                 .willReturn(true);
 
@@ -375,7 +412,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 ERA_NUMBER,
                 UUID.randomUUID(),
                 UUID.randomUUID(),
-                "PUSH",
+                CardType.PUSH,
                 UUID.randomUUID(),
                 UUID.randomUUID());
 
@@ -390,7 +427,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         var eventId = UUID.randomUUID();
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
-        var payload = activistDeclarationRecorded("MOMENTUM", targetEventId, targetOutcomeId);
+        var payload = activistDeclarationRecorded(ActivistDeclarationMode.MOMENTUM, targetEventId, targetOutcomeId);
         given(processedEvents.claim(eventId, ACTIVIST_DECLARATION_RECORDED_CONSUMER))
                 .willReturn(true);
 
@@ -406,7 +443,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         var eventId = UUID.randomUUID();
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
-        var payload = activistDeclarationRecorded("RALLY", targetEventId, targetOutcomeId);
+        var payload = activistDeclarationRecorded(ActivistDeclarationMode.RALLY, targetEventId, targetOutcomeId);
         given(processedEvents.claim(eventId, ACTIVIST_DECLARATION_RECORDED_CONSUMER))
                 .willReturn(true);
 
@@ -430,7 +467,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 .willReturn(false);
 
         consumer.handle(KafkaTestMessages.withHeaders(
-                activistDeclarationRecorded("RALLY", UUID.randomUUID(), UUID.randomUUID()),
+                activistDeclarationRecorded(ActivistDeclarationMode.RALLY, UUID.randomUUID(), UUID.randomUUID()),
                 eventId,
                 ACTIVIST_DECLARATION_RECORDED_EVENT_TYPE,
                 1));
@@ -440,18 +477,19 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     }
 
     private static ActivistDeclarationRecordedPayload activistDeclarationRecorded(
-            String mode, UUID targetEventId, UUID targetOutcomeId) {
+            ActivistDeclarationMode mode, UUID targetEventId, UUID targetOutcomeId) {
         return new ActivistDeclarationRecordedPayload(
                 UUID.randomUUID(), ERA_NUMBER, 1, UUID.randomUUID(), mode, targetEventId, targetOutcomeId);
     }
 
     private static SpecialActionPlayedPayload specialActionPlayed(
-            String specialAction, UUID targetEventId, UUID targetOutcomeId, UUID targetPlayerId) {
+            SpecialAction specialAction, UUID targetEventId, UUID targetOutcomeId, UUID targetPlayerId) {
         return new SpecialActionPlayedPayload(
                 UUID.randomUUID(),
                 ERA_NUMBER,
                 ROUND_NUMBER,
                 UUID.randomUUID(),
+                null,
                 specialAction,
                 targetEventId,
                 targetOutcomeId,
@@ -459,7 +497,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     }
 
     private static CardPlayedPayload cardPlayed(
-            UUID targetEventId, String cardType, UUID sourceOutcomeId, UUID targetOutcomeId) {
+            UUID targetEventId, CardType cardType, UUID sourceOutcomeId, UUID targetOutcomeId) {
         return new CardPlayedPayload(
                 UUID.randomUUID(),
                 ERA_NUMBER,

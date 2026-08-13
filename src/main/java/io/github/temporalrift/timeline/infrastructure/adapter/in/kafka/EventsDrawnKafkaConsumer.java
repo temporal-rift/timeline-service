@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
+import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EventsDrawnPayload;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;

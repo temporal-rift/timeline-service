@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.github.temporal-rift</groupId>
         <artifactId>temporal-rift-bom</artifactId>
-        <version>1.7.0</version>
+        <version>1.9.0</version>
         <relativePath/>
     </parent>
 
@@ -55,6 +55,8 @@
         <sonar.coverage.exclusions>**/generated-sources/**/*</sonar.coverage.exclusions>
 
         <timeline-event.version>1.0.5</timeline-event.version>
+        <session-event.version>1.0.5</session-event.version>
+        <action-event.version>1.1.0</action-event.version>
         <archunit-junit5.version>1.4.2</archunit-junit5.version>
     </properties>
 
@@ -64,6 +66,21 @@
             <groupId>io.github.temporal-rift</groupId>
             <artifactId>timeline-event</artifactId>
             <version>${timeline-event.version}</version>
+        </dependency>
+        <!-- Spec-only: bundles session-event's asyncapi.yml, no compiled code. Consumed for EraStarted,
+             EventsDrawn, and ResolutionStarted, which this service reads from game.events but does not produce. -->
+        <dependency>
+            <groupId>io.github.temporal-rift</groupId>
+            <artifactId>session-event</artifactId>
+            <version>${session-event.version}</version>
+        </dependency>
+        <!-- Spec-only: bundles action-event's asyncapi.yml, no compiled code. Consumed for CardPlayed,
+             SpecialActionPlayed, ActionRoundClosed, ParadoxResolutionCardPlayed, and ActivistDeclarationRecorded,
+             which this service reads from game.events but does not produce. -->
+        <dependency>
+            <groupId>io.github.temporal-rift</groupId>
+            <artifactId>action-event</artifactId>
+            <version>${action-event.version}</version>
         </dependency>
 
         <dependency>
