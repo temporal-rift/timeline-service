@@ -10,6 +10,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActionRoundClosedPayload;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActivistDeclarationMode;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActivistDeclarationRecordedPayload;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardPlayedPayload;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardType;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ParadoxResolutionCardPlayedPayload;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialAction;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialActionPlayedPayload;
+import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.ResolutionStartedPayload;
 import io.github.temporalrift.timeline.application.port.in.ApplyMomentumBonusUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
@@ -33,9 +42,7 @@ import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.Buf
  * that era's {@code ResolutionStarted} is handled, and a resolution-phase submission is applied in the order it was
  * played. Splitting these into independent consumer groups would let a lagging one be overtaken by a faster one —
  * reachable in practice (consumer rebalance, GC pause, retry), not just theoretical — silently losing or
- * misordering an effect. {@code ParadoxResolutionCardPlayed} has no published {@code game.events} contract yet
- * (temporal-rift/apis#24, non-blocking) — its payload is hand-rolled against the documented shape, same as every
- * other message this consumer already handles.
+ * misordering an effect.
  */
 @Component
 class CardPlayedAndResolutionKafkaConsumer {
@@ -54,26 +61,27 @@ class CardPlayedAndResolutionKafkaConsumer {
     private static final GameEventIngestion.Spec ACTIVIST_DECLARATION_RECORDED_SPEC =
             new GameEventIngestion.Spec("ActivistDeclarationRecorded", "futureevent.activist-declaration-recorded", 1);
 
-    private static final String DECLARATION_MODE_RALLY = "RALLY";
-    private static final String DECLARATION_MODE_MOMENTUM = "MOMENTUM";
+    // The generated CardType/SpecialAction enums carry every value declared across the whole action-event
+    // contract, including ones this consumer intentionally doesn't buffer (e.g. CardType.STABILIZE/DETONATE,
+    // SpecialAction.CASCADE/FORESIGHT/... are not yet wired into replay). Filtering to exactly this set preserves
+    // that existing scope -- it is not the same thing as "every type the schema knows about."
+    private static final Set<CardType> KNOWN_CARD_TYPES = Set.of(
+            CardType.PUSH,
+            CardType.SUPPRESS,
+            CardType.SWING,
+            CardType.COLLIDE,
+            CardType.AMPLIFY,
+            CardType.NULLIFY,
+            CardType.REDIRECT,
+            CardType.STALL,
+            CardType.INTERCEPT,
+            CardType.SCAN,
+            CardType.TRACE,
+            CardType.DECOY,
+            CardType.JAM);
 
-    /** Every {@code cardType} this consumer buffers for replay; an unrecognized type is claimed and dropped. */
-    private static final Set<String> KNOWN_CARD_TYPES = Set.of(
-            "PUSH",
-            "SUPPRESS",
-            "SWING",
-            "COLLIDE",
-            "AMPLIFY",
-            "NULLIFY",
-            "REDIRECT",
-            "STALL",
-            "INTERCEPT",
-            "SCAN",
-            "TRACE",
-            "DECOY",
-            "JAM");
-
-    private static final Set<String> KNOWN_SPECIAL_ACTIONS = Set.of("SEAL", "ANNIHILATE", "CORRUPT", "MIMIC");
+    private static final Set<SpecialAction> KNOWN_SPECIAL_ACTIONS =
+            Set.of(SpecialAction.SEAL, SpecialAction.ANNIHILATE, SpecialAction.CORRUPT, SpecialAction.MIMIC);
 
     private final ProcessedEventPort processedEvents;
     private final RoundActionBufferPort buffer;
@@ -145,7 +153,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                             payload.gameId(),
                             payload.eraNumber(),
                             payload.playerId(),
-                            payload.cardType(),
+                            payload.cardType().name(),
                             payload.targetEventId(),
                             payload.targetOutcomeId());
                 });
@@ -158,9 +166,9 @@ class CardPlayedAndResolutionKafkaConsumer {
                     // CardPlayedAndResolutionKafkaConsumer, not a new class"): a lagging separate group could
                     // let this era's Round 1 ActionRoundClosed replay run before a RALLY declaration is
                     // durably buffered, or before a MOMENTUM bonus is applied.
-                    if (DECLARATION_MODE_MOMENTUM.equals(payload.mode())) {
+                    if (payload.mode() == ActivistDeclarationMode.MOMENTUM) {
                         applyMomentumBonus.apply(payload.targetEventId(), payload.targetOutcomeId());
-                    } else if (DECLARATION_MODE_RALLY.equals(payload.mode())) {
+                    } else if (payload.mode() == ActivistDeclarationMode.RALLY) {
                         // Buffered into round 1's own buffer, alongside that round's CardPlayed/
                         // SpecialActionPlayed entries — ReplayRoundActionsCommandHandler consults it as a
                         // Round 1 magnitude modifier, never applies it as an action of its own. A same-round
@@ -175,7 +183,7 @@ class CardPlayedAndResolutionKafkaConsumer {
     private static BufferedAction toBufferedAction(CardPlayedPayload payload, GameEventEnvelope envelope) {
         return new BufferedAction(
                 ActionKind.CARD_PLAYED,
-                payload.cardType(),
+                payload.cardType().name(),
                 null,
                 payload.playerId(),
                 payload.cardInstanceId(),
@@ -191,7 +199,7 @@ class CardPlayedAndResolutionKafkaConsumer {
         return new BufferedAction(
                 ActionKind.SPECIAL_ACTION_PLAYED,
                 null,
-                payload.specialAction(),
+                payload.specialAction().name(),
                 payload.playerId(),
                 null,
                 payload.targetEventId(),
@@ -207,7 +215,7 @@ class CardPlayedAndResolutionKafkaConsumer {
         return new BufferedAction(
                 ActionKind.SPECIAL_ACTION_PLAYED,
                 null,
-                DECLARATION_MODE_RALLY,
+                ActivistDeclarationMode.RALLY.name(),
                 payload.playerId(),
                 null,
                 payload.targetEventId(),

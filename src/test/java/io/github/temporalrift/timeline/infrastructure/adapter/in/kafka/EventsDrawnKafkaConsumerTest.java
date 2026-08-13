@@ -22,6 +22,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.CarryOverState;
+import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EventsDrawnFutureEvent;
+import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EventsDrawnOutcome;
+import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EventsDrawnPayload;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
@@ -61,16 +65,16 @@ class EventsDrawnKafkaConsumerTest {
                 gameId,
                 eraNumber,
                 List.of(
-                        new EventsDrawnPayload.FutureEvent(
+                        new EventsDrawnFutureEvent(
                                 futureEventId1,
                                 "first",
-                                List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "a", 50)),
-                                EventsDrawnPayload.CarryOverState.FRESH),
-                        new EventsDrawnPayload.FutureEvent(
+                                List.of(new EventsDrawnOutcome(UUID.randomUUID(), "a", 50)),
+                                CarryOverState.FRESH),
+                        new EventsDrawnFutureEvent(
                                 futureEventId2,
                                 "second",
-                                List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "b", 100)),
-                                EventsDrawnPayload.CarryOverState.FRESH)));
+                                List.of(new EventsDrawnOutcome(UUID.randomUUID(), "b", 100)),
+                                CarryOverState.FRESH)));
         given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
@@ -106,21 +110,21 @@ class EventsDrawnKafkaConsumerTest {
                 gameId,
                 eraNumber,
                 List.of(
-                        new EventsDrawnPayload.FutureEvent(
+                        new EventsDrawnFutureEvent(
                                 carriedOverEventId,
                                 "carried",
-                                List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "a", 100)),
-                                EventsDrawnPayload.CarryOverState.CASCADED),
-                        new EventsDrawnPayload.FutureEvent(
+                                List.of(new EventsDrawnOutcome(UUID.randomUUID(), "a", 100)),
+                                CarryOverState.CASCADED),
+                        new EventsDrawnFutureEvent(
                                 freshEventId,
                                 "fresh",
-                                List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "b", 100)),
-                                EventsDrawnPayload.CarryOverState.FRESH),
-                        new EventsDrawnPayload.FutureEvent(
+                                List.of(new EventsDrawnOutcome(UUID.randomUUID(), "b", 100)),
+                                CarryOverState.FRESH),
+                        new EventsDrawnFutureEvent(
                                 stalledEventId,
                                 "stalled",
-                                List.of(new EventsDrawnPayload.Outcome(UUID.randomUUID(), "c", 100)),
-                                EventsDrawnPayload.CarryOverState.STALLED)));
+                                List.of(new EventsDrawnOutcome(UUID.randomUUID(), "c", 100)),
+                                CarryOverState.STALLED)));
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
 

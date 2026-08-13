@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EraStartedPayload;
 import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
