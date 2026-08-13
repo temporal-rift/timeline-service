@@ -84,11 +84,24 @@ class GameEventsTestPublisher {
         payload.put("eraNumber", eraNumber);
         payload.put("roundNumber", 1);
         payload.put("playerId", UUID.randomUUID());
+        payload.put("faction", factionFor(specialAction));
         payload.put("specialAction", specialAction);
         payload.put("targetEventId", targetEventId);
         payload.put("targetOutcomeId", targetOutcomeId);
         payload.put("targetPlayerId", null);
         publish(gameId, "SpecialActionPlayed", payload);
+    }
+
+    /** temporal-rift-gdd.md §"Faction specials" — the faction each special action belongs to. */
+    private static String factionFor(String specialAction) {
+        return switch (specialAction) {
+            case "ANNIHILATE", "CORRUPT", "CASCADE" -> "ERASERS";
+            case "SEAL", "FORESIGHT", "FULFILLMENT" -> "PROPHETS";
+            case "MIMIC", "REWRITE", "OBSCURE" -> "REVISIONISTS";
+            case "THREAD", "TAPESTRY", "UNRAVEL" -> "WEAVERS";
+            case "RALLY", "EXPOSE", "MOMENTUM" -> "ACTIVISTS";
+            default -> throw new IllegalArgumentException("Unknown special action: " + specialAction);
+        };
     }
 
     void cardPlayed(
@@ -133,7 +146,17 @@ class GameEventsTestPublisher {
         publish(
                 gameId,
                 "ActionRoundClosed",
-                Map.of("gameId", gameId, "eraNumber", eraNumber, "roundNumber", roundNumber));
+                Map.of(
+                        "gameId",
+                        gameId,
+                        "eraNumber",
+                        eraNumber,
+                        "roundNumber",
+                        roundNumber,
+                        "closedReason",
+                        "ALL_SUBMITTED",
+                        "totalActions",
+                        1));
     }
 
     void resolutionStarted(UUID gameId, int eraNumber, UUID eventId) {

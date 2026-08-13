@@ -248,6 +248,7 @@ class ParadoxResolutionForceCascadeIT {
         payload.put("eraNumber", eraNumber);
         payload.put("roundNumber", 1);
         payload.put("playerId", UUID.randomUUID());
+        payload.put("faction", "ERASERS");
         payload.put("specialAction", specialAction);
         payload.put("targetEventId", targetEventId);
         payload.put("targetOutcomeId", targetOutcomeId);
@@ -268,7 +269,17 @@ class ParadoxResolutionForceCascadeIT {
         publish(
                 gameId,
                 "ActionRoundClosed",
-                Map.of("gameId", gameId, "eraNumber", eraNumber, "roundNumber", roundNumber));
+                Map.of(
+                        "gameId",
+                        gameId,
+                        "eraNumber",
+                        eraNumber,
+                        "roundNumber",
+                        roundNumber,
+                        "closedReason",
+                        "ALL_SUBMITTED",
+                        "totalActions",
+                        1));
     }
 
     private void publish(UUID gameId, String eventType, Object payload) {

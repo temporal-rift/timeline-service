@@ -429,7 +429,17 @@ class ResolutionWalkingSkeletonIT {
         publish(
                 gameId,
                 "ActionRoundClosed",
-                Map.of("gameId", gameId, "eraNumber", eraNumber, "roundNumber", roundNumber));
+                Map.of(
+                        "gameId",
+                        gameId,
+                        "eraNumber",
+                        eraNumber,
+                        "roundNumber",
+                        roundNumber,
+                        "closedReason",
+                        "ALL_SUBMITTED",
+                        "totalActions",
+                        1));
     }
 
     private void publish(UUID gameId, String eventType, Object payload) {
