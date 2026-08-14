@@ -118,6 +118,7 @@ class GameEventsTestPublisher {
         payload.put("playerId", UUID.randomUUID());
         payload.put("cardInstanceId", UUID.randomUUID());
         payload.put("cardType", cardType);
+        payload.put("grade", "II");
         payload.put("targetEventId", targetEventId);
         payload.put("sourceOutcomeId", sourceOutcomeId);
         payload.put("targetOutcomeId", targetOutcomeId);
@@ -132,6 +133,7 @@ class GameEventsTestPublisher {
         payload.put("playerId", playerId);
         payload.put("cardInstanceId", UUID.randomUUID());
         payload.put("cardType", cardType);
+        payload.put("grade", "II");
         payload.put("targetEventId", targetEventId);
         payload.put("targetOutcomeId", targetOutcomeId);
         publish(gameId, "ParadoxResolutionCardPlayed", payload);
