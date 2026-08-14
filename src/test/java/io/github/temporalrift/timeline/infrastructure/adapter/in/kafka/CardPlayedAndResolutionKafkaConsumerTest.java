@@ -25,6 +25,7 @@ import tools.jackson.databind.json.JsonMapper;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActionRoundClosedPayload;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActivistDeclarationMode;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActivistDeclarationRecordedPayload;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardGrade;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardPlayedPayload;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardType;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ParadoxResolutionCardPlayedPayload;
@@ -390,7 +391,14 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
         var payload = new ParadoxResolutionCardPlayedPayload(
-                gameId, ERA_NUMBER, playerId, UUID.randomUUID(), CardType.PUSH, targetEventId, targetOutcomeId);
+                gameId,
+                ERA_NUMBER,
+                playerId,
+                UUID.randomUUID(),
+                CardType.PUSH,
+                CardGrade.II,
+                targetEventId,
+                targetOutcomeId);
         given(processedEvents.claim(eventId, PARADOX_RESOLUTION_CARD_PLAYED_CONSUMER))
                 .willReturn(true);
 
@@ -413,6 +421,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 CardType.PUSH,
+                CardGrade.II,
                 UUID.randomUUID(),
                 UUID.randomUUID());
 
@@ -505,6 +514,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 cardType,
+                CardGrade.II,
                 targetEventId,
                 sourceOutcomeId,
                 targetOutcomeId);
