@@ -2,9 +2,10 @@ name: System E2E
 
 # Invokes the shared cross-service proof owned by `infrastructure` so a change here that breaks
 # another service is caught before merge. Kept separate from `ci.yml` so fast feedback there is
-# never blocked behind a full multi-service build. Only runs when a human has applied the
-# `run-e2e` label, signalling the change carries cross-service risk -- this is a deliberate signal,
-# not an automatic guess based on file paths.
+# never blocked behind a full multi-service build. On pull_request events this only runs while a
+# human has applied the `run-e2e` label, signalling the change carries cross-service risk -- this
+# is a deliberate signal, not an automatic guess based on file paths. workflow_dispatch is an
+# explicit manual invocation and always runs regardless of the label.
 
 on:
   pull_request:
@@ -17,7 +18,10 @@ permissions:
 jobs:
   system-e2e:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'run-e2e')
-    uses: temporal-rift/infrastructure/.github/workflows/system-e2e.yml@main
+    uses: temporal-rift/infrastructure/.github/workflows/system-e2e.yml@23ccff9f399e0c6e3670833bcd007b309ed3acf6 # main @ 2026-09-05
     with:
       service: timeline-service
-      ref: ${{ github.sha }}
+      # github.sha is the ephemeral PR merge commit on pull_request events, not the proposed
+      # sources under test; use the PR head commit there and fall back to github.sha for
+      # workflow_dispatch, where no pull_request context exists.
+      ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
