@@ -1,0 +1,23 @@
+name: System E2E
+
+# Invokes the shared cross-service proof owned by `infrastructure` so a change here that breaks
+# another service is caught before merge. Kept separate from `ci.yml` so fast feedback there is
+# never blocked behind a full multi-service build. Only runs when a human has applied the
+# `run-e2e` label, signalling the change carries cross-service risk -- this is a deliberate signal,
+# not an automatic guess based on file paths.
+
+on:
+  pull_request:
+    types: [ labeled, synchronize ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  system-e2e:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'run-e2e')
+    uses: temporal-rift/infrastructure/.github/workflows/system-e2e.yml@main
+    with:
+      service: timeline-service
+      ref: ${{ github.sha }}
