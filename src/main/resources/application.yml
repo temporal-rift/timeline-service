@@ -1,32 +1,14 @@
 game:
   rules:
     probability:
-      # Grade II mirrors game-service's game.rules.scoring.card-shifts/swing-shift baseline — kept in sync
-      # manually, no shared config source exists between independently-deployed services.
-      push-shift:
-        I: 10
-        II: 20
-        III: 30
-      suppress-shift:
-        I: -10
-        II: -20
-        III: -30
-      swing-shift:
-        I: 15
-        II: 30
-        III: 45
-      amplify-multiplier:
-        I: 1.5
-        II: 2.0
-        III: 3.0
+      # push-shift/suppress-shift/swing-shift/amplify-multiplier/band-low-max/band-medium-max come from the
+      # shared Config Server by default (spring.config.import below) — no longer hard-coded here. A profile
+      # document or environment variable can still override any individual key.
       floor: 0
       ceiling: 90
       # Activist specials: Momentum's declaration-time bonus and Rally's Round 1 transfer multiplier.
       momentum-bonus: 10
       rally-multiplier: 1.5
-      # Banded-probability-publication capability: LOW 0-30 / MEDIUM 31-60 / HIGH 61-90.
-      band-low-max: 30
-      band-medium-max: 60
     # ParadoxResolutionPhaseStarted.timerSeconds default.
     paradox-resolution-timer-seconds: 60
   timers:
@@ -35,6 +17,8 @@ game:
 spring:
   application:
     name: timeline-service
+  config:
+    import: "optional:configserver:${CONFIG_SERVER_URI:http://config-server:8888}"
   jackson:
     default-property-inclusion: non_null
   threads:
