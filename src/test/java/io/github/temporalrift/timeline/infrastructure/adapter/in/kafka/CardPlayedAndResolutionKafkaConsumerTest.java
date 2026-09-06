@@ -135,6 +135,30 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     }
 
     @Test
+    @DisplayName("NULLIFY with an unrecognized wire grade — still buffered, grade is irrelevant to it")
+    void handle_nonGradeBearingCardTypeWithUnknownGrade_stillBuffersAction() {
+        var eventId = UUID.randomUUID();
+        var payload = new CardPlayedPayload(
+                UUID.randomUUID(),
+                ERA_NUMBER,
+                ROUND_NUMBER,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                CardType.NULLIFY,
+                CardGrade.UNKNOWN,
+                UUID.randomUUID(),
+                null,
+                null);
+        given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
+
+        var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
+        then(buffer).should().save(eq(payload.gameId()), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
+        assertThat(actionCaptor.getValue().cardType()).isEqualTo("NULLIFY");
+    }
+
+    @Test
     @DisplayName("CardPlayed with an unrecognized wire grade — claims but buffers nothing")
     void handle_unknownGrade_claimsButBuffersNothing() {
         var eventId = UUID.randomUUID();
@@ -485,6 +509,32 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, PARADOX_RESOLUTION_CARD_PLAYED_EVENT_TYPE, 1));
 
         then(playParadoxResolutionCard).should(never()).play(any(), anyInt(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("STABILIZE with an unrecognized wire grade — still played, grade is irrelevant to it")
+    void handle_paradoxResolutionStabilizeWithUnknownGrade_stillPlaysResolutionCard() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var payload = new ParadoxResolutionCardPlayedPayload(
+                gameId,
+                ERA_NUMBER,
+                playerId,
+                UUID.randomUUID(),
+                CardType.STABILIZE,
+                CardGrade.UNKNOWN,
+                targetEventId,
+                null);
+        given(processedEvents.claim(eventId, PARADOX_RESOLUTION_CARD_PLAYED_CONSUMER))
+                .willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, PARADOX_RESOLUTION_CARD_PLAYED_EVENT_TYPE, 1));
+
+        then(playParadoxResolutionCard)
+                .should()
+                .play(gameId, ERA_NUMBER, playerId, "STABILIZE", null, targetEventId, null);
     }
 
     @Test

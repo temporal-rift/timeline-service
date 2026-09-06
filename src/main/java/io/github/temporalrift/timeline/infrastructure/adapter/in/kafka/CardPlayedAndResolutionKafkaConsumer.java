@@ -84,6 +84,15 @@ class CardPlayedAndResolutionKafkaConsumer {
     private static final Set<SpecialAction> KNOWN_SPECIAL_ACTIONS =
             Set.of(SpecialAction.SEAL, SpecialAction.ANNIHILATE, SpecialAction.CORRUPT, SpecialAction.MIMIC);
 
+    // Only these CardPlayed types ever consult grade in resolution (graded-magnitude-resolution capability) —
+    // an unrecognized/missing wire grade must not block buffering every other known card type too.
+    private static final Set<CardType> GRADE_BEARING_CARD_TYPES =
+            Set.of(CardType.PUSH, CardType.SUPPRESS, CardType.SWING, CardType.AMPLIFY);
+
+    // Of ParadoxResolutionCardPlayed's eligible types (PUSH, SUPPRESS, STABILIZE, DETONATE), only these two
+    // consult grade — STABILIZE/DETONATE must not be dropped over an unrecognized/missing wire grade.
+    private static final Set<CardType> GRADE_BEARING_PARADOX_CARD_TYPES = Set.of(CardType.PUSH, CardType.SUPPRESS);
+
     private final ProcessedEventPort processedEvents;
     private final RoundActionBufferPort buffer;
     private final ReplayRoundActionsUseCase replayRoundActions;
@@ -114,14 +123,20 @@ class CardPlayedAndResolutionKafkaConsumer {
     public void handle(Message<Object> message) {
         GameEventIngestion.accept(message, CARD_PLAYED_SPEC, processedEvents).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), CardPlayedPayload.class);
-            var grade = toGrade(payload.grade());
-            if (payload.cardType() != null && KNOWN_CARD_TYPES.contains(payload.cardType()) && grade != null) {
-                buffer.save(
-                        payload.gameId(),
-                        payload.eraNumber(),
-                        payload.roundNumber(),
-                        toBufferedAction(payload, grade, envelope));
+            if (payload.cardType() == null || !KNOWN_CARD_TYPES.contains(payload.cardType())) {
+                return;
             }
+            var grade = toGrade(payload.grade());
+            if (GRADE_BEARING_CARD_TYPES.contains(payload.cardType()) && grade == null) {
+                // Unrecognized/missing grade on a grade-bearing type — safely skip only this card, not every
+                // other known cardType, which never consults grade at all (graded-magnitude-resolution).
+                return;
+            }
+            buffer.save(
+                    payload.gameId(),
+                    payload.eraNumber(),
+                    payload.roundNumber(),
+                    toBufferedAction(payload, grade, envelope));
         });
         GameEventIngestion.accept(message, SPECIAL_ACTION_PLAYED_SPEC, processedEvents)
                 .ifPresent(envelope -> {
@@ -152,16 +167,19 @@ class CardPlayedAndResolutionKafkaConsumer {
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), ParadoxResolutionCardPlayedPayload.class);
                     var grade = toGrade(payload.grade());
-                    if (grade != null) {
-                        playParadoxResolutionCard.play(
-                                payload.gameId(),
-                                payload.eraNumber(),
-                                payload.playerId(),
-                                payload.cardType().name(),
-                                grade,
-                                payload.targetEventId(),
-                                payload.targetOutcomeId());
+                    if (GRADE_BEARING_PARADOX_CARD_TYPES.contains(payload.cardType()) && grade == null) {
+                        // Unrecognized/missing grade on PUSH/SUPPRESS only — STABILIZE/DETONATE never consult
+                        // grade and must still be recorded (graded-magnitude-resolution).
+                        return;
                     }
+                    playParadoxResolutionCard.play(
+                            payload.gameId(),
+                            payload.eraNumber(),
+                            payload.playerId(),
+                            payload.cardType().name(),
+                            grade,
+                            payload.targetEventId(),
+                            payload.targetOutcomeId());
                 });
         GameEventIngestion.accept(message, ACTIVIST_DECLARATION_RECORDED_SPEC, processedEvents)
                 .ifPresent(envelope -> {
