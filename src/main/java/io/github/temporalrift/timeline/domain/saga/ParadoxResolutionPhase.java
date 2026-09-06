@@ -7,6 +7,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
+import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
 
 /**
@@ -206,7 +207,9 @@ public record ParadoxResolutionPhase(
      * One player's recorded resolution-card submission, not yet applied to its target {@code FutureEvent}
      * (design.md Decision 2/4) — {@code cardType} is one of the wire {@code ParadoxResolutionCardPlayed}
      * payload's values (only {@code PUSH}/{@code SUPPRESS}/{@code SWING} are applied; anything else is a no-op at
-     * close, timeline-mvp8-paradox-completion Non-Goals).
+     * close, timeline-mvp8-paradox-completion Non-Goals). {@code grade} is the submitted card's own grade
+     * (graded-magnitude-resolution capability), consulted only for {@code PUSH}/{@code SUPPRESS}.
      */
-    public record Submission(UUID playerId, String cardType, UUID targetEventId, UUID targetOutcomeId) {}
+    public record Submission(
+            UUID playerId, String cardType, CardGrade grade, UUID targetEventId, UUID targetOutcomeId) {}
 }

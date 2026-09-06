@@ -99,11 +99,61 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         var action = actionCaptor.getValue();
         assertThat(action.kind()).isEqualTo(ActionKind.CARD_PLAYED);
         assertThat(action.cardType()).isEqualTo("PUSH");
+        assertThat(action.grade()).isEqualTo(io.github.temporalrift.timeline.domain.futureevent.CardGrade.II);
         assertThat(action.targetEventId()).isEqualTo(targetEventId);
         assertThat(action.targetOutcomeId()).isEqualTo(targetOutcomeId);
         assertThat(action.playerId()).isEqualTo(payload.playerId());
         assertThat(action.envelopeEventId()).isEqualTo(eventId);
         then(replayRoundActions).should(never()).replay(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("CardPlayed with grade I — buffered with that grade")
+    void handle_gradeI_buffersWithThatGrade() {
+        var eventId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var payload = new CardPlayedPayload(
+                UUID.randomUUID(),
+                ERA_NUMBER,
+                ROUND_NUMBER,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                CardType.PUSH,
+                CardGrade.I,
+                targetEventId,
+                null,
+                targetOutcomeId);
+        given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
+
+        var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
+        then(buffer).should().save(eq(payload.gameId()), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
+        assertThat(actionCaptor.getValue().grade())
+                .isEqualTo(io.github.temporalrift.timeline.domain.futureevent.CardGrade.I);
+    }
+
+    @Test
+    @DisplayName("CardPlayed with an unrecognized wire grade — claims but buffers nothing")
+    void handle_unknownGrade_claimsButBuffersNothing() {
+        var eventId = UUID.randomUUID();
+        var payload = new CardPlayedPayload(
+                UUID.randomUUID(),
+                ERA_NUMBER,
+                ROUND_NUMBER,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                CardType.PUSH,
+                CardGrade.UNKNOWN,
+                UUID.randomUUID(),
+                null,
+                UUID.randomUUID());
+        given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
+
+        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
     }
 
     @Test
@@ -406,7 +456,35 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
         then(playParadoxResolutionCard)
                 .should()
-                .play(gameId, ERA_NUMBER, playerId, "PUSH", targetEventId, targetOutcomeId);
+                .play(
+                        gameId,
+                        ERA_NUMBER,
+                        playerId,
+                        "PUSH",
+                        io.github.temporalrift.timeline.domain.futureevent.CardGrade.II,
+                        targetEventId,
+                        targetOutcomeId);
+    }
+
+    @Test
+    @DisplayName("ParadoxResolutionCardPlayed with an unrecognized wire grade — claims but no resolution card played")
+    void handle_paradoxResolutionCardPlayedUnknownGrade_claimsButPlaysNothing() {
+        var eventId = UUID.randomUUID();
+        var payload = new ParadoxResolutionCardPlayedPayload(
+                UUID.randomUUID(),
+                ERA_NUMBER,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                CardType.PUSH,
+                CardGrade.UNKNOWN,
+                UUID.randomUUID(),
+                UUID.randomUUID());
+        given(processedEvents.claim(eventId, PARADOX_RESOLUTION_CARD_PLAYED_CONSUMER))
+                .willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, PARADOX_RESOLUTION_CARD_PLAYED_EVENT_TYPE, 1));
+
+        then(playParadoxResolutionCard).should(never()).play(any(), anyInt(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -427,7 +505,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, PARADOX_RESOLUTION_CARD_PLAYED_EVENT_TYPE, 1));
 
-        then(playParadoxResolutionCard).should(never()).play(any(), anyInt(), any(), any(), any(), any());
+        then(playParadoxResolutionCard).should(never()).play(any(), anyInt(), any(), any(), any(), any(), any());
     }
 
     @Test

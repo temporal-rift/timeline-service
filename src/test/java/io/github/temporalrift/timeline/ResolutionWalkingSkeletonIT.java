@@ -170,6 +170,37 @@ class ResolutionWalkingSkeletonIT {
     }
 
     @Test
+    void gradeIIIPushCardPlayed_appliesLargerMagnitudeThanGradeIIWouldAllow() {
+        var gameId = UUID.randomUUID();
+        var eraNumber = 1;
+        var futureEventId = UUID.randomUUID();
+        var initialWinnerOutcomeId = UUID.randomUUID();
+        var pushedOutcomeId = UUID.randomUUID();
+        var thirdOutcomeId = UUID.randomUUID();
+
+        publishEraStarted(gameId, eraNumber);
+        // Grade II's configured push-shift (+20) would only reach 55, not enough to overtake the 60-probability
+        // winner — only grade III's configured +30 (35 + 30 = 65) flips it. Proves the grade on the wire
+        // event, not a flat baseline, determines the applied magnitude (graded-magnitude-resolution capability).
+        publishEventsDrawnThreeOutcomes(
+                gameId, eraNumber, futureEventId, initialWinnerOutcomeId, 60, pushedOutcomeId, 35, thirdOutcomeId, 5);
+        awaitFutureEventIndexed(gameId, eraNumber);
+
+        publishCardPlayed(gameId, eraNumber, futureEventId, "PUSH", "III", null, pushedOutcomeId);
+        publishActionRoundClosed(gameId, eraNumber, 1);
+        publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
+
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(
+                        () -> assertThat(eventTypesOf(messagesFor(gameId))).contains(OUTCOME_APPLIED));
+
+        var messages = messagesFor(gameId);
+        var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
+        var outcomePayload = messages.get(outcomeIndex).payload();
+        assertThat(outcomePayload).containsEntry("winningOutcomeId", pushedOutcomeId.toString());
+    }
+
+    @Test
     void amplifyThenSuppress_doublesTheConfiguredSuppressMagnitudeAndFlipsTheWinner() {
         var gameId = UUID.randomUUID();
         var eraNumber = 1;
@@ -403,6 +434,17 @@ class ResolutionWalkingSkeletonIT {
             String cardType,
             UUID sourceOutcomeId,
             UUID targetOutcomeId) {
+        publishCardPlayed(gameId, eraNumber, targetEventId, cardType, "II", sourceOutcomeId, targetOutcomeId);
+    }
+
+    private void publishCardPlayed(
+            UUID gameId,
+            int eraNumber,
+            UUID targetEventId,
+            String cardType,
+            String grade,
+            UUID sourceOutcomeId,
+            UUID targetOutcomeId) {
         var payload = new HashMap<String, Object>();
         payload.put("gameId", gameId);
         payload.put("eraNumber", eraNumber);
@@ -410,7 +452,7 @@ class ResolutionWalkingSkeletonIT {
         payload.put("playerId", UUID.randomUUID());
         payload.put("cardInstanceId", UUID.randomUUID());
         payload.put("cardType", cardType);
-        payload.put("grade", "II");
+        payload.put("grade", grade);
         payload.put("targetEventId", targetEventId);
         payload.put("sourceOutcomeId", sourceOutcomeId);
         payload.put("targetOutcomeId", targetOutcomeId);

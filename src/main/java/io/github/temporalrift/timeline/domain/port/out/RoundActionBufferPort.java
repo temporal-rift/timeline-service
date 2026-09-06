@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
+
 /**
  * Driven port for the round-scoped action buffer (design.md Decision 1): every {@code CardPlayed}/
  * {@code SpecialActionPlayed} consumed during a round is recorded here without applying its effect. At
@@ -28,8 +30,11 @@ public interface RoundActionBufferPort {
      * A buffered, not-yet-applied round action. {@code cardType} is populated for {@code CARD_PLAYED} only;
      * {@code specialAction} for {@code SPECIAL_ACTION_PLAYED} only. {@code cardInstanceId}/{@code sourceOutcomeId}/
      * {@code targetPlayerId} are populated only when the originating payload carries them (see
-     * {@code CardPlayedPayload}/{@code SpecialActionPlayedPayload}). {@code envelopeEventId} is the tie-break
-     * secondary sort key for two actions sharing an identical {@code occurredAt} (design.md Decision 5).
+     * {@code CardPlayedPayload}/{@code SpecialActionPlayedPayload}). {@code grade} is populated for
+     * {@code CARD_PLAYED} only, from the originating {@code CardPlayedPayload}'s grade (graded-magnitude-resolution
+     * capability); {@code null} for {@code SPECIAL_ACTION_PLAYED}, which carries no grade. {@code envelopeEventId}
+     * is the tie-break secondary sort key for two actions sharing an identical {@code occurredAt} (design.md
+     * Decision 5).
      */
     record BufferedAction(
             ActionKind kind,
@@ -41,6 +46,7 @@ public interface RoundActionBufferPort {
             UUID sourceOutcomeId,
             UUID targetOutcomeId,
             UUID targetPlayerId,
+            CardGrade grade,
             Instant occurredAt,
             UUID envelopeEventId) {}
 }

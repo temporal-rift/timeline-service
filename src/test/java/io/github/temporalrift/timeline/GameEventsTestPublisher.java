@@ -111,6 +111,18 @@ class GameEventsTestPublisher {
             String cardType,
             UUID sourceOutcomeId,
             UUID targetOutcomeId) {
+        cardPlayed(gameId, eraNumber, targetEventId, cardType, "II", sourceOutcomeId, targetOutcomeId);
+    }
+
+    /** Overload allowing a scenario to exercise a non-baseline grade (graded-magnitude-resolution capability). */
+    void cardPlayed(
+            UUID gameId,
+            int eraNumber,
+            UUID targetEventId,
+            String cardType,
+            String grade,
+            UUID sourceOutcomeId,
+            UUID targetOutcomeId) {
         var payload = new HashMap<String, Object>();
         payload.put("gameId", gameId);
         payload.put("eraNumber", eraNumber);
@@ -118,7 +130,7 @@ class GameEventsTestPublisher {
         payload.put("playerId", UUID.randomUUID());
         payload.put("cardInstanceId", UUID.randomUUID());
         payload.put("cardType", cardType);
-        payload.put("grade", "II");
+        payload.put("grade", grade);
         payload.put("targetEventId", targetEventId);
         payload.put("sourceOutcomeId", sourceOutcomeId);
         payload.put("targetOutcomeId", targetOutcomeId);
@@ -127,13 +139,25 @@ class GameEventsTestPublisher {
 
     void paradoxResolutionCardPlayed(
             UUID gameId, int eraNumber, UUID playerId, String cardType, UUID targetEventId, UUID targetOutcomeId) {
+        paradoxResolutionCardPlayed(gameId, eraNumber, playerId, cardType, "II", targetEventId, targetOutcomeId);
+    }
+
+    /** Overload allowing a scenario to exercise a non-baseline grade (graded-magnitude-resolution capability). */
+    void paradoxResolutionCardPlayed(
+            UUID gameId,
+            int eraNumber,
+            UUID playerId,
+            String cardType,
+            String grade,
+            UUID targetEventId,
+            UUID targetOutcomeId) {
         var payload = new HashMap<String, Object>();
         payload.put("gameId", gameId);
         payload.put("eraNumber", eraNumber);
         payload.put("playerId", playerId);
         payload.put("cardInstanceId", UUID.randomUUID());
         payload.put("cardType", cardType);
-        payload.put("grade", "II");
+        payload.put("grade", grade);
         payload.put("targetEventId", targetEventId);
         payload.put("targetOutcomeId", targetOutcomeId);
         publish(gameId, "ParadoxResolutionCardPlayed", payload);
