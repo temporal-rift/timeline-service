@@ -207,10 +207,7 @@ class ParadoxResolutionSagaImpl {
         var resolvedByPlayerIdByEvent = new HashMap<UUID, UUID>();
         for (var submission : phase.submissions()) {
             var shift = toProbabilityShift(submission);
-            if (shift == null) {
-                continue;
-            }
-            var magnitude = magnitudeFor(submission);
+            var magnitude = shift == null ? OptionalInt.empty() : magnitudeFor(submission);
             if (magnitude.isEmpty()) {
                 continue;
             }
