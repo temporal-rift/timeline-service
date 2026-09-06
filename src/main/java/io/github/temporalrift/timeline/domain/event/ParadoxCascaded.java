@@ -6,7 +6,7 @@ import java.util.UUID;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 
 /**
- * A paradox that persisted through its resolution phase's timer expiry (event-schema.md §3.4, GDD §6.2): the
+ * A paradox that persisted through its resolution phase's timer expiry: the
  * affected event produces no outcome this era and carries {@code carryForwardProbabilityState} into the next
  * era's resolution. Not event-sourced, built and published by {@code ParadoxResolutionSaga}.
  */

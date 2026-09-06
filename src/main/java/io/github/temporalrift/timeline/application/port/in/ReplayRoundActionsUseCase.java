@@ -4,7 +4,7 @@ import java.util.UUID;
 
 /**
  * Driving port: replay a closed round's buffered {@code CardPlayed}/{@code SpecialActionPlayed} actions in
- * strict priority-tier order (sagas.md "Action Ordering Rules": {@code NULLIFY -> SEAL -> ANNIHILATE -> CORRUPT
+ * strict priority-tier order ({@code NULLIFY -> SEAL -> ANNIHILATE -> CORRUPT
  * -> AMPLIFY -> remaining cards by submission timestamp}). Replaces {@code ApplyProbabilityShiftUseCase},
  * {@code PlayCardModifierUseCase}, {@code PlaySpecialActionUseCase}, and {@code ResolvePendingCorruptUseCase}
  * (design.md Decision 7, timeline-mvp9-resolution-ordering-paradox-cards) — those applied each action

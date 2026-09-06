@@ -3,7 +3,7 @@ package io.github.temporalrift.timeline.domain.event;
 import java.util.UUID;
 
 /**
- * A paradox cleared during its resolution phase's player-submission branch (event-schema.md §3.4, GDD §6.2): the
+ * A paradox cleared during its resolution phase's player-submission branch: the
  * affected event proceeds to normal outcome resolution this era. Not event-sourced, built and published by
  * {@code ParadoxResolutionSaga}.
  */

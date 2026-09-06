@@ -2,7 +2,7 @@ package io.github.temporalrift.timeline.domain.port.out;
 
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 
-/** Driven port for the provisional probability-shift balance values (GDD §3.2), keyed by {@link CardGrade}. */
+/** Driven port for the provisional probability-shift balance values, keyed by {@link CardGrade}. */
 public interface ProbabilityRulesPort {
 
     /** Signed shift applied to a {@code PUSH} card's target outcome (positive) at the given grade. */
@@ -23,9 +23,9 @@ public interface ProbabilityRulesPort {
     /** Inclusive upper bound for any outcome's probability. */
     int probabilityCeiling();
 
-    /** One-time percentage-point bonus a Momentum declaration applies to its declared outcome (GDD §2.2). */
+    /** One-time percentage-point bonus a Momentum declaration applies to its declared outcome. */
     int momentumBonus();
 
-    /** Multiplier Rally applies to a Round 1 direct transfer's magnitude toward its declared outcome (GDD §2.2). */
+    /** Multiplier Rally applies to a Round 1 direct transfer's magnitude toward its declared outcome. */
     double rallyMultiplier();
 }

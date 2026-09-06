@@ -170,7 +170,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     /**
-     * GDD §4.3 / banded-probability-publication capability: after Round 2 closes, band every active
+     * Banded-probability-publication capability: after Round 2 closes, band every active
      * (non-stalled, non-resolved) {@code FutureEvent}'s outcomes from cumulative Round 1+2 state.
      */
     private void publishBandedProbability(UUID gameId, int eraNumber) {

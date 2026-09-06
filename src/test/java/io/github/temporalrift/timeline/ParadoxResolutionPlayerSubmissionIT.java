@@ -17,8 +17,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * End-to-end proof of {@code ParadoxResolutionSaga}'s player-submission branch (sagas.md Saga 5,
- * timeline-mvp8-paradox-completion): players submitting a resolution card, the all-submitted close racing the
+ * End-to-end proof of {@code ParadoxResolutionSaga}'s player-submission branch
+ * (timeline-mvp8-paradox-completion): players submitting a resolution card, the all-submitted close racing the
  * 2s test timer (application-test.yml), and a multi-paradox event where one paradox clears while another
  * (a permanent {@code SEAL_BREACH}) does not.
  */

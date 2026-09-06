@@ -6,7 +6,7 @@ import java.util.UUID;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityBand;
 
 /**
- * The coarse public probability state (GDD §4.3) revealed once Action Round 2 closes: every active
+ * The coarse public probability state revealed once Action Round 2 closes: every active
  * {@code FutureEvent}'s outcomes banded LOW/MEDIUM/HIGH from cumulative Round 1+2 state. Not event-sourced.
  */
 public record BandedProbabilityPublished(UUID gameId, int eraNumber, List<EventState> eventStates) {

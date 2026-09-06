@@ -12,8 +12,8 @@ public interface ParadoxResolutionPhaseRepository {
 
     /**
      * Atomically creates {@code candidate} only if no phase exists yet for its {@code (gameId, eraNumber)} — an
-     * insert-first, conflict-checked operation, not a check-then-save sequence (developer-notes.md §4
-     * Idempotency: "Do not use an exists-then-save sequence; it is racy under concurrent delivery"). Returns the
+     * insert-first, conflict-checked operation, not a check-then-save sequence — a check-then-save sequence is
+     * racy under concurrent delivery. Returns the
      * phase now authoritative for that era: {@code candidate} itself when this call created it, or the
      * already-existing phase otherwise — either way, {@code created()} tells the caller which happened.
      */

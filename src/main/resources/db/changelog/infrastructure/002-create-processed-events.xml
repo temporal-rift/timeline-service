@@ -7,7 +7,6 @@
 
   <!--
       Kafka consumer idempotency. Consumers claim (event_id, consumer) before any business work.
-      See event-schema.md §2.1.1 and developer-notes.md §4 (Idempotency).
   -->
   <changeSet id="002-create-processed-events" author="timeline-service">
     <createTable tableName="processed_events">

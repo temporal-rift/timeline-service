@@ -14,7 +14,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 /**
  * Owns the in-memory scheduling concerns for paradox-resolution-phase timers, mirroring
  * {@code ActionRoundTimerScheduler}: a latency optimization only — the persisted phase's {@code timerExpiresAt}
- * plus {@link ParadoxResolutionTimerSweep} are the durability guarantee (developer-notes.md §5 "Timer model").
+ * plus {@link ParadoxResolutionTimerSweep} are the durability guarantee.
  */
 @Component
 class ParadoxResolutionTimerScheduler {

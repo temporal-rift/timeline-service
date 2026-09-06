@@ -7,7 +7,7 @@ import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
 
 /**
  * One era-level fact covering every paradox detected across that era's resolving {@code FutureEvent}s
- * (event-schema.md §3.4) — not an aggregate-level event; built by the resolution use case, not event-sourced.
+ * — not an aggregate-level event; built by the resolution use case, not event-sourced.
  */
 public record ParadoxDetected(UUID gameId, int eraNumber, List<Paradox> paradoxes) {
 

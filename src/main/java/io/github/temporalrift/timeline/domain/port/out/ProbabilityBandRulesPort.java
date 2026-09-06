@@ -1,7 +1,7 @@
 package io.github.temporalrift.timeline.domain.port.out;
 
 /**
- * Driven port for the LOW/MEDIUM/HIGH band thresholds (GDD §4.3, banded-probability-publication capability) —
+ * Driven port for the LOW/MEDIUM/HIGH band thresholds (banded-probability-publication capability) —
  * configured, not hard-coded, mirroring {@link ProbabilityRulesPort}'s convention for the same kind of
  * provisional balance value.
  */

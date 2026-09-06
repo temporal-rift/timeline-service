@@ -5,7 +5,7 @@ import java.util.UUID;
 
 /**
  * Terminal-results barrier for an era: published once, after every {@code OutcomeApplied} for the era is
- * durably in the outbox, with entries in {@code EventsDrawn.events} reveal order (event-schema.md §3.4).
+ * durably in the outbox, with entries in {@code EventsDrawn.events} reveal order.
  */
 public record EraResolutionCompleted(UUID gameId, int eraNumber, List<TerminalResolution> terminalResolutions) {
 

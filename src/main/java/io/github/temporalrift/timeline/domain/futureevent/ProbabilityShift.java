@@ -3,7 +3,7 @@ package io.github.temporalrift.timeline.domain.futureevent;
 import java.util.Map;
 import java.util.UUID;
 
-/** A probability-shifter card's effect on a {@link FutureEvent} (GDD §3 "Group 1 — Probability Shifters"). */
+/** A probability-shifter card's effect on a {@link FutureEvent}. */
 public sealed interface ProbabilityShift {
 
     /** {@code +magnitude} to {@code targetOutcomeId}, redistributed proportionally across the other two. */
@@ -17,7 +17,7 @@ public sealed interface ProbabilityShift {
 
     /**
      * Forces {@code outcomeAId} and {@code outcomeBId} toward their combined midpoint, redistributing the
-     * remainder to the third outcome (GDD §3 "Group 4 — Paradox", the mechanical inverse of {@link Swing}).
+     * remainder to the third outcome (the mechanical inverse of {@link Swing}).
      * Unlike {@code PUSH}/{@code SUPPRESS}/{@code SWING}, has no configured magnitude of its own.
      */
     record Collide(UUID outcomeAId, UUID outcomeBId) implements ProbabilityShift {}

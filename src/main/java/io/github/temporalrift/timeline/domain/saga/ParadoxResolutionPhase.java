@@ -11,7 +11,7 @@ import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
 
 /**
- * Persisted state for one era's paradox-resolution phase (sagas.md Saga 5, design.md
+ * Persisted state for one era's paradox-resolution phase (design.md
  * timeline-mvp7-paradox-resolution-saga Decision 1, timeline-mvp8-paradox-completion Decision 2): one row per
  * {@code (gameId, eraNumber)}, covering every paradox detected in that era's resolution cycle behind a single
  * shared timer. {@code resolvedTerminalResolutions} carries the {@code OUTCOME_APPLIED}/{@code STALLED} entries

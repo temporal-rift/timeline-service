@@ -17,7 +17,7 @@ import io.github.temporalrift.timeline.domain.event.SealBreachRecorded;
 
 /**
  * Event-sourced aggregate for a single drawn event. Rebuilt by {@link #replay(UUID, List)}, never loaded
- * from a current-state row (developer-notes.md §7).
+ * from a current-state row.
  */
 public final class FutureEvent {
 
@@ -74,7 +74,7 @@ public final class FutureEvent {
 
     /**
      * Marks this event stalled ({@code STALL}): excluded from resolution this era, carried into the next
-     * era's index instead (GDD §3 "Group 3 — Disruption").
+     * era's index instead.
      */
     public EventStalled markStalled() {
         if (resolved) {
@@ -96,8 +96,8 @@ public final class FutureEvent {
     /**
      * Resolves this event by selecting the highest-probability outcome among its non-annihilated outcomes,
      * tie-broken by the smallest {@code outcomeId} (natural UUID ordering) — no card or paradox logic beyond
-     * honoring an {@code ANNIHILATE} special's exclusion (GDD §2.2: an annihilated outcome cannot win
-     * regardless of probability).
+     * honoring an {@code ANNIHILATE} special's exclusion: an annihilated outcome cannot win
+     * regardless of probability.
      */
     public OutcomeApplied resolve(UUID gameId, int eraNumber) {
         if (resolved) {
@@ -118,7 +118,7 @@ public final class FutureEvent {
     }
 
     /**
-     * Applies a probability-shifter card's effect (GDD §4.2: sum-100, floor/ceiling, proportional
+     * Applies a probability-shifter card's effect (sum-100, floor/ceiling, proportional
      * redistribution for single-outcome shifts). {@code magnitude} is the configured shift for the given
      * {@link ProbabilityShift} variant, resolved by the caller via {@code ProbabilityRulesPort} — this
      * aggregate stays free of any config/port coupling.
@@ -165,7 +165,7 @@ public final class FutureEvent {
 
     /**
      * PUSH/SUPPRESS target the named outcome; if it's sealed, breach. Otherwise its movement must be
-     * redistributed into the other two outcomes (GDD §4.2) — but a sealed "other" can't absorb any of it
+     * redistributed into the other two outcomes — but a sealed "other" can't absorb any of it
      * either, so: both others sealed → nowhere to put the movement, breach; exactly one sealed → the sole
      * unsealed other absorbs all of it; neither sealed → the existing proportional 3-way split.
      */
@@ -224,7 +224,7 @@ public final class FutureEvent {
      * Forces the two named outcomes to their combined-total midpoint (an odd combined total splits as
      * {@code floor}/{@code ceiling} of half, e.g. 51 -> 25/26), clamped to the configured floor/ceiling while
      * preserving their combined total exactly — the third outcome is untouched, so the 100 total is preserved
-     * automatically (COLLIDE, GDD §3 "Group 4 — Paradox").
+     * automatically (COLLIDE).
      */
     private Object collideOrBreach(UUID outcomeAId, UUID outcomeBId, int floor, int ceiling) {
         if (Objects.equals(outcomeAId, outcomeBId)) {
@@ -310,7 +310,7 @@ public final class FutureEvent {
                 targetOutcomeId, desiredTarget, other1.outcomeId(), rebalanced[0], other2.outcomeId(), rebalanced[1]));
     }
 
-    /** Direct transfer between two named outcomes; the third outcome is untouched (GDD §3 Swing). */
+    /** Direct transfer between two named outcomes; the third outcome is untouched (SWING). */
     private List<Outcome> swing(UUID sourceOutcomeId, UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
         if (Objects.equals(sourceOutcomeId, targetOutcomeId)) {
             throw new IllegalArgumentException("SWING requires distinct source and target outcomes");

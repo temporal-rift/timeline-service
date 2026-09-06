@@ -14,7 +14,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * Periodic sweep that relays {@code PENDING} {@code outbox_events} rows to Kafka, one instance-local
- * sweep per {@code game.timers}-style interval (developer-notes.md §5 "Timer model"). Never publishes to
+ * sweep per {@code game.timers}-style interval. Never publishes to
  * Kafka inside the same transaction as the claim or the mark-sent step — each is its own short,
  * independently-committed transaction (on {@link OutboxEventJpaRepository#compareAndSetStatus}, not here
  * — {@code @Transactional} on this class's own methods would be silently ineffective for calls made from
