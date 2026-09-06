@@ -3,8 +3,6 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.config;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
-import java.util.OptionalDouble;
-import java.util.OptionalInt;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
@@ -99,28 +97,26 @@ public record TimelineRulesProperties(
         }
     }
 
+    // requireAllGrades guarantees every CardGrade key is present, so these lookups never return null.
+
     @Override
-    public OptionalInt pushShift(CardGrade grade) {
-        var value = pushShift.get(grade);
-        return value == null ? OptionalInt.empty() : OptionalInt.of(value);
+    public int pushShift(CardGrade grade) {
+        return pushShift.get(grade);
     }
 
     @Override
-    public OptionalInt suppressShift(CardGrade grade) {
-        var value = suppressShift.get(grade);
-        return value == null ? OptionalInt.empty() : OptionalInt.of(value);
+    public int suppressShift(CardGrade grade) {
+        return suppressShift.get(grade);
     }
 
     @Override
-    public OptionalInt swingShift(CardGrade grade) {
-        var value = swingShift.get(grade);
-        return value == null ? OptionalInt.empty() : OptionalInt.of(value);
+    public int swingShift(CardGrade grade) {
+        return swingShift.get(grade);
     }
 
     @Override
-    public OptionalDouble amplifyMultiplier(CardGrade grade) {
-        var value = amplifyMultiplier.get(grade);
-        return value == null ? OptionalDouble.empty() : OptionalDouble.of(value);
+    public double amplifyMultiplier(CardGrade grade) {
+        return amplifyMultiplier.get(grade);
     }
 
     @Override

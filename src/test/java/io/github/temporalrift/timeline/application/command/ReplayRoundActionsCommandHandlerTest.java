@@ -11,8 +11,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.OptionalDouble;
-import java.util.OptionalInt;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -96,7 +94,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
@@ -105,21 +103,6 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(70);
-    }
-
-    @Test
-    void replay_push_unconfiguredGrade_safelySkipped() {
-        var eventId = UUID.randomUUID();
-        var a = UUID.randomUUID();
-        given(rules.pushShift(CardGrade.III)).willReturn(OptionalInt.empty());
-        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                .willReturn(List.of(cardPlayedGraded("PUSH", CardGrade.III, eventId, null, a, at(0))));
-
-        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
-
-        // No configured magnitude for this grade — skipped entirely, never even looking up the target event.
-        then(futureEvents).should(never()).findById(any());
-        then(futureEvents).should(never()).append(any(), any());
     }
 
     @Test
@@ -132,7 +115,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var other2 = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(target, 50), outcome(other1, 30), outcome(other2, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         cardPlayed("PUSH", eventId, null, target, at(0)),
@@ -182,7 +165,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(10));
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
@@ -206,8 +189,8 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(10));
-        given(rules.amplifyMultiplier(CardGrade.II)).willReturn(OptionalDouble.of(2.0));
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.amplifyMultiplier(CardGrade.II)).willReturn(2.0);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         // Buffer (arrival) order: PUSH before AMPLIFY, but AMPLIFY's timestamp (0) precedes the PUSH's (1).
@@ -227,8 +210,8 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(10));
-        given(rules.amplifyMultiplier(CardGrade.III)).willReturn(OptionalDouble.of(3.0));
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.amplifyMultiplier(CardGrade.III)).willReturn(3.0);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
@@ -243,30 +226,6 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_amplify_unconfiguredGrade_targetAppliesUnamplified() {
-        var eventId = UUID.randomUUID();
-        var a = UUID.randomUUID();
-        var b = UUID.randomUUID();
-        var c = UUID.randomUUID();
-        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
-        given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(10));
-        given(rules.amplifyMultiplier(CardGrade.III)).willReturn(OptionalDouble.empty());
-        given(rules.probabilityFloor()).willReturn(0);
-        given(rules.probabilityCeiling()).willReturn(90);
-        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                .willReturn(List.of(
-                        cardPlayed("PUSH", eventId, null, a, at(1)),
-                        cardPlayedGraded("AMPLIFY", CardGrade.III, null, null, null, at(0))));
-
-        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
-
-        // The AMPLIFY's own grade has no configured multiplier — it never arms, so the PUSH applies at its
-        // own normal, unamplified magnitude.
-        assertThat(probabilityOf(futureEvent, a)).isEqualTo(60);
-    }
-
-    @Test
     void replay_corruptInvertsCorrelatedPush_intoSuppress_andConfirmsTookEffect() {
         var eventId = UUID.randomUUID();
         var target = UUID.randomUUID();
@@ -274,7 +233,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(target, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.suppressShift(CardGrade.II)).willReturn(OptionalInt.of(-20));
+        given(rules.suppressShift(CardGrade.II)).willReturn(-20);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         var pushingPlayer = UUID.randomUUID();
@@ -304,7 +263,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(target, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.suppressShift(CardGrade.II)).willReturn(OptionalInt.of(-20));
+        given(rules.suppressShift(CardGrade.II)).willReturn(-20);
         var pushingPlayer = UUID.randomUUID();
         var corruptingPlayer = UUID.randomUUID();
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
@@ -340,7 +299,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         var pushingPlayer = UUID.randomUUID();
@@ -366,8 +325,8 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
-        given(rules.swingShift(CardGrade.II)).willReturn(OptionalInt.of(15));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.swingShift(CardGrade.II)).willReturn(15);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         var pushingPlayer = UUID.randomUUID();
@@ -416,7 +375,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         var pushingPlayer = UUID.randomUUID();
@@ -452,7 +411,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
         given(rules.rallyMultiplier()).willReturn(1.5);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
@@ -474,7 +433,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.swingShift(CardGrade.II)).willReturn(OptionalInt.of(10));
+        given(rules.swingShift(CardGrade.II)).willReturn(10);
         given(rules.rallyMultiplier()).willReturn(1.5);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
@@ -497,7 +456,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.swingShift(CardGrade.II)).willReturn(OptionalInt.of(10));
+        given(rules.swingShift(CardGrade.II)).willReturn(10);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
@@ -519,7 +478,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.suppressShift(CardGrade.II)).willReturn(OptionalInt.of(-20));
+        given(rules.suppressShift(CardGrade.II)).willReturn(-20);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
@@ -540,7 +499,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         specialAction("SEAL", eventId, a, at(0)),
@@ -561,7 +520,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).willReturn(List.of());
@@ -584,7 +543,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
         given(rules.rallyMultiplier()).willReturn(1.5);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
@@ -610,7 +569,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
         given(rules.rallyMultiplier()).willReturn(1.5);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
@@ -653,7 +612,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var c = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
@@ -707,7 +666,7 @@ class ReplayRoundActionsCommandHandlerTest {
         // Outcomes sum to 95, not 100 — a pre-existing invalid state the guard must catch.
         var futureEvent = drafted(eventId, outcome(a, 45), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(10));
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))

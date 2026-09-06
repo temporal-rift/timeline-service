@@ -13,7 +13,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -368,7 +367,7 @@ class ParadoxResolutionSagaImplTest {
 
         given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
         given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
-        given(probabilityRules.suppressShift(CardGrade.II)).willReturn(OptionalInt.of(-40));
+        given(probabilityRules.suppressShift(CardGrade.II)).willReturn(-40);
         given(probabilityRules.probabilityFloor()).willReturn(0);
         given(probabilityRules.probabilityCeiling()).willReturn(90);
 
@@ -420,7 +419,7 @@ class ParadoxResolutionSagaImplTest {
 
         given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
         given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
-        given(probabilityRules.pushShift(CardGrade.III)).willReturn(OptionalInt.of(30));
+        given(probabilityRules.pushShift(CardGrade.III)).willReturn(30);
         given(probabilityRules.probabilityFloor()).willReturn(0);
         given(probabilityRules.probabilityCeiling()).willReturn(90);
 
@@ -434,39 +433,6 @@ class ParadoxResolutionSagaImplTest {
                         .orElseThrow()
                         .probability())
                 .isEqualTo(60);
-    }
-
-    @Test
-    void handlePlayerSubmitted_unconfiguredGrade_skippedLikeNonSubmitter() {
-        var sagaId = UUID.randomUUID();
-        var paradoxId = UUID.randomUUID();
-        var affectedEventId = UUID.randomUUID();
-        var annihilatedId = UUID.randomUUID();
-        var playerId = UUID.randomUUID();
-        var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
-        var submission = new Submission(playerId, "SUPPRESS", CardGrade.III, affectedEventId, annihilatedId);
-        var phase = ParadoxResolutionPhase.withKnownRoster(
-                sagaId,
-                GAME_ID,
-                ERA_NUMBER,
-                ParadoxResolutionPhaseStatus.WAITING,
-                List.of(new PendingParadox(
-                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
-                List.of(),
-                List.of(),
-                List.of(submission),
-                clock.instant());
-
-        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
-        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
-        given(probabilityRules.suppressShift(CardGrade.III)).willReturn(OptionalInt.empty());
-
-        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
-
-        // No configured magnitude for this grade — the submission contributes no effect, treated exactly
-        // like a non-submitter at close: the still-annihilated outcome keeps the event cascading.
-        then(futureEvents).should(never()).append(any(), any());
-        then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
     }
 
     @Test
@@ -495,7 +461,7 @@ class ParadoxResolutionSagaImplTest {
 
         given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
         given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
-        given(probabilityRules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(1));
+        given(probabilityRules.pushShift(CardGrade.II)).willReturn(1);
         given(probabilityRules.probabilityFloor()).willReturn(0);
         given(probabilityRules.probabilityCeiling()).willReturn(90);
 
@@ -555,8 +521,8 @@ class ParadoxResolutionSagaImplTest {
         given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, suppressSubmission))
                 .willReturn(Optional.of(phase));
         given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
-        given(probabilityRules.pushShift(CardGrade.II)).willReturn(OptionalInt.of(20));
-        given(probabilityRules.suppressShift(CardGrade.II)).willReturn(OptionalInt.of(-30));
+        given(probabilityRules.pushShift(CardGrade.II)).willReturn(20);
+        given(probabilityRules.suppressShift(CardGrade.II)).willReturn(-30);
         given(probabilityRules.probabilityFloor()).willReturn(0);
         given(probabilityRules.probabilityCeiling()).willReturn(90);
 
@@ -629,7 +595,7 @@ class ParadoxResolutionSagaImplTest {
 
         given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
         given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
-        given(probabilityRules.suppressShift(CardGrade.II)).willReturn(OptionalInt.of(-40));
+        given(probabilityRules.suppressShift(CardGrade.II)).willReturn(-40);
         given(probabilityRules.probabilityFloor()).willReturn(0);
         given(probabilityRules.probabilityCeiling()).willReturn(90);
 
