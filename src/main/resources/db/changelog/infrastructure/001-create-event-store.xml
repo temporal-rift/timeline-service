@@ -8,7 +8,6 @@
   <!--
       Append-only event store. Aggregates (FutureEvent, WeaverChain) are rebuilt by replaying their
       stream. sequence_nr is the per-aggregate optimistic-concurrency guard.
-      See developer-notes.md §7.
   -->
   <changeSet id="001-create-event-store" author="timeline-service">
     <createTable tableName="event_store">

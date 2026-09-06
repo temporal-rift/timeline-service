@@ -6,7 +6,7 @@
             https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
 
   <!--
-      The player roster EraStarted carries (event-schema.md §3.2), persisted per (game_id, era_number) so
+      The player roster EraStarted carries, persisted per (game_id, era_number) so
       ParadoxResolutionSagaImpl can populate a resolution phase's pending-player set (design.md Decision 3).
   -->
   <changeSet id="001-create-era-players" author="timeline-service">

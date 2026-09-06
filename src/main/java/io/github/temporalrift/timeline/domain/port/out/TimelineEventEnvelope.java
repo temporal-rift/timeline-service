@@ -4,7 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
-/** Outbound envelope metadata for a published {@code timeline.events} fact (event-schema.md §1). */
+/** Outbound envelope metadata for a published {@code timeline.events} fact. */
 public record TimelineEventEnvelope<T>(
         UUID eventId, UUID aggregateId, String aggregateType, UUID gameId, Instant occurredAt, int version, T payload) {
 

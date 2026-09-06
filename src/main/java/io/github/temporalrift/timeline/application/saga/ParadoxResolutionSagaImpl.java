@@ -35,7 +35,7 @@ import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.Submis
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhaseStatus;
 
 /**
- * Business logic for {@code sagas.md} Saga 5: both the force-cascade (timer expiry) and player-submission
+ * Business logic for the paradox-resolution saga: both the force-cascade (timer expiry) and player-submission
  * (all-submitted) close branches, sharing one {@link #tryClose} (design.md timeline-mvp8-paradox-completion
  * Decision 2). Holds no direct dependency on timer scheduling: {@link ParadoxResolutionPhaseOpener} and
  * {@link ParadoxResolutionTimeoutProcessor} compose this class with {@link ParadoxResolutionTimerScheduler}, which

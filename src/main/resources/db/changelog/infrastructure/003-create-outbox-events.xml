@@ -7,9 +7,9 @@
 
   <!--
       Bespoke transactional outbox. timeline-service has no Spring Modulith event-publication registry
-      (single bounded context — see developer-notes.md §2), so unlike game-service it cannot rely on
+      (single bounded context), so unlike game-service it cannot rely on
       Modulith's event_publication table; this table plus OutboxEventListener/OutboxRelay is the
-      service-local equivalent of the generic pattern in developer-notes.md's "Outbox Pattern" section.
+      service-local equivalent of the generic Outbox Pattern.
   -->
   <changeSet id="003-create-outbox-events" author="timeline-service">
     <createTable tableName="outbox_events">

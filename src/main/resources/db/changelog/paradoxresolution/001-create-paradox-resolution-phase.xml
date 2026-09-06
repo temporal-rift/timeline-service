@@ -6,7 +6,7 @@
             https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
 
   <!--
-      Persisted state for sagas.md Saga 5 (ParadoxResolutionSaga): force-cascade (timer expiry) and
+      Persisted state for the paradox-resolution saga (ParadoxResolutionSaga): force-cascade (timer expiry) and
       player-submission (all-submitted) close branches. One row per (game_id, era_number), covering every
       paradox detected in that era's resolution cycle behind a single shared timer. See design.md
       (timeline-mvp7-paradox-resolution-saga Decision 1, timeline-mvp8-paradox-completion Decision 2).

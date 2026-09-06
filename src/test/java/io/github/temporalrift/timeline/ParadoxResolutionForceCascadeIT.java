@@ -23,8 +23,8 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * End-to-end proof of {@code ParadoxResolutionSaga}'s force-cascade branch (sagas.md Saga 5,
- * timeline-mvp7-paradox-resolution-saga): a detected paradox opens a resolution phase whose timer
+ * End-to-end proof of {@code ParadoxResolutionSaga}'s force-cascade branch
+ * (timeline-mvp7-paradox-resolution-saga): a detected paradox opens a resolution phase whose timer
  * (2s in {@code application-test.yml}) expires with no submissions, force-cascading it into a
  * {@code ParadoxCascaded} and a single, deferred {@code EraResolutionCompleted} in reveal order.
  */
@@ -150,7 +150,7 @@ class ParadoxResolutionForceCascadeIT {
                 .isEqualTo(1);
 
         // Resolving the next era directly proves the carried event is active again with its paradox state
-        // intact (GDD §6.2): nothing broke the tie, so the same IMPOSSIBLE_ERASURE paradox is re-detected
+        // intact: nothing broke the tie, so the same IMPOSSIBLE_ERASURE paradox is re-detected
         // from the exact carried outcome state — not silently dropped or force-resolved.
         var nextEraResolutionEventId = UUID.randomUUID();
         publishResolutionStarted(gameId, eraNumber + 1, nextEraResolutionEventId);

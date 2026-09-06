@@ -92,7 +92,7 @@ class GameEventsTestPublisher {
         publish(gameId, "SpecialActionPlayed", payload);
     }
 
-    /** temporal-rift-gdd.md §"Faction specials" — the faction each special action belongs to. */
+    /** The faction each special action belongs to. */
     private static String factionFor(String specialAction) {
         return switch (specialAction) {
             case "ANNIHILATE", "CORRUPT", "CASCADE" -> "ERASERS";

@@ -6,7 +6,7 @@ import java.util.UUID;
 import org.springframework.messaging.Message;
 
 /**
- * The real {@code game.events} envelope metadata, read from Kafka record headers (event-schema.md §1) —
+ * The real {@code game.events} envelope metadata, read from Kafka record headers —
  * not a body field. {@code eventType} is the stable contract discriminator.
  */
 record GameEventEnvelope(

@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Detects paradox conditions on a {@link FutureEvent}'s final, post-effects outcome state (GDD §6.1). Plain
+ * Detects paradox conditions on a {@link FutureEvent}'s final, post-effects outcome state. Plain
  * domain logic — no framework dependency — so it can run ahead of the highest-probability winner selection in
  * the resolution use case. A single call reports every paradox type independently satisfied by the given state,
  * not just the first one found.
@@ -15,7 +15,7 @@ public final class ParadoxDetector {
 
     /**
      * {@code sealBreach} is {@link FutureEvent#sealBreach()} — whether an effect application already recorded a
-     * {@code SealBreachRecorded} against this event (GDD §6.1 Type 4). Detection itself stays a pure function of
+     * {@code SealBreachRecorded} against this event. Detection itself stays a pure function of
      * these two inputs so it can run independently of the aggregate.
      */
     public static List<DetectedParadox> detect(List<Outcome> outcomes, boolean sealBreach) {
@@ -29,7 +29,7 @@ public final class ParadoxDetector {
 
     /**
      * Reports one {@link DetectedParadox} of type {@code DEAD_HEAT} when two or more non-annihilated outcomes
-     * share the highest probability among an event's non-annihilated outcomes (GDD §6.1 Type 1) —
+     * share the highest probability among an event's non-annihilated outcomes —
      * {@code affectedOutcomeIds} contains every tied outcome's id.
      */
     private static List<DetectedParadox> detectDeadHeat(List<Outcome> outcomes) {
@@ -54,7 +54,7 @@ public final class ParadoxDetector {
 
     /**
      * Reports one {@link DetectedParadox} of type {@code IMPOSSIBLE_ERASURE} for every annihilated outcome whose
-     * probability is greater than or equal to every non-annihilated outcome's probability (GDD §6.1 Type 2). An
+     * probability is greater than or equal to every non-annihilated outcome's probability. An
      * event with no non-annihilated outcomes at all trivially satisfies this for each annihilated outcome.
      */
     private static List<DetectedParadox> detectImpossibleErasure(List<Outcome> outcomes) {
@@ -77,7 +77,7 @@ public final class ParadoxDetector {
     }
 
     /**
-     * Deferred stub (GDD §6.1 Type 3): no live Weaver chains exist anywhere in the codebase yet, so this always
+     * Deferred stub: no live Weaver chains exist anywhere in the codebase yet, so this always
      * reports no paradox. The Weaver chain slice changes {@link #detect}'s signature to accept real chain state
      * and replaces this method's body with actual conflict detection.
      */
@@ -86,8 +86,8 @@ public final class ParadoxDetector {
     }
 
     /**
-     * Reports one {@link DetectedParadox} of type {@code SEAL_BREACH} when {@code sealBreach} is set (GDD §6.1
-     * Type 4), with {@code affectedOutcomeIds} containing the event's sealed outcome id(s).
+     * Reports one {@link DetectedParadox} of type {@code SEAL_BREACH} when {@code sealBreach} is set,
+     * with {@code affectedOutcomeIds} containing the event's sealed outcome id(s).
      */
     private static List<DetectedParadox> detectSealBreach(List<Outcome> outcomes, boolean sealBreach) {
         if (!sealBreach) {

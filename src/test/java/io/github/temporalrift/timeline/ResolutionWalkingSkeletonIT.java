@@ -24,7 +24,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 /**
  * End-to-end proof of the MVP2 walking skeleton: publishes real-shaped {@code EraStarted} /
- * {@code EventsDrawn} / {@code ResolutionStarted} messages (headers per event-schema.md §1, not the
+ * {@code EventsDrawn} / {@code ResolutionStarted} messages (not the
  * hand-rolled body-envelope shape used elsewhere for {@code timeline.events} placeholders) onto
  * {@code game.events}, and asserts {@code OutcomeApplied} — preceded by {@code ProbabilityStateCalculated}
  * — lands on {@code timeline.events}. Also confirms the {@code eventType}

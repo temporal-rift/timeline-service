@@ -5,7 +5,7 @@ import java.util.UUID;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 
 /**
- * A player's single card submission during an open paradox-resolution phase (sagas.md Saga 5, GDD §6.2). Idempotent
+ * A player's single card submission during an open paradox-resolution phase. Idempotent
  * by player within a phase — a redelivered submission for a player already recorded, or one that arrives after the
  * phase already closed, has no further effect.
  */

@@ -5,7 +5,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Driven port for the player roster {@code EraStarted} carries (event-schema.md §3.2) — the only source of a
+ * Driven port for the player roster {@code EraStarted} carries — the only source of a
  * game's players available to {@code timeline-service}, needed by {@code ParadoxResolutionSagaImpl} to know who
  * a resolution phase is waiting on (design.md Decision 3).
  */

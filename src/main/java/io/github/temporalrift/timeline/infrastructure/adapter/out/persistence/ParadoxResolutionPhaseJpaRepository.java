@@ -19,8 +19,8 @@ interface ParadoxResolutionPhaseJpaRepository extends JpaRepository<ParadoxResol
 
     /**
      * Atomic create-if-absent: an {@code ON CONFLICT DO NOTHING} insert against
-     * {@code ux_paradox_resolution_phase_game_era}, not a check-then-save sequence (developer-notes.md §4
-     * Idempotency) — two concurrent callers for the same {@code (gameId, eraNumber)} both succeed, but only one's
+     * {@code ux_paradox_resolution_phase_game_era}, not a check-then-save sequence —
+     * two concurrent callers for the same {@code (gameId, eraNumber)} both succeed, but only one's
      * row is ever written; the caller distinguishes which by the returned row count.
      *
      * @return 1 if this call inserted the row, 0 if a row for {@code (gameId, eraNumber)} already existed

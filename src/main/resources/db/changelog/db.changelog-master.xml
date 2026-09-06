@@ -30,7 +30,7 @@
     <!-- Round-scoped buffer of not-yet-applied actions, replayed in priority order at ActionRoundClosed -->
     <include file="db/changelog/roundeffect/006-create-round-action-buffer.xml"/>
 
-    <!-- ParadoxResolutionSaga state (sagas.md Saga 5) -->
+    <!-- ParadoxResolutionSaga state -->
     <include file="db/changelog/paradoxresolution/001-create-paradox-resolution-phase.xml"/>
 
 </databaseChangeLog>
