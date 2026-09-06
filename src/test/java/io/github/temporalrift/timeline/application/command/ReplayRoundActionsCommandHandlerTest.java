@@ -999,17 +999,6 @@ class ReplayRoundActionsCommandHandlerTest {
         return cardPlayedBy(UUID.randomUUID(), cardType, targetEventId, sourceOutcomeId, targetOutcomeId, occurredAt);
     }
 
-    private static BufferedAction cardPlayedGraded(
-            String cardType,
-            CardGrade grade,
-            UUID targetEventId,
-            UUID sourceOutcomeId,
-            UUID targetOutcomeId,
-            Instant occurredAt) {
-        return cardPlayedByGraded(
-                UUID.randomUUID(), cardType, grade, targetEventId, sourceOutcomeId, targetOutcomeId, occurredAt);
-    }
-
     private static BufferedAction cardPlayedBy(
             UUID playerId,
             String cardType,
@@ -1042,10 +1031,6 @@ class ReplayRoundActionsCommandHandlerTest {
                 grade,
                 occurredAt,
                 UUID.randomUUID());
-    }
-
-    private static BufferedAction cardPlayedType(String cardType, Instant occurredAt) {
-        return cardPlayedBy(UUID.randomUUID(), cardType, null, null, null, occurredAt);
     }
 
     private static BufferedAction playerTargetedCard(
