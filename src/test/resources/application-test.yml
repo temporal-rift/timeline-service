@@ -2,6 +2,27 @@ game:
   rules:
     # Short timer so ParadoxResolutionForceCascadeIT doesn't wait the production 60s default.
     paradox-resolution-timer-seconds: 2
+    probability:
+      # Self-contained copy so the test suite never depends on a live Config Server; also demonstrates the
+      # "profile config overrides the Config Server" requirement (timeline-probability-config-client capability).
+      push-shift:
+        I: 10
+        II: 20
+        III: 30
+      suppress-shift:
+        I: -10
+        II: -20
+        III: -30
+      swing-shift:
+        I: 15
+        II: 30
+        III: 45
+      amplify-multiplier:
+        I: 1.5
+        II: 2.0
+        III: 3.0
+      band-low-max: 30
+      band-medium-max: 60
 
 spring:
   application:
