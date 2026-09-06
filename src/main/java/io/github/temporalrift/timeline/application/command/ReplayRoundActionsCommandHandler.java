@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -305,13 +304,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             Map<UUID, BufferedAction> mimicCorrelations, Set<UUID> rallyDeclaredOutcomes, Set<UUID> touchedEventIds) {
         for (var correlated : mimicCorrelations.values()) {
             var kind = ShiftKind.valueOf(correlated.cardType());
-            var baseMagnitude = baseMagnitude(kind, correlated.grade());
-            if (baseMagnitude.isEmpty()) {
-                continue;
-            }
             var futureEvent = futureEvents.findById(correlated.targetEventId());
             int magnitude = rallyAdjustedMagnitude(
-                    rallyDeclaredOutcomes, kind, correlated.targetOutcomeId(), baseMagnitude.getAsInt());
+                    rallyDeclaredOutcomes, kind, correlated.targetOutcomeId(), baseMagnitude(kind, correlated.grade()));
             applyDirectShift(futureEvent, toProbabilityShift(kind, correlated, false), magnitude, touchedEventIds);
         }
     }
@@ -365,9 +360,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * Multiple {@code AMPLIFY}s collapse to one pending multiplier (matching the pre-existing single-flag
      * semantic): the earliest live remaining-tier shifter-eligible action strictly after the earliest live
      * {@code AMPLIFY}'s timestamp, multiplied by that {@code AMPLIFY}'s own grade-configured multiplier
-     * (graded-magnitude-resolution capability). An {@code AMPLIFY} whose own grade has no configured multiplier
-     * never arms — this round's cards apply as if it had not been played, rather than falling through to a later
-     * {@code AMPLIFY}.
+     * (graded-magnitude-resolution capability).
      */
     private Optional<AmplifyArm> resolveAmplifyArm(List<BufferedAction> sorted, Set<UUID> cancelled) {
         var earliestAmplify = sorted.stream()
@@ -377,16 +370,13 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             return Optional.empty();
         }
         var multiplier = rules.amplifyMultiplier(earliestAmplify.get().grade());
-        if (multiplier.isEmpty()) {
-            return Optional.empty();
-        }
         var amplifyTime = earliestAmplify.get().occurredAt();
         return sorted.stream()
                 .filter(a -> !cancelled.contains(a.envelopeEventId()))
                 .filter(a -> a.kind() == ActionKind.CARD_PLAYED && AMPLIFIABLE_SHIFTER_TYPES.contains(a.cardType()))
                 .filter(a -> a.occurredAt().isAfter(amplifyTime))
                 .min(Comparator.comparing(BufferedAction::occurredAt).thenComparing(BufferedAction::envelopeEventId))
-                .map(a -> new AmplifyArm(a.envelopeEventId(), multiplier.getAsDouble()));
+                .map(a -> new AmplifyArm(a.envelopeEventId(), multiplier));
     }
 
     private void applyRemainingTierAction(
@@ -428,14 +418,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             Set<UUID> tookEffectEnvelopeIds) {
         var kind = ShiftKind.valueOf(a.cardType());
         var effectiveKind = effectiveKind(kind, inverted);
-        var baseMagnitude = baseMagnitude(effectiveKind, a.grade());
-        if (baseMagnitude.isEmpty()) {
-            return;
-        }
         var futureEvent = futureEvents.findById(a.targetEventId());
         var preShiftSnapshot = snapshotOf(futureEvent);
         var shift = toProbabilityShift(effectiveKind, a, inverted);
-        int amplifiedMagnitude = (int) Math.round(baseMagnitude.getAsInt() * amplifierMultiplier);
+        int amplifiedMagnitude = (int) Math.round(baseMagnitude(effectiveKind, a.grade()) * amplifierMultiplier);
         int magnitude = rallyAdjustedMagnitude(
                 rallyDeclaredOutcomes,
                 effectiveKind,
@@ -498,12 +484,12 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         };
     }
 
-    private OptionalInt baseMagnitude(ShiftKind kind, CardGrade grade) {
+    private int baseMagnitude(ShiftKind kind, CardGrade grade) {
         return switch (kind) {
             case PUSH -> rules.pushShift(grade);
             case SUPPRESS -> rules.suppressShift(grade);
             case SWING -> rules.swingShift(grade);
-            case COLLIDE -> OptionalInt.of(0);
+            case COLLIDE -> 0;
         };
     }
 

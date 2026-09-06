@@ -162,13 +162,13 @@ class TimelineRulesPropertiesTest {
     @Test
     void pushShift_looksUpConfiguredGrade() {
         var props = new TimelineRulesProperties(PUSH, SUPPRESS, SWING, AMPLIFY, 0, 90, 30, 60, 10, 1.5);
-        assertThat(props.pushShift(CardGrade.I)).hasValue(10);
-        assertThat(props.pushShift(CardGrade.III)).hasValue(30);
+        assertThat(props.pushShift(CardGrade.I)).isEqualTo(10);
+        assertThat(props.pushShift(CardGrade.III)).isEqualTo(30);
     }
 
     @Test
     void amplifyMultiplier_looksUpConfiguredGrade() {
         var props = new TimelineRulesProperties(PUSH, SUPPRESS, SWING, AMPLIFY, 0, 90, 30, 60, 10, 1.5);
-        assertThat(props.amplifyMultiplier(CardGrade.III)).hasValue(3.0);
+        assertThat(props.amplifyMultiplier(CardGrade.III)).isEqualTo(3.0);
     }
 }

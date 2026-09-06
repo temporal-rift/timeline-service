@@ -7,7 +7,6 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 
@@ -207,14 +206,13 @@ class ParadoxResolutionSagaImpl {
         var resolvedByPlayerIdByEvent = new HashMap<UUID, UUID>();
         for (var submission : phase.submissions()) {
             var shift = toProbabilityShift(submission);
-            var magnitude = shift == null ? OptionalInt.empty() : magnitudeFor(submission);
-            if (magnitude.isEmpty()) {
+            if (shift == null) {
                 continue;
             }
             var futureEvent = futureEvents.findById(submission.targetEventId());
             var event = futureEvent.applyShift(
                     shift,
-                    magnitude.getAsInt(),
+                    magnitudeFor(submission),
                     probabilityRules.probabilityFloor(),
                     probabilityRules.probabilityCeiling());
             futureEvents.append(submission.targetEventId(), event);
@@ -223,11 +221,11 @@ class ParadoxResolutionSagaImpl {
         return resolvedByPlayerIdByEvent;
     }
 
-    private OptionalInt magnitudeFor(Submission submission) {
+    private int magnitudeFor(Submission submission) {
         return switch (submission.cardType()) {
             case "PUSH" -> probabilityRules.pushShift(submission.grade());
             case "SUPPRESS" -> probabilityRules.suppressShift(submission.grade());
-            default -> OptionalInt.empty();
+            default -> 0;
         };
     }
 
