@@ -121,18 +121,18 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 .sorted(Comparator.comparing(BufferedAction::occurredAt).thenComparing(BufferedAction::envelopeEventId))
                 .toList();
         var byEnvelopeId = sorted.stream().collect(Collectors.toMap(BufferedAction::envelopeEventId, a -> a));
-        var byPlayerId = indexActionsByPlayer(sorted);
+        var selectedActionByPlayer = indexActionsByPlayer(sorted);
 
         publishTieWarningIfAny(gameId, eraNumber, roundNumber, sorted);
 
-        var cancelled = computeNullifyCancellations(sorted, byPlayerId);
+        var cancelled = computeNullifyCancellations(sorted, selectedActionByPlayer);
 
         applyTier(sorted, cancelled, a -> isSpecial(a, "SEAL"), this::applySeal);
         applyTier(sorted, cancelled, a -> isSpecial(a, "ANNIHILATE"), this::applyAnnihilate);
 
         var corruptTargets = resolveCorruptTargets(sorted, cancelled);
-        var amplifyMultipliers = resolveAmplifyMultipliers(sorted, cancelled);
-        var redirectDestinations = resolveRedirectDestinations(sorted, cancelled);
+        var amplifyMultipliers = resolveAmplifyMultipliers(sorted, selectedActionByPlayer, cancelled);
+        var redirectDestinations = resolveRedirectDestinations(sorted, selectedActionByPlayer, cancelled);
         var mimicCorrelations = resolveMimicTargets(sorted, cancelled);
         // Defensive, not just relying on the producer-side invariant that RALLY is only ever buffered into
         // round 1 (activist-declaration-effects capability requirement: "Round 1 ActionRoundClosed replay
@@ -356,13 +356,14 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         return result;
     }
 
-    private Map<UUID, Double> resolveAmplifyMultipliers(List<BufferedAction> sorted, Set<UUID> cancelled) {
+    private Map<UUID, Double> resolveAmplifyMultipliers(
+            List<BufferedAction> sorted, Map<UUID, BufferedAction> selectedActionByPlayer, Set<UUID> cancelled) {
         var multipliers = new LinkedHashMap<UUID, Double>();
         for (var amplify : sorted) {
             if (!isCardType(amplify, "AMPLIFY") || cancelled.contains(amplify.envelopeEventId())) {
                 continue;
             }
-            var target = findLiveShifter(sorted, amplify.targetPlayerId(), cancelled);
+            var target = findLiveShifter(selectedActionByPlayer, amplify.targetPlayerId(), cancelled);
             if (target != null) {
                 multipliers.merge(
                         target.envelopeEventId(),
@@ -373,13 +374,14 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         return multipliers;
     }
 
-    private static Map<UUID, UUID> resolveRedirectDestinations(List<BufferedAction> sorted, Set<UUID> cancelled) {
+    private static Map<UUID, UUID> resolveRedirectDestinations(
+            List<BufferedAction> sorted, Map<UUID, BufferedAction> selectedActionByPlayer, Set<UUID> cancelled) {
         var destinations = new LinkedHashMap<UUID, UUID>();
         for (var redirect : sorted) {
             if (!isCardType(redirect, CARD_TYPE_REDIRECT) || cancelled.contains(redirect.envelopeEventId())) {
                 continue;
             }
-            var target = findLiveShifter(sorted, redirect.targetPlayerId(), cancelled);
+            var target = findLiveShifter(selectedActionByPlayer, redirect.targetPlayerId(), cancelled);
             if (target != null) {
                 destinations.put(target.envelopeEventId(), redirect.targetOutcomeId());
             }
@@ -395,12 +397,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     private static BufferedAction findLiveShifter(
-            List<BufferedAction> sorted, UUID targetPlayerId, Set<UUID> cancelled) {
-        return sorted.stream()
-                .filter(action -> Objects.equals(targetPlayerId, action.playerId()))
-                .filter(action -> isLiveShifter(action, cancelled))
-                .findFirst()
-                .orElse(null);
+            Map<UUID, BufferedAction> selectedActionByPlayer, UUID targetPlayerId, Set<UUID> cancelled) {
+        var selected = selectedActionByPlayer.get(targetPlayerId);
+        return isLiveShifter(selected, cancelled) ? selected : null;
     }
 
     private void applyRemainingTierAction(
@@ -447,6 +446,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var futureEvent = futureEvents.findById(a.targetEventId());
         var sourceOutcomeId = appliedSourceOutcomeId(effectiveKind, inverted, a);
         var targetOutcomeId = redirectedTargetOutcomeId != null
+                        && futureEvent.outcomes().stream()
+                                .anyMatch(o -> o.outcomeId().equals(redirectedTargetOutcomeId))
                 ? redirectedTargetOutcomeId
                 : appliedTargetOutcomeId(effectiveKind, inverted, a);
         var shift = toProbabilityShift(effectiveKind, sourceOutcomeId, targetOutcomeId);

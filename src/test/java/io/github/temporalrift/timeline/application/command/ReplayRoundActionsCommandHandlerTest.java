@@ -268,6 +268,28 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
+    void replay_duplicateActionsByPlayer_useTheSameSelectedActionForAllModifiers() {
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var targetPlayer = UUID.randomUUID();
+        var futureEvent = drafted(
+                eventId, outcome(outcomeId, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(targetPlayer, "SCAN", UUID.randomUUID(), null, null, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", targetPlayer, null, at(1)),
+                        cardPlayedBy(targetPlayer, "PUSH", eventId, null, outcomeId, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, outcomeId)).isEqualTo(60);
+    }
+
+    @Test
     void replay_amplifyTargetingCancelledShifter_doesNotTransferToAnotherPlayer() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
@@ -746,6 +768,29 @@ class ReplayRoundActionsCommandHandlerTest {
         assertThat(probabilityOf(futureEvent, b)).isEqualTo(30);
         assertThat(probabilityOf(futureEvent, c)).isEqualTo(20);
         assertThat(futureEvent.sealBreach()).isTrue();
+    }
+
+    @Test
+    void replay_redirectToUnknownOutcome_keepsTheOriginalDestination() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var unknownOutcomeId = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, unknownOutcomeId, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(70);
     }
 
     @Test
