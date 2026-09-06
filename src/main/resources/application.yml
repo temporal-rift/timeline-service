@@ -1,11 +1,25 @@
 game:
   rules:
     probability:
-      # Same numeric values as game-service's game.rules.scoring.card-shifts/swing-shift — kept in sync
-      # manually, no shared config source exists between independently-deployed services.
-      push-shift: 20
-      suppress-shift: -20
-      swing-shift: 30
+      # Grade II mirrors game-service's game.rules.scoring.card-shifts/swing-shift baseline — kept in sync
+      # manually, no shared config source exists between independently-deployed services. Grade I/III per
+      # GDD §3.2's card grade table.
+      push-shift:
+        I: 10
+        II: 20
+        III: 30
+      suppress-shift:
+        I: -10
+        II: -20
+        III: -30
+      swing-shift:
+        I: 15
+        II: 30
+        III: 45
+      amplify-multiplier:
+        I: 1.5
+        II: 2.0
+        III: 3.0
       floor: 0
       ceiling: 90
       # GDD §2.2 Activist specials: Momentum's declaration-time bonus and Rally's Round 1 transfer multiplier.

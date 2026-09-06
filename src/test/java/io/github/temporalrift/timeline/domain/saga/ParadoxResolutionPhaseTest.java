@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.Submission;
 
 class ParadoxResolutionPhaseTest {
@@ -115,7 +116,7 @@ class ParadoxResolutionPhaseTest {
     }
 
     private static Submission push(UUID playerId) {
-        return new Submission(playerId, "PUSH", UUID.randomUUID(), UUID.randomUUID());
+        return new Submission(playerId, "PUSH", CardGrade.II, UUID.randomUUID(), UUID.randomUUID());
     }
 
     private static ParadoxResolutionPhase unknownRosterPhase(List<Submission> submissions) {

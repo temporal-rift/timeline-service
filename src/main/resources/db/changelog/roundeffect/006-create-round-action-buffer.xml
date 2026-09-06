@@ -34,6 +34,8 @@
       <column name="card_type" type="VARCHAR(32)"/>
       <!-- populated for SPECIAL_ACTION_PLAYED only -->
       <column name="special_action" type="VARCHAR(32)"/>
+      <!-- populated for CARD_PLAYED only (graded-magnitude-resolution capability) -->
+      <column name="grade" type="VARCHAR(8)"/>
       <column name="player_id" type="UUID">
         <constraints nullable="false"/>
       </column>

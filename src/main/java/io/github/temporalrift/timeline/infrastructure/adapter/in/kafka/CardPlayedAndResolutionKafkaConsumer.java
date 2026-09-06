@@ -23,6 +23,7 @@ import io.github.temporalrift.timeline.application.port.in.ApplyMomentumBonusUse
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
+import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.ActionKind;
@@ -113,12 +114,13 @@ class CardPlayedAndResolutionKafkaConsumer {
     public void handle(Message<Object> message) {
         GameEventIngestion.accept(message, CARD_PLAYED_SPEC, processedEvents).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), CardPlayedPayload.class);
-            if (payload.cardType() != null && KNOWN_CARD_TYPES.contains(payload.cardType())) {
+            var grade = toGrade(payload.grade());
+            if (payload.cardType() != null && KNOWN_CARD_TYPES.contains(payload.cardType()) && grade != null) {
                 buffer.save(
                         payload.gameId(),
                         payload.eraNumber(),
                         payload.roundNumber(),
-                        toBufferedAction(payload, envelope));
+                        toBufferedAction(payload, grade, envelope));
             }
         });
         GameEventIngestion.accept(message, SPECIAL_ACTION_PLAYED_SPEC, processedEvents)
@@ -149,13 +151,17 @@ class CardPlayedAndResolutionKafkaConsumer {
                 .ifPresent(envelope -> {
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), ParadoxResolutionCardPlayedPayload.class);
-                    playParadoxResolutionCard.play(
-                            payload.gameId(),
-                            payload.eraNumber(),
-                            payload.playerId(),
-                            payload.cardType().name(),
-                            payload.targetEventId(),
-                            payload.targetOutcomeId());
+                    var grade = toGrade(payload.grade());
+                    if (grade != null) {
+                        playParadoxResolutionCard.play(
+                                payload.gameId(),
+                                payload.eraNumber(),
+                                payload.playerId(),
+                                payload.cardType().name(),
+                                grade,
+                                payload.targetEventId(),
+                                payload.targetOutcomeId());
+                    }
                 });
         GameEventIngestion.accept(message, ACTIVIST_DECLARATION_RECORDED_SPEC, processedEvents)
                 .ifPresent(envelope -> {
@@ -180,7 +186,8 @@ class CardPlayedAndResolutionKafkaConsumer {
                 });
     }
 
-    private static BufferedAction toBufferedAction(CardPlayedPayload payload, GameEventEnvelope envelope) {
+    private static BufferedAction toBufferedAction(
+            CardPlayedPayload payload, CardGrade grade, GameEventEnvelope envelope) {
         return new BufferedAction(
                 ActionKind.CARD_PLAYED,
                 payload.cardType().name(),
@@ -191,6 +198,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                 payload.sourceOutcomeId(),
                 payload.targetOutcomeId(),
                 null,
+                grade,
                 envelope.occurredAt(),
                 envelope.eventId());
     }
@@ -206,6 +214,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                 null,
                 payload.targetOutcomeId(),
                 payload.targetPlayerId(),
+                null,
                 envelope.occurredAt(),
                 envelope.eventId());
     }
@@ -222,7 +231,26 @@ class CardPlayedAndResolutionKafkaConsumer {
                 null,
                 payload.targetOutcomeId(),
                 null,
+                null,
                 envelope.occurredAt(),
                 envelope.eventId());
+    }
+
+    /**
+     * Maps the wire {@code CardGrade} (which normalizes any unrecognized value to {@code UNKNOWN}, never fails
+     * deserialization) to this service's domain {@link CardGrade} — {@code null} for {@code UNKNOWN} or a missing
+     * grade, treated by callers exactly like an unknown {@code cardType}/{@code specialAction}: not buffered.
+     */
+    private static CardGrade toGrade(
+            io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardGrade wireGrade) {
+        if (wireGrade == null) {
+            return null;
+        }
+        return switch (wireGrade) {
+            case I -> CardGrade.I;
+            case II -> CardGrade.II;
+            case III -> CardGrade.III;
+            case UNKNOWN -> null;
+        };
     }
 }

@@ -5,6 +5,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
+import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.Submission;
 
 /** Public entry point into {@code ParadoxResolutionSaga}'s player-submission branch. */
@@ -19,8 +20,14 @@ class ParadoxResolutionCardSubmissionHandler implements PlayParadoxResolutionCar
 
     @Override
     public void play(
-            UUID gameId, int eraNumber, UUID playerId, String cardType, UUID targetEventId, UUID targetOutcomeId) {
+            UUID gameId,
+            int eraNumber,
+            UUID playerId,
+            String cardType,
+            CardGrade grade,
+            UUID targetEventId,
+            UUID targetOutcomeId) {
         saga.handlePlayerSubmitted(
-                gameId, eraNumber, new Submission(playerId, cardType, targetEventId, targetOutcomeId));
+                gameId, eraNumber, new Submission(playerId, cardType, grade, targetEventId, targetOutcomeId));
     }
 }

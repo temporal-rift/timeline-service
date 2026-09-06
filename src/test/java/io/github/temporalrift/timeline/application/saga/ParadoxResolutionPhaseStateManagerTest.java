@@ -19,6 +19,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionPhaseRepository;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase;
@@ -145,7 +146,7 @@ class ParadoxResolutionPhaseStateManagerTest {
     }
 
     private static Submission push(UUID playerId) {
-        return new Submission(playerId, "PUSH", UUID.randomUUID(), UUID.randomUUID());
+        return new Submission(playerId, "PUSH", CardGrade.II, UUID.randomUUID(), UUID.randomUUID());
     }
 
     private static ParadoxResolutionPhase unknownRosterPhase(List<Submission> submissions) {

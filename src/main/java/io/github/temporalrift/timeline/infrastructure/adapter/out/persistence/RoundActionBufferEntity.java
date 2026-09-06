@@ -9,6 +9,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 
+import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.ActionKind;
 
 @Entity
@@ -24,6 +25,10 @@ class RoundActionBufferEntity extends RoundScopedEntity {
 
     @Column(name = "special_action")
     private String specialAction;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "grade")
+    private CardGrade grade;
 
     @Column(name = "player_id", nullable = false)
     private UUID playerId;
@@ -58,6 +63,7 @@ class RoundActionBufferEntity extends RoundScopedEntity {
             ActionKind kind,
             String cardType,
             String specialAction,
+            CardGrade grade,
             UUID playerId,
             UUID cardInstanceId,
             UUID targetEventId,
@@ -70,6 +76,7 @@ class RoundActionBufferEntity extends RoundScopedEntity {
         this.kind = kind;
         this.cardType = cardType;
         this.specialAction = specialAction;
+        this.grade = grade;
         this.playerId = playerId;
         this.cardInstanceId = cardInstanceId;
         this.targetEventId = targetEventId;
@@ -90,6 +97,10 @@ class RoundActionBufferEntity extends RoundScopedEntity {
 
     String specialAction() {
         return specialAction;
+    }
+
+    CardGrade grade() {
+        return grade;
     }
 
     UUID playerId() {
