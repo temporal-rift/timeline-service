@@ -217,8 +217,19 @@ class ResolutionWalkingSkeletonIT {
                 gameId, eraNumber, futureEventId, initialWinnerOutcomeId, 70, risingOutcomeId, 20, thirdOutcomeId, 10);
         awaitFutureEventIndexed(gameId, eraNumber);
 
-        publishCardPlayed(gameId, eraNumber, futureEventId, "AMPLIFY", null, null);
-        publishCardPlayed(gameId, eraNumber, futureEventId, "SUPPRESS", null, initialWinnerOutcomeId);
+        var suppressingPlayerId = UUID.randomUUID();
+        publishCardPlayed(
+                gameId, eraNumber, futureEventId, "AMPLIFY", "II", null, null, UUID.randomUUID(), suppressingPlayerId);
+        publishCardPlayed(
+                gameId,
+                eraNumber,
+                futureEventId,
+                "SUPPRESS",
+                "II",
+                null,
+                initialWinnerOutcomeId,
+                suppressingPlayerId,
+                null);
         publishActionRoundClosed(gameId, eraNumber, 1);
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
@@ -445,17 +456,40 @@ class ResolutionWalkingSkeletonIT {
             String grade,
             UUID sourceOutcomeId,
             UUID targetOutcomeId) {
+        publishCardPlayed(
+                gameId,
+                eraNumber,
+                targetEventId,
+                cardType,
+                grade,
+                sourceOutcomeId,
+                targetOutcomeId,
+                UUID.randomUUID(),
+                null);
+    }
+
+    private void publishCardPlayed(
+            UUID gameId,
+            int eraNumber,
+            UUID targetEventId,
+            String cardType,
+            String grade,
+            UUID sourceOutcomeId,
+            UUID targetOutcomeId,
+            UUID playerId,
+            UUID targetPlayerId) {
         var payload = new HashMap<String, Object>();
         payload.put("gameId", gameId);
         payload.put("eraNumber", eraNumber);
         payload.put("roundNumber", 1);
-        payload.put("playerId", UUID.randomUUID());
+        payload.put("playerId", playerId);
         payload.put("cardInstanceId", UUID.randomUUID());
         payload.put("cardType", cardType);
         payload.put("grade", grade);
         payload.put("targetEventId", targetEventId);
         payload.put("sourceOutcomeId", sourceOutcomeId);
         payload.put("targetOutcomeId", targetOutcomeId);
+        payload.put("targetPlayerId", targetPlayerId);
         publish(gameId, "CardPlayed", payload);
     }
 

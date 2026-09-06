@@ -8,6 +8,8 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import java.util.UUID;
 
@@ -123,6 +125,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 CardGrade.I,
                 targetEventId,
                 null,
+                null,
                 targetOutcomeId);
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
@@ -146,6 +149,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 UUID.randomUUID(),
                 CardType.NULLIFY,
                 CardGrade.UNKNOWN,
+                null,
                 UUID.randomUUID(),
                 null,
                 null);
@@ -156,6 +160,36 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
         then(buffer).should().save(eq(payload.gameId()), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
         assertThat(actionCaptor.getValue().cardType()).isEqualTo("NULLIFY");
+    }
+
+    @Test
+    @DisplayName("player-targeted modifiers — targetPlayerId reaches the round buffer")
+    void handle_playerTargetedModifiers_buffersTargetPlayerId() {
+        var targetPlayerId = UUID.randomUUID();
+        for (var cardType : new CardType[] {CardType.NULLIFY, CardType.REDIRECT, CardType.AMPLIFY}) {
+            var eventId = UUID.randomUUID();
+            var payload = new CardPlayedPayload(
+                    UUID.randomUUID(),
+                    ERA_NUMBER,
+                    ROUND_NUMBER,
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    cardType,
+                    CardGrade.II,
+                    null,
+                    targetPlayerId,
+                    null,
+                    cardType == CardType.REDIRECT ? UUID.randomUUID() : null);
+            given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
+
+            consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
+        }
+
+        var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
+        verify(buffer, times(3)).save(any(), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
+        assertThat(actionCaptor.getAllValues())
+                .extracting(BufferedAction::targetPlayerId)
+                .containsExactly(targetPlayerId, targetPlayerId, targetPlayerId);
     }
 
     @Test
@@ -171,6 +205,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 CardType.PUSH,
                 CardGrade.UNKNOWN,
                 UUID.randomUUID(),
+                null,
                 null,
                 UUID.randomUUID());
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
@@ -644,6 +679,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 cardType,
                 CardGrade.II,
                 targetEventId,
+                null,
                 sourceOutcomeId,
                 targetOutcomeId);
     }

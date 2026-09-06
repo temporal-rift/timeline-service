@@ -128,26 +128,33 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_nullifyCancelsPrecedingPush_neverReadsTheFutureEvent() {
+    void replay_nullifyCancelsNamedPushRegardlessOfSubmissionOrder_neverReadsTheFutureEvent() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var nullifyingPlayer = UUID.randomUUID();
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                .willReturn(List.of(cardPlayed("PUSH", eventId, null, a, at(0)), cardPlayedType("NULLIFY", at(1))));
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
+                        playerTargetedCard(nullifyingPlayer, "NULLIFY", pushingPlayer, null, at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        // Preemptive cancellation (design.md Decision 2): the cancelled PUSH is skipped entirely, never
-        // applied-then-reversed — proven here by the fact its target is never even looked up.
+        // NULLIFY was submitted first, but named-player correlation still skips PUSH entirely.
         then(futureEvents).should(never()).findById(any());
         then(futureEvents).should(never()).append(any(), any());
     }
 
     @Test
-    void replay_nullifyCancelsPrecedingSeal_neverReadsTheFutureEvent() {
+    void replay_nullifyCancelsNamedSealRegardlessOfSubmissionOrder_neverReadsTheFutureEvent() {
         var eventId = UUID.randomUUID();
         var target = UUID.randomUUID();
+        var sealingPlayer = UUID.randomUUID();
+        var nullifyingPlayer = UUID.randomUUID();
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                .willReturn(List.of(specialAction("SEAL", eventId, target, at(0)), cardPlayedType("NULLIFY", at(1))));
+                .willReturn(List.of(
+                        specialActionBy(sealingPlayer, "SEAL", eventId, target, at(1)),
+                        playerTargetedCard(nullifyingPlayer, "NULLIFY", sealingPlayer, null, at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -156,13 +163,14 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_chainedNullify_targetsNearestStillLiveAction() {
-        // T1 PUSH, T2 NULLIFY (cancels T1), T3 NULLIFY (targets T2, not the already-cancelled T1) — a
-        // second PUSH submitted after both must still apply normally, proving T1 stayed cancelled.
+    void replay_mutualNullify_isDeterministicAndDoesNotCancelAnotherPlayersAction() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
         var c = UUID.randomUUID();
+        var playerA = UUID.randomUUID();
+        var playerB = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
         given(rules.pushShift(CardGrade.II)).willReturn(10);
@@ -170,32 +178,50 @@ class ReplayRoundActionsCommandHandlerTest {
         given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
-                        cardPlayed("PUSH", eventId, null, a, at(0)),
-                        cardPlayedType("NULLIFY", at(1)),
-                        cardPlayedType("NULLIFY", at(2)),
-                        cardPlayed("PUSH", eventId, null, a, at(3))));
+                        playerTargetedCard(playerB, "NULLIFY", playerA, null, at(2)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
+                        playerTargetedCard(playerA, "NULLIFY", playerB, null, at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        // Only the second PUSH (at(3)) took effect: +10 once, not zero and not twice.
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(60);
     }
 
     @Test
-    void replay_amplify_doublesSubmissionOrderNextShifterEvenIfDeliveredLater() {
+    void replay_twoNullifiesNamingSameAction_cancelOnlyThatAction() {
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, outcomeId, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", pushingPlayer, null, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", pushingPlayer, null, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).findById(any());
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_amplifyDoublesNamedShifterRegardlessOfSubmissionOrder() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
         var c = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var amplifyingPlayer = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
         given(rules.pushShift(CardGrade.II)).willReturn(10);
         given(rules.amplifyMultiplier(CardGrade.II)).willReturn(2.0);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
-        // Buffer (arrival) order: PUSH before AMPLIFY, but AMPLIFY's timestamp (0) precedes the PUSH's (1).
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                .willReturn(List.of(cardPlayed("PUSH", eventId, null, a, at(1)), cardPlayedType("AMPLIFY", at(0))));
+                .willReturn(List.of(
+                        playerTargetedCard(amplifyingPlayer, "AMPLIFY", pushingPlayer, null, at(1)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -208,6 +234,8 @@ class ReplayRoundActionsCommandHandlerTest {
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
         var c = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var amplifyingPlayer = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
         given(rules.pushShift(CardGrade.II)).willReturn(10);
@@ -216,13 +244,52 @@ class ReplayRoundActionsCommandHandlerTest {
         given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
-                        cardPlayed("PUSH", eventId, null, a, at(1)),
-                        cardPlayedGraded("AMPLIFY", CardGrade.III, null, null, null, at(0))));
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
+                        playerTargetedCard(amplifyingPlayer, "AMPLIFY", CardGrade.III, pushingPlayer, null, at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         // 10 * 3.0 (grade III AMPLIFY) = 30, larger than the grade II baseline's 10 * 2.0 = 20.
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(80);
+    }
+
+    @Test
+    void replay_amplifyTargetingNonShifter_isNoOp() {
+        var targetPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(targetPlayer, "SCAN", UUID.randomUUID(), null, null, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", targetPlayer, null, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).findById(any());
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_amplifyTargetingCancelledShifter_doesNotTransferToAnotherPlayer() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var cancelledPlayer = UUID.randomUUID();
+        var livePlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(cancelledPlayer, "PUSH", eventId, null, a, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", cancelledPlayer, null, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", cancelledPlayer, null, at(2)),
+                        cardPlayedBy(livePlayer, "PUSH", eventId, null, a, at(3))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(60);
     }
 
     @Test
@@ -352,11 +419,12 @@ class ReplayRoundActionsCommandHandlerTest {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var pushingPlayer = UUID.randomUUID();
+        var nullifyingPlayer = UUID.randomUUID();
         var mimicPlayer = UUID.randomUUID();
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
-                        cardPlayedType("NULLIFY", at(1)),
+                        playerTargetedCard(nullifyingPlayer, "NULLIFY", pushingPlayer, null, at(1)),
                         mimic(mimicPlayer, eventId, a, at(2))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
@@ -605,39 +673,104 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_redirect_retargetsLastShiftThisRound() {
+    void replay_redirectRetargetsNamedPlayersShiftRegardlessOfSubmissionOrder() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
         var c = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var redirectingPlayer = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
         given(rules.pushShift(CardGrade.II)).willReturn(20);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                .willReturn(List.of(cardPlayed("PUSH", eventId, null, a, at(0)), redirect(eventId, b, at(1))));
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
+                        playerTargetedCard(redirectingPlayer, "REDIRECT", pushingPlayer, b, at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        // The PUSH's effect on `a` is undone and reapplied to `b` instead — `b` receives the same +20 `a`
-        // would have, with `a`/`c` now absorbing the redistribution instead of `b`/`c` (exact proportional
-        // math is FutureEventTest's concern; this only asserts the redirect actually moved the target).
+        // REDIRECT was submitted before PUSH but still changes the named player's destination to b.
         assertThat(probabilityOf(futureEvent, b)).isEqualTo(50);
         assertThat(probabilityOf(futureEvent, a) + probabilityOf(futureEvent, b) + probabilityOf(futureEvent, c))
                 .isEqualTo(100);
     }
 
     @Test
-    void replay_redirect_noPriorShiftThisRound_isNoOp() {
-        var eventId = UUID.randomUUID();
-        var b = UUID.randomUUID();
-        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(List.of(redirect(eventId, b, at(0))));
+    void replay_redirectTargetingSkippedPlayer_isNoOp() {
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(playerTargetedCard(
+                        UUID.randomUUID(), "REDIRECT", UUID.randomUUID(), UUID.randomUUID(), at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         then(futureEvents).should(never()).findById(any());
         then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_redirectTargetingNonShifter_isNoOp() {
+        var targetPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(targetPlayer, "SCAN", UUID.randomUUID(), null, null, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", targetPlayer, UUID.randomUUID(), at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).findById(any());
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_redirectIntoSealedOutcome_recordsSealBreachWithoutChangingProbabilities() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialAction("SEAL", eventId, b, at(0)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, b, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(30);
+        assertThat(probabilityOf(futureEvent, c)).isEqualTo(20);
+        assertThat(futureEvent.sealBreach()).isTrue();
+    }
+
+    @Test
+    void replay_amplifiedShiftIntoSealedOutcome_recordsSealBreachWithoutChangingProbabilities() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.amplifyMultiplier(CardGrade.II)).willReturn(2.0);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialAction("SEAL", eventId, a, at(0)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", pushingPlayer, null, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(30);
+        assertThat(probabilityOf(futureEvent, c)).isEqualTo(20);
+        assertThat(futureEvent.sealBreach()).isTrue();
     }
 
     @Test
@@ -870,17 +1003,45 @@ class ReplayRoundActionsCommandHandlerTest {
         return cardPlayedBy(UUID.randomUUID(), cardType, null, null, null, occurredAt);
     }
 
-    private static BufferedAction redirect(UUID targetEventId, UUID targetOutcomeId, Instant occurredAt) {
-        return cardPlayed("REDIRECT", targetEventId, null, targetOutcomeId, occurredAt);
+    private static BufferedAction playerTargetedCard(
+            UUID playerId,
+            String cardType,
+            CardGrade grade,
+            UUID targetPlayerId,
+            UUID targetOutcomeId,
+            Instant occurredAt) {
+        return new BufferedAction(
+                ActionKind.CARD_PLAYED,
+                cardType,
+                null,
+                playerId,
+                UUID.randomUUID(),
+                null,
+                null,
+                targetOutcomeId,
+                targetPlayerId,
+                grade,
+                occurredAt,
+                UUID.randomUUID());
+    }
+
+    private static BufferedAction playerTargetedCard(
+            UUID playerId, String cardType, UUID targetPlayerId, UUID targetOutcomeId, Instant occurredAt) {
+        return playerTargetedCard(playerId, cardType, CardGrade.II, targetPlayerId, targetOutcomeId, occurredAt);
     }
 
     private static BufferedAction specialAction(
             String specialAction, UUID targetEventId, UUID targetOutcomeId, Instant occurredAt) {
+        return specialActionBy(UUID.randomUUID(), specialAction, targetEventId, targetOutcomeId, occurredAt);
+    }
+
+    private static BufferedAction specialActionBy(
+            UUID playerId, String specialAction, UUID targetEventId, UUID targetOutcomeId, Instant occurredAt) {
         return new BufferedAction(
                 ActionKind.SPECIAL_ACTION_PLAYED,
                 null,
                 specialAction,
-                UUID.randomUUID(),
+                playerId,
                 null,
                 targetEventId,
                 null,
