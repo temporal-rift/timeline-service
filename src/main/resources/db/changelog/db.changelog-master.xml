@@ -29,8 +29,12 @@
 
     <!-- Round-scoped buffer of not-yet-applied actions, replayed in priority order at ActionRoundClosed -->
     <include file="db/changelog/roundeffect/006-create-round-action-buffer.xml"/>
+    <include file="db/changelog/roundeffect/007-add-round-action-buffer-target-event-ids.xml"/>
 
     <!-- ParadoxResolutionSaga state -->
     <include file="db/changelog/paradoxresolution/001-create-paradox-resolution-phase.xml"/>
+
+    <!-- Durable per-(game, era, player, event) SCAN reveal entitlements -->
+    <include file="db/changelog/scanentitlement/001-create-scan-entitlement.xml"/>
 
 </databaseChangeLog>

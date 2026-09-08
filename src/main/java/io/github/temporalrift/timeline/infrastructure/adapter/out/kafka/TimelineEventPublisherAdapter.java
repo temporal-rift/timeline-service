@@ -17,6 +17,7 @@ import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolutionPhaseStarted;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
+import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
@@ -47,6 +48,7 @@ class TimelineEventPublisherAdapter implements TimelineEventPublisher {
     public void publish(TimelineEventEnvelope<?> event) {
         switch (event.payload()) {
             case ProbabilityStateCalculated e -> publish("ProbabilityStateCalculated", mapper.toWire(e), event);
+            case ProbabilityStateRevealed e -> publish("ProbabilityStateRevealed", mapper.toWire(e), event);
             case OutcomeApplied e -> publish("OutcomeApplied", mapper.toWire(e), event);
             case ParadoxDetected e -> publish("ParadoxDetected", mapper.toWire(e), event);
             case EraResolutionCompleted e -> publish("EraResolutionCompleted", mapper.toWire(e), event);

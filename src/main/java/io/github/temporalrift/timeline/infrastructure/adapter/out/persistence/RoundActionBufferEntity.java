@@ -8,6 +8,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.ActionKind;
@@ -39,6 +41,11 @@ class RoundActionBufferEntity extends RoundScopedEntity {
     @Column(name = "target_event_id")
     private UUID targetEventId;
 
+    /** JSON-encoded list of UUIDs; populated only for a list-mode SCAN (scan-probability-reveals capability). */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "target_event_ids")
+    private String targetEventIds;
+
     @Column(name = "source_outcome_id")
     private UUID sourceOutcomeId;
 
@@ -67,6 +74,7 @@ class RoundActionBufferEntity extends RoundScopedEntity {
             UUID playerId,
             UUID cardInstanceId,
             UUID targetEventId,
+            String targetEventIds,
             UUID sourceOutcomeId,
             UUID targetOutcomeId,
             UUID targetPlayerId,
@@ -80,6 +88,7 @@ class RoundActionBufferEntity extends RoundScopedEntity {
         this.playerId = playerId;
         this.cardInstanceId = cardInstanceId;
         this.targetEventId = targetEventId;
+        this.targetEventIds = targetEventIds;
         this.sourceOutcomeId = sourceOutcomeId;
         this.targetOutcomeId = targetOutcomeId;
         this.targetPlayerId = targetPlayerId;
@@ -113,6 +122,10 @@ class RoundActionBufferEntity extends RoundScopedEntity {
 
     UUID targetEventId() {
         return targetEventId;
+    }
+
+    String targetEventIds() {
+        return targetEventIds;
     }
 
     UUID sourceOutcomeId() {

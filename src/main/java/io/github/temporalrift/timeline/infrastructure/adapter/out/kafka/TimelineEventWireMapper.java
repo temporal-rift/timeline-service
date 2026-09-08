@@ -20,6 +20,8 @@ import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.P
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateCalculatedEventState;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateCalculatedOutcomeState;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateCalculatedPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateRevealedOutcomeState;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateRevealedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ResolutionFailedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ResolutionWarningPayload;
 import io.github.temporalrift.timeline.domain.event.BandedProbabilityPublished;
@@ -31,6 +33,7 @@ import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolutionPhaseStarted;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
+import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
@@ -49,6 +52,10 @@ interface TimelineEventWireMapper {
     ProbabilityStateCalculatedEventState toWire(ProbabilityStateCalculated.EventState eventState);
 
     ProbabilityStateCalculatedOutcomeState toWire(ProbabilityStateCalculated.OutcomeState outcomeState);
+
+    ProbabilityStateRevealedPayload toWire(ProbabilityStateRevealed event);
+
+    ProbabilityStateRevealedOutcomeState toWire(ProbabilityStateRevealed.OutcomeState outcomeState);
 
     EraResolutionCompletedPayload toWire(EraResolutionCompleted event);
 
