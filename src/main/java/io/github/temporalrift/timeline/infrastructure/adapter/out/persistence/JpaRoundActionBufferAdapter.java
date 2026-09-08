@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
 
@@ -12,9 +13,11 @@ import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
 class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
 
     private final RoundActionBufferJpaRepository repository;
+    private final ObjectMapper objectMapper;
 
-    JpaRoundActionBufferAdapter(RoundActionBufferJpaRepository repository) {
+    JpaRoundActionBufferAdapter(RoundActionBufferJpaRepository repository, ObjectMapper objectMapper) {
         this.repository = repository;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -29,6 +32,7 @@ class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
                 action.playerId(),
                 action.cardInstanceId(),
                 action.targetEventId(),
+                action.targetEventIds() == null ? null : objectMapper.writeValueAsString(action.targetEventIds()),
                 action.sourceOutcomeId(),
                 action.targetOutcomeId(),
                 action.targetPlayerId(),
@@ -51,6 +55,7 @@ class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
                 e.playerId(),
                 e.cardInstanceId(),
                 e.targetEventId(),
+                e.targetEventIds() == null ? null : List.of(objectMapper.readValue(e.targetEventIds(), UUID[].class)),
                 e.sourceOutcomeId(),
                 e.targetOutcomeId(),
                 e.targetPlayerId(),

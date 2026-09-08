@@ -1,11 +1,13 @@
 package io.github.temporalrift.timeline.application.command;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -23,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import io.github.temporalrift.timeline.domain.event.BandedProbabilityPublished;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
+import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
@@ -37,6 +40,8 @@ import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.ActionKind;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.BufferedAction;
+import io.github.temporalrift.timeline.domain.port.out.ScanEntitlementPort;
+import io.github.temporalrift.timeline.domain.port.out.ScanEntitlementPort.ScanEntitlement;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
@@ -58,6 +63,9 @@ class ReplayRoundActionsCommandHandlerTest {
     FutureEventEraIndexPort eraIndex;
 
     @Mock
+    ScanEntitlementPort scanEntitlements;
+
+    @Mock
     ProbabilityRulesPort rules;
 
     @Mock
@@ -73,7 +81,7 @@ class ReplayRoundActionsCommandHandlerTest {
     @BeforeEach
     void setUp() {
         handler = new ReplayRoundActionsCommandHandler(
-                buffer, futureEvents, eraIndex, rules, bandRules, publisher, clock);
+                buffer, futureEvents, eraIndex, scanEntitlements, rules, bandRules, publisher, clock);
     }
 
     @Test
@@ -256,14 +264,19 @@ class ReplayRoundActionsCommandHandlerTest {
     @Test
     void replay_amplifyTargetingNonShifter_isNoOp() {
         var targetPlayer = UUID.randomUUID();
+        var scannedEventId = UUID.randomUUID();
+        given(futureEvents.findById(scannedEventId))
+                .willReturn(drafted(scannedEventId, outcome(UUID.randomUUID(), 100)));
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
-                        cardPlayedBy(targetPlayer, "SCAN", UUID.randomUUID(), null, null, at(0)),
+                        cardPlayedBy(targetPlayer, "SCAN", scannedEventId, null, null, at(0)),
                         playerTargetedCard(UUID.randomUUID(), "AMPLIFY", targetPlayer, null, at(1))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        then(futureEvents).should(never()).findById(any());
+        // AMPLIFY targeting a non-shifter (SCAN) has no probability effect. SCAN itself never mutates —
+        // its read of the target's post-round state to build a reveal entitlement is expected
+        // (scan-probability-reveals capability).
         then(futureEvents).should(never()).append(any(), any());
     }
 
@@ -278,9 +291,12 @@ class ReplayRoundActionsCommandHandlerTest {
         given(rules.pushShift(CardGrade.II)).willReturn(10);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
+        var scannedEventId = UUID.randomUUID();
+        given(futureEvents.findById(scannedEventId))
+                .willReturn(drafted(scannedEventId, outcome(UUID.randomUUID(), 100)));
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
-                        cardPlayedBy(targetPlayer, "SCAN", UUID.randomUUID(), null, null, at(0)),
+                        cardPlayedBy(targetPlayer, "SCAN", scannedEventId, null, null, at(0)),
                         playerTargetedCard(UUID.randomUUID(), "AMPLIFY", targetPlayer, null, at(1)),
                         cardPlayedBy(targetPlayer, "PUSH", eventId, null, outcomeId, at(2))));
 
@@ -735,14 +751,19 @@ class ReplayRoundActionsCommandHandlerTest {
     @Test
     void replay_redirectTargetingNonShifter_isNoOp() {
         var targetPlayer = UUID.randomUUID();
+        var scannedEventId = UUID.randomUUID();
+        given(futureEvents.findById(scannedEventId))
+                .willReturn(drafted(scannedEventId, outcome(UUID.randomUUID(), 100)));
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
-                        cardPlayedBy(targetPlayer, "SCAN", UUID.randomUUID(), null, null, at(0)),
+                        cardPlayedBy(targetPlayer, "SCAN", scannedEventId, null, null, at(0)),
                         playerTargetedCard(UUID.randomUUID(), "REDIRECT", targetPlayer, UUID.randomUUID(), at(1))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        then(futureEvents).should(never()).findById(any());
+        // REDIRECT targeting a non-shifter (SCAN) has no probability effect. SCAN itself never mutates —
+        // its read of the target's post-round state to build a reveal entitlement is expected
+        // (scan-probability-reveals capability).
         then(futureEvents).should(never()).append(any(), any());
     }
 
@@ -966,6 +987,145 @@ class ReplayRoundActionsCommandHandlerTest {
         then(publisher).should(never()).publish(any());
     }
 
+    @Test
+    void replay_scanListMode_createsOneEntitlementPerSelectedActiveEvent() {
+        var player = UUID.randomUUID();
+        var event1 = UUID.randomUUID();
+        var event2 = UUID.randomUUID();
+        given(futureEvents.findById(event1)).willReturn(drafted(event1, outcome(UUID.randomUUID(), 100)));
+        given(futureEvents.findById(event2)).willReturn(drafted(event2, outcome(UUID.randomUUID(), 100)));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(scanListMode(player, CardGrade.II, List.of(event1, event2), at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(scanEntitlements).should().upsert(GAME_ID, ERA_NUMBER, player, event1);
+        then(scanEntitlements).should().upsert(GAME_ID, ERA_NUMBER, player, event2);
+    }
+
+    @Test
+    void replay_gradeIiiScanWithOneAlreadyStalledTarget_createsEntitlementsOnlyForActiveTargets() {
+        var player = UUID.randomUUID();
+        var active1 = UUID.randomUUID();
+        var active2 = UUID.randomUUID();
+        var stalledEventId = UUID.randomUUID();
+        given(futureEvents.findById(active1)).willReturn(drafted(active1, outcome(UUID.randomUUID(), 100)));
+        given(futureEvents.findById(active2)).willReturn(drafted(active2, outcome(UUID.randomUUID(), 100)));
+        var stalledEvent = drafted(stalledEventId, outcome(UUID.randomUUID(), 100));
+        stalledEvent.markStalled();
+        given(futureEvents.findById(stalledEventId)).willReturn(stalledEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(
+                        List.of(scanListMode(player, CardGrade.III, List.of(active1, active2, stalledEventId), at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(scanEntitlements).should().upsert(GAME_ID, ERA_NUMBER, player, active1);
+        then(scanEntitlements).should().upsert(GAME_ID, ERA_NUMBER, player, active2);
+        then(scanEntitlements).should(never()).upsert(GAME_ID, ERA_NUMBER, player, stalledEventId);
+    }
+
+    @Test
+    void replay_scanTargetStalledInTheSameRound_createsNoEntitlement() {
+        var player = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(UUID.randomUUID(), 100));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayed("STALL", eventId, null, null, at(0)),
+                        scanListMode(player, CardGrade.I, List.of(eventId), at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(futureEvent.stalled()).isTrue();
+        then(scanEntitlements).should(never()).upsert(any(), anyInt(), any(), any());
+    }
+
+    @Test
+    void replay_nullifyCancelsScan_createsNoEntitlement() {
+        var scanningPlayer = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        scanListMode(scanningPlayer, CardGrade.I, List.of(eventId), at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", scanningPlayer, null, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).findById(eventId);
+        then(scanEntitlements).should(never()).upsert(any(), anyInt(), any(), any());
+    }
+
+    @Test
+    void replay_activeEntitlement_publishesRevealEvenOnARoundWithNoActions() {
+        var player = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 60), outcome(b, 40));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(scanEntitlements.findByGameAndEra(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new ScanEntitlement(player, eventId)));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(List.of());
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should().publish(captor.capture());
+        var revealed = (ProbabilityStateRevealed) captor.getValue().payload();
+        assertThat(revealed.gameId()).isEqualTo(GAME_ID);
+        assertThat(revealed.eraNumber()).isEqualTo(ERA_NUMBER);
+        assertThat(revealed.roundNumber()).isEqualTo(ROUND_NUMBER);
+        assertThat(revealed.playerId()).isEqualTo(player);
+        assertThat(revealed.eventId()).isEqualTo(eventId);
+        assertThat(revealed.outcomes())
+                .extracting(
+                        ProbabilityStateRevealed.OutcomeState::outcomeId,
+                        ProbabilityStateRevealed.OutcomeState::probability)
+                .containsExactlyInAnyOrder(tuple(a, 60), tuple(b, 40));
+    }
+
+    @Test
+    void replay_entitlementForAlreadyStalledEvent_isNotRevealed() {
+        var player = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(UUID.randomUUID(), 100));
+        futureEvent.markStalled();
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(scanEntitlements.findByGameAndEra(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new ScanEntitlement(player, eventId)));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(List.of());
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(publisher).should(never()).publish(any());
+    }
+
+    @Test
+    void replay_twoActiveEntitlements_eachRevealOnlyItsOwnPlayerAndEvent() {
+        var playerA = UUID.randomUUID();
+        var playerB = UUID.randomUUID();
+        var eventA = UUID.randomUUID();
+        var eventB = UUID.randomUUID();
+        given(futureEvents.findById(eventA)).willReturn(drafted(eventA, outcome(UUID.randomUUID(), 100)));
+        given(futureEvents.findById(eventB)).willReturn(drafted(eventB, outcome(UUID.randomUUID(), 100)));
+        given(scanEntitlements.findByGameAndEra(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new ScanEntitlement(playerA, eventA), new ScanEntitlement(playerB, eventB)));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(List.of());
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(2)).publish(captor.capture());
+        var revealed = captor.getAllValues().stream()
+                .map(e -> (ProbabilityStateRevealed) e.payload())
+                .toList();
+        assertThat(revealed)
+                .extracting(ProbabilityStateRevealed::playerId, ProbabilityStateRevealed::eventId)
+                .containsExactlyInAnyOrder(tuple(playerA, eventA), tuple(playerB, eventB));
+    }
+
     private static FutureEvent drafted(UUID id, Outcome... outcomes) {
         return FutureEvent.replay(id, List.of(new FutureEventDrafted(id, List.of(outcomes))));
     }
@@ -1025,6 +1185,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 playerId,
                 UUID.randomUUID(),
                 targetEventId,
+                null,
                 sourceOutcomeId,
                 targetOutcomeId,
                 null,
@@ -1046,6 +1207,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 null,
                 playerId,
                 UUID.randomUUID(),
+                null,
                 null,
                 null,
                 targetOutcomeId,
@@ -1075,6 +1237,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 null,
                 targetEventId,
                 null,
+                null,
                 targetOutcomeId,
                 null,
                 null,
@@ -1088,6 +1251,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 null,
                 "CORRUPT",
                 corruptingPlayerId,
+                null,
                 null,
                 null,
                 null,
@@ -1107,6 +1271,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 null,
                 targetEventId,
                 null,
+                null,
                 targetOutcomeId,
                 null,
                 null,
@@ -1123,9 +1288,28 @@ class ReplayRoundActionsCommandHandlerTest {
                 null,
                 targetEventId,
                 null,
+                null,
                 targetOutcomeId,
                 null,
                 null,
+                occurredAt,
+                UUID.randomUUID());
+    }
+
+    private static BufferedAction scanListMode(
+            UUID playerId, CardGrade grade, List<UUID> targetEventIds, Instant occurredAt) {
+        return new BufferedAction(
+                ActionKind.CARD_PLAYED,
+                "SCAN",
+                null,
+                playerId,
+                UUID.randomUUID(),
+                null,
+                targetEventIds,
+                null,
+                null,
+                null,
+                grade,
                 occurredAt,
                 UUID.randomUUID());
     }

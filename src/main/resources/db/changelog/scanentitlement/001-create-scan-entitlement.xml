@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Durable per-(game, era, player, event) SCAN reveal entitlement (scan-probability-reveals capability):
+      created after same-round NULLIFY cancellation and final event state are known, consulted at every round
+      close to republish that player's current exact outcome state for as long as the event stays active.
+      Deleted on EraEnded (that game/era) and GameEnded (all remaining rows for that game).
+  -->
+  <changeSet id="001-create-scan-entitlement" author="timeline-service">
+    <createTable tableName="scan_entitlement">
+      <column name="id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="era_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="player_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="event_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+
+    <createIndex tableName="scan_entitlement" indexName="ux_scan_entitlement_game_era_player_event" unique="true">
+      <column name="game_id"/>
+      <column name="era_number"/>
+      <column name="player_id"/>
+      <column name="event_id"/>
+    </createIndex>
+
+    <createIndex tableName="scan_entitlement" indexName="ix_scan_entitlement_game_era">
+      <column name="game_id"/>
+      <column name="era_number"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      List-mode CardPlayed target (currently only SCAN's grade-sized multi-event selection,
+      scan-probability-reveals capability, action-event:2.0.1). Nullable: every scalar- or player-targeting
+      action, including a scalar-mode SCAN, leaves this unset.
+  -->
+  <changeSet id="007-add-round-action-buffer-target-event-ids" author="timeline-service">
+    <addColumn tableName="round_action_buffer">
+      <column name="target_event_ids" type="JSONB"/>
+    </addColumn>
+  </changeSet>
+
+</databaseChangeLog>

@@ -21,6 +21,7 @@ import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUse
 import io.github.temporalrift.timeline.domain.event.BandedProbabilityPublished;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
+import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
@@ -35,6 +36,7 @@ import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.ActionKind;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.BufferedAction;
+import io.github.temporalrift.timeline.domain.port.out.ScanEntitlementPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
@@ -83,6 +85,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private final RoundActionBufferPort buffer;
     private final FutureEventRepository futureEvents;
     private final FutureEventEraIndexPort eraIndex;
+    private final ScanEntitlementPort scanEntitlements;
     private final ProbabilityRulesPort rules;
     private final ProbabilityBandRulesPort bandRules;
     private final TimelineEventPublisher publisher;
@@ -92,6 +95,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             RoundActionBufferPort buffer,
             FutureEventRepository futureEvents,
             FutureEventEraIndexPort eraIndex,
+            ScanEntitlementPort scanEntitlements,
             ProbabilityRulesPort rules,
             ProbabilityBandRulesPort bandRules,
             TimelineEventPublisher publisher,
@@ -99,6 +103,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         this.buffer = buffer;
         this.futureEvents = futureEvents;
         this.eraIndex = eraIndex;
+        this.scanEntitlements = scanEntitlements;
         this.rules = rules;
         this.bandRules = bandRules;
         this.publisher = publisher;
@@ -111,6 +116,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         if (!actions.isEmpty()) {
             replayActions(gameId, eraNumber, roundNumber, actions);
         }
+        // Every round close republishes current state for entitlements earned in an earlier round, including a
+        // round with no buffered actions at all (scan-probability-reveals capability).
+        publishScanReveals(gameId, eraNumber, roundNumber);
         if (roundNumber == 2) {
             publishBandedProbability(gameId, eraNumber);
         }
@@ -163,6 +171,71 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 gameId, eraNumber, roundNumber, byEnvelopeId, corruptTargets, tookEffectEnvelopeIds);
 
         validateSums(gameId, eraNumber, touchedEventIds);
+
+        resolveScanEntitlements(gameId, eraNumber, sorted, cancelled);
+    }
+
+    /**
+     * Records one durable entitlement per non-nullified SCAN's still-active selected event, using the final
+     * post-round state every other effect in this round has already been applied against (scan-probability-reveals
+     * capability, design.md "Resolve the complete round before recording or publishing"). A same-round-nullified
+     * SCAN, or a target stalled/resolved by this same round's final effective actions, records nothing.
+     */
+    private void resolveScanEntitlements(UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
+        for (var scan : sorted) {
+            if (!isCardType(scan, "SCAN") || cancelled.contains(scan.envelopeEventId())) {
+                continue;
+            }
+            for (var eventId : effectiveScanTargets(scan)) {
+                var futureEvent = futureEvents.findById(eventId);
+                if (!futureEvent.stalled() && !futureEvent.resolved()) {
+                    scanEntitlements.upsert(gameId, eraNumber, scan.playerId(), eventId);
+                }
+            }
+        }
+    }
+
+    /** The 1-3 event ids a list-mode SCAN selected, or the single id a scalar-mode SCAN targeted. */
+    private static List<UUID> effectiveScanTargets(BufferedAction scan) {
+        if (scan.targetEventIds() != null && !scan.targetEventIds().isEmpty()) {
+            return scan.targetEventIds();
+        }
+        return scan.targetEventId() != null ? List.of(scan.targetEventId()) : List.of();
+    }
+
+    /**
+     * Republishes every active SCAN entitlement's current exact outcome state, addressed only to its player
+     * (scan-probability-reveals capability). Runs at every round close, including one with no buffered actions,
+     * so a live entitlement from an earlier round keeps revealing. An entitlement whose event has since stalled or
+     * resolved is silently skipped rather than deleted — {@code EraEnded}/{@code GameEnded} own cleanup.
+     */
+    private void publishScanReveals(UUID gameId, int eraNumber, int roundNumber) {
+        for (var entitlement : scanEntitlements.findByGameAndEra(gameId, eraNumber)) {
+            var futureEvent = futureEvents.findById(entitlement.eventId());
+            if (futureEvent.stalled() || futureEvent.resolved()) {
+                continue;
+            }
+            publisher.publish(TimelineEventEnvelope.create(
+                    entitlement.eventId(),
+                    FUTURE_EVENT_AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new ProbabilityStateRevealed(
+                            gameId,
+                            eraNumber,
+                            roundNumber,
+                            entitlement.playerId(),
+                            entitlement.eventId(),
+                            toRevealedOutcomeStates(futureEvent)),
+                    clock));
+        }
+    }
+
+    private static List<ProbabilityStateRevealed.OutcomeState> toRevealedOutcomeStates(FutureEvent futureEvent) {
+        return futureEvent.outcomes().stream()
+                .map(o -> new ProbabilityStateRevealed.OutcomeState(
+                        o.outcomeId(), o.probability(), o.annihilated(), o.sealed()))
+                .toList();
     }
 
     /**

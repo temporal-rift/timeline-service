@@ -11,6 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
@@ -33,6 +34,8 @@ import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.Car
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ParadoxResolutionCardPlayedPayload;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialAction;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialActionPlayedPayload;
+import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EraEndedPayload;
+import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.GameEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.ResolutionStartedPayload;
 import io.github.temporalrift.timeline.application.port.in.ApplyMomentumBonusUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
@@ -42,6 +45,7 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.ActionKind;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.BufferedAction;
+import io.github.temporalrift.timeline.domain.port.out.ScanEntitlementPort;
 
 @ExtendWith(MockitoExtension.class)
 class CardPlayedAndResolutionKafkaConsumerTest {
@@ -58,6 +62,10 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     private static final String PARADOX_RESOLUTION_CARD_PLAYED_CONSUMER = "futureevent.paradox-resolution-card-played";
     private static final String ACTIVIST_DECLARATION_RECORDED_EVENT_TYPE = "ActivistDeclarationRecorded";
     private static final String ACTIVIST_DECLARATION_RECORDED_CONSUMER = "futureevent.activist-declaration-recorded";
+    private static final String ERA_ENDED_EVENT_TYPE = "EraEnded";
+    private static final String ERA_ENDED_CONSUMER = "futureevent.era-ended";
+    private static final String GAME_ENDED_EVENT_TYPE = "GameEnded";
+    private static final String GAME_ENDED_CONSUMER = "futureevent.game-ended";
     private static final int ERA_NUMBER = 2;
     private static final int ROUND_NUMBER = 3;
 
@@ -78,6 +86,9 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
     @Mock
     ApplyMomentumBonusUseCase applyMomentumBonus;
+
+    @Mock
+    ScanEntitlementPort scanEntitlements;
 
     @Spy
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
@@ -126,6 +137,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 targetEventId,
                 null,
                 null,
+                null,
                 targetOutcomeId);
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
@@ -149,6 +161,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 UUID.randomUUID(),
                 CardType.NULLIFY,
                 CardGrade.UNKNOWN,
+                null,
                 null,
                 UUID.randomUUID(),
                 null,
@@ -176,6 +189,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                     UUID.randomUUID(),
                     cardType,
                     CardGrade.II,
+                    null,
                     null,
                     targetPlayerId,
                     null,
@@ -205,6 +219,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 CardType.PUSH,
                 CardGrade.UNKNOWN,
                 UUID.randomUUID(),
+                null,
                 null,
                 null,
                 UUID.randomUUID());
@@ -648,6 +663,89 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         then(applyMomentumBonus).should(never()).apply(any(), any());
     }
 
+    @Test
+    @DisplayName("CardPlayed SCAN list-mode — buffered with the target event list, not the scalar target")
+    void handle_scanListMode_buffersTargetEventIds() {
+        var eventId = UUID.randomUUID();
+        var event1 = UUID.randomUUID();
+        var event2 = UUID.randomUUID();
+        var payload = new CardPlayedPayload(
+                UUID.randomUUID(),
+                ERA_NUMBER,
+                ROUND_NUMBER,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                CardType.SCAN,
+                CardGrade.II,
+                null,
+                List.of(event1, event2),
+                null,
+                null,
+                null);
+        given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
+
+        var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
+        then(buffer).should().save(eq(payload.gameId()), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
+        var action = actionCaptor.getValue();
+        assertThat(action.cardType()).isEqualTo("SCAN");
+        assertThat(action.targetEventIds()).containsExactly(event1, event2);
+        assertThat(action.targetEventId()).isNull();
+    }
+
+    @Test
+    @DisplayName("EraEnded — deletes that game/era's SCAN entitlements")
+    void handle_eraEnded_deletesEntitlementsForThatGameAndEra() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, ERA_ENDED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(
+                new EraEndedPayload(gameId, ERA_NUMBER, 0, ERA_NUMBER + 1), eventId, ERA_ENDED_EVENT_TYPE, 1));
+
+        then(scanEntitlements).should().deleteByGameAndEra(gameId, ERA_NUMBER);
+        then(scanEntitlements).should(never()).deleteByGame(any());
+    }
+
+    @Test
+    @DisplayName("EraEnded duplicate eventId — no cleanup performed")
+    void handle_eraEndedDuplicateEventId_ignored() {
+        var eventId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, ERA_ENDED_CONSUMER)).willReturn(false);
+
+        consumer.handle(KafkaTestMessages.withHeaders(
+                new EraEndedPayload(UUID.randomUUID(), 1, 0, 2), eventId, ERA_ENDED_EVENT_TYPE, 1));
+
+        then(scanEntitlements).should(never()).deleteByGameAndEra(any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("GameEnded — deletes all remaining SCAN entitlements for that game")
+    void handle_gameEnded_deletesAllEntitlementsForThatGame() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, GAME_ENDED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(
+                new GameEndedPayload(gameId, "COLLAPSE", List.of()), eventId, GAME_ENDED_EVENT_TYPE, 1));
+
+        then(scanEntitlements).should().deleteByGame(gameId);
+        then(scanEntitlements).should(never()).deleteByGameAndEra(any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("GameEnded duplicate eventId — no cleanup performed")
+    void handle_gameEndedDuplicateEventId_ignored() {
+        var eventId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, GAME_ENDED_CONSUMER)).willReturn(false);
+
+        consumer.handle(KafkaTestMessages.withHeaders(
+                new GameEndedPayload(UUID.randomUUID(), "COLLAPSE", List.of()), eventId, GAME_ENDED_EVENT_TYPE, 1));
+
+        then(scanEntitlements).should(never()).deleteByGame(any());
+    }
+
     private static ActivistDeclarationRecordedPayload activistDeclarationRecorded(
             ActivistDeclarationMode mode, UUID targetEventId, UUID targetOutcomeId) {
         return new ActivistDeclarationRecordedPayload(
@@ -679,6 +777,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 cardType,
                 CardGrade.II,
                 targetEventId,
+                null,
                 null,
                 sourceOutcomeId,
                 targetOutcomeId);

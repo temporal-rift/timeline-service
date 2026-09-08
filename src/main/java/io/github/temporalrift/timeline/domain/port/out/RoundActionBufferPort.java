@@ -30,11 +30,13 @@ public interface RoundActionBufferPort {
      * A buffered, not-yet-applied round action. {@code cardType} is populated for {@code CARD_PLAYED} only;
      * {@code specialAction} for {@code SPECIAL_ACTION_PLAYED} only. {@code cardInstanceId}/{@code sourceOutcomeId}/
      * {@code targetPlayerId} are populated only when the originating payload carries them (see
-     * {@code CardPlayedPayload}/{@code SpecialActionPlayedPayload}). {@code grade} is populated for
-     * {@code CARD_PLAYED} only, from the originating {@code CardPlayedPayload}'s grade (graded-magnitude-resolution
-     * capability); {@code null} for {@code SPECIAL_ACTION_PLAYED}, which carries no grade. {@code envelopeEventId}
-     * is the tie-break secondary sort key for two actions sharing an identical {@code occurredAt} (design.md
-     * Decision 5).
+     * {@code CardPlayedPayload}/{@code SpecialActionPlayedPayload}). {@code targetEventIds} is populated only for
+     * a list-mode {@code CardPlayed} (currently only SCAN's grade-sized multi-event selection,
+     * scan-probability-reveals capability); {@code null} for every scalar- or player-targeting action, including
+     * a scalar-mode SCAN. {@code grade} is populated for {@code CARD_PLAYED} only, from the originating
+     * {@code CardPlayedPayload}'s grade (graded-magnitude-resolution capability); {@code null} for
+     * {@code SPECIAL_ACTION_PLAYED}, which carries no grade. {@code envelopeEventId} is the tie-break secondary
+     * sort key for two actions sharing an identical {@code occurredAt} (design.md Decision 5).
      */
     record BufferedAction(
             ActionKind kind,
@@ -43,6 +45,7 @@ public interface RoundActionBufferPort {
             UUID playerId,
             UUID cardInstanceId,
             UUID targetEventId,
+            List<UUID> targetEventIds,
             UUID sourceOutcomeId,
             UUID targetOutcomeId,
             UUID targetPlayerId,
