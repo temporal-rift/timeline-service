@@ -187,6 +187,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 continue;
             }
             for (var eventId : effectiveScanTargets(scan)) {
+                // findById throws for an id with no event stream, aborting the whole round-close transaction —
+                // same unguarded lookup every other handler in this file makes (applySeal, applyShifter,
+                // applyStall, ...). File-wide hardening decision tracked in #75, not special-cased here.
                 var futureEvent = futureEvents.findById(eventId);
                 if (!futureEvent.stalled() && !futureEvent.resolved()) {
                     scanEntitlements.upsert(gameId, eraNumber, scan.playerId(), eventId);
