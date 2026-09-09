@@ -30,6 +30,7 @@ import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
+import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityBand;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
@@ -1122,6 +1123,46 @@ class ReplayRoundActionsCommandHandlerTest {
         assertThat(revealed)
                 .extracting(ProbabilityStateRevealed::playerId, ProbabilityStateRevealed::eventId)
                 .containsExactlyInAnyOrder(tuple(playerA, eventA), tuple(playerB, eventB));
+    }
+
+    @Test
+    void replay_pushTargetsUnknownEvent_skipsItAndContinuesTheRound() {
+        var knownEventId = UUID.randomUUID();
+        var unknownEventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(knownEventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(knownEventId)).willReturn(futureEvent);
+        given(futureEvents.findById(unknownEventId)).willThrow(new FutureEventNotFoundException(unknownEventId));
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayed("PUSH", unknownEventId, null, UUID.randomUUID(), at(0)),
+                        cardPlayed("PUSH", knownEventId, null, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // The unresolvable target is skipped, not fatal to the round — the other PUSH still applies.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(70);
+    }
+
+    @Test
+    void replay_scanTargetsUnknownEvent_skipsItAndStillCreatesEntitlementForKnownTarget() {
+        var player = UUID.randomUUID();
+        var knownEventId = UUID.randomUUID();
+        var unknownEventId = UUID.randomUUID();
+        given(futureEvents.findById(knownEventId)).willReturn(drafted(knownEventId, outcome(UUID.randomUUID(), 100)));
+        given(futureEvents.findById(unknownEventId)).willThrow(new FutureEventNotFoundException(unknownEventId));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(scanListMode(player, CardGrade.II, List.of(knownEventId, unknownEventId), at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(scanEntitlements).should().upsert(GAME_ID, ERA_NUMBER, player, knownEventId);
+        then(scanEntitlements).should(never()).upsert(GAME_ID, ERA_NUMBER, player, unknownEventId);
     }
 
     private static FutureEvent drafted(UUID id, Outcome... outcomes) {

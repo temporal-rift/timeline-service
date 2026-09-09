@@ -9,12 +9,15 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
@@ -26,6 +29,7 @@ import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
+import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityBand;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
@@ -52,6 +56,8 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
  */
 @Service
 class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(ReplayRoundActionsCommandHandler.class);
 
     private static final String FUTURE_EVENT_AGGREGATE_TYPE = "FutureEvent";
     private static final String ERA_AGGREGATE_TYPE = "Era";
@@ -187,13 +193,11 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 continue;
             }
             for (var eventId : effectiveScanTargets(scan)) {
-                // findById throws for an id with no event stream, aborting the whole round-close transaction —
-                // same unguarded lookup every other handler in this file makes (applySeal, applyShifter,
-                // applyStall, ...). File-wide hardening decision tracked in #75, not special-cased here.
-                var futureEvent = futureEvents.findById(eventId);
-                if (!futureEvent.stalled() && !futureEvent.resolved()) {
-                    scanEntitlements.upsert(gameId, eraNumber, scan.playerId(), eventId);
-                }
+                tryFindEvent(eventId).ifPresent(futureEvent -> {
+                    if (!futureEvent.stalled() && !futureEvent.resolved()) {
+                        scanEntitlements.upsert(gameId, eraNumber, scan.playerId(), eventId);
+                    }
+                });
             }
         }
     }
@@ -214,23 +218,24 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      */
     private void publishScanReveals(UUID gameId, int eraNumber, int roundNumber) {
         for (var entitlement : scanEntitlements.findByGameAndEra(gameId, eraNumber)) {
-            var futureEvent = futureEvents.findById(entitlement.eventId());
-            if (futureEvent.stalled() || futureEvent.resolved()) {
-                continue;
-            }
-            publisher.publish(TimelineEventEnvelope.create(
-                    entitlement.eventId(),
-                    FUTURE_EVENT_AGGREGATE_TYPE,
-                    gameId,
-                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new ProbabilityStateRevealed(
-                            gameId,
-                            eraNumber,
-                            roundNumber,
-                            entitlement.playerId(),
-                            entitlement.eventId(),
-                            toRevealedOutcomeStates(futureEvent)),
-                    clock));
+            tryFindEvent(entitlement.eventId()).ifPresent(futureEvent -> {
+                if (futureEvent.stalled() || futureEvent.resolved()) {
+                    return;
+                }
+                publisher.publish(TimelineEventEnvelope.create(
+                        entitlement.eventId(),
+                        FUTURE_EVENT_AGGREGATE_TYPE,
+                        gameId,
+                        TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                        new ProbabilityStateRevealed(
+                                gameId,
+                                eraNumber,
+                                roundNumber,
+                                entitlement.playerId(),
+                                entitlement.eventId(),
+                                toRevealedOutcomeStates(futureEvent)),
+                        clock));
+            });
         }
     }
 
@@ -305,13 +310,29 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     private void applySeal(BufferedAction a) {
-        var futureEvent = futureEvents.findById(a.targetEventId());
-        futureEvents.append(a.targetEventId(), futureEvent.sealOutcome(a.targetOutcomeId()));
+        tryFindEvent(a.targetEventId())
+                .ifPresent(futureEvent ->
+                        futureEvents.append(a.targetEventId(), futureEvent.sealOutcome(a.targetOutcomeId())));
     }
 
     private void applyAnnihilate(BufferedAction a) {
-        var futureEvent = futureEvents.findById(a.targetEventId());
-        futureEvents.append(a.targetEventId(), futureEvent.annihilateOutcome(a.targetOutcomeId()));
+        tryFindEvent(a.targetEventId())
+                .ifPresent(futureEvent ->
+                        futureEvents.append(a.targetEventId(), futureEvent.annihilateOutcome(a.targetOutcomeId())));
+    }
+
+    /**
+     * A buffered action's target must reference an id this service actually drew ({@code FutureEventDrafted}
+     * recorded) — {@code findById} throws otherwise. Rather than let that abort the whole round's transaction,
+     * skip only the action that named the unresolvable id and keep replaying the rest of the round.
+     */
+    private Optional<FutureEvent> tryFindEvent(UUID eventId) {
+        try {
+            return Optional.of(futureEvents.findById(eventId));
+        } catch (FutureEventNotFoundException e) {
+            log.warn("Buffered action targets unknown FutureEvent {} — skipping its effect", eventId);
+            return Optional.empty();
+        }
     }
 
     /**
@@ -376,14 +397,18 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             Map<UUID, BufferedAction> mimicCorrelations, Set<UUID> rallyDeclaredOutcomes, Set<UUID> touchedEventIds) {
         for (var correlated : mimicCorrelations.values()) {
             var kind = ShiftKind.valueOf(correlated.cardType());
-            var futureEvent = futureEvents.findById(correlated.targetEventId());
-            int magnitude = rallyAdjustedMagnitude(
-                    rallyDeclaredOutcomes, kind, correlated.targetOutcomeId(), baseMagnitude(kind, correlated.grade()));
-            applyDirectShift(
-                    futureEvent,
-                    toProbabilityShift(kind, correlated.sourceOutcomeId(), correlated.targetOutcomeId()),
-                    magnitude,
-                    touchedEventIds);
+            tryFindEvent(correlated.targetEventId()).ifPresent(futureEvent -> {
+                int magnitude = rallyAdjustedMagnitude(
+                        rallyDeclaredOutcomes,
+                        kind,
+                        correlated.targetOutcomeId(),
+                        baseMagnitude(kind, correlated.grade()));
+                applyDirectShift(
+                        futureEvent,
+                        toProbabilityShift(kind, correlated.sourceOutcomeId(), correlated.targetOutcomeId()),
+                        magnitude,
+                        touchedEventIds);
+            });
         }
     }
 
@@ -519,23 +544,24 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             Set<UUID> tookEffectEnvelopeIds) {
         var kind = ShiftKind.valueOf(a.cardType());
         var effectiveKind = effectiveKind(kind, inverted);
-        var futureEvent = futureEvents.findById(a.targetEventId());
-        var sourceOutcomeId = appliedSourceOutcomeId(effectiveKind, inverted, a);
-        var targetOutcomeId = redirectedTargetOutcomeId != null
-                        && futureEvent.outcomes().stream()
-                                .anyMatch(o -> o.outcomeId().equals(redirectedTargetOutcomeId))
-                ? redirectedTargetOutcomeId
-                : appliedTargetOutcomeId(effectiveKind, inverted, a);
-        var shift = toProbabilityShift(effectiveKind, sourceOutcomeId, targetOutcomeId);
-        int amplifiedMagnitude = (int) Math.round(baseMagnitude(effectiveKind, a.grade()) * amplifierMultiplier);
-        int magnitude =
-                rallyAdjustedMagnitude(rallyDeclaredOutcomes, effectiveKind, targetOutcomeId, amplifiedMagnitude);
+        tryFindEvent(a.targetEventId()).ifPresent(futureEvent -> {
+            var sourceOutcomeId = appliedSourceOutcomeId(effectiveKind, inverted, a);
+            var targetOutcomeId = redirectedTargetOutcomeId != null
+                            && futureEvent.outcomes().stream()
+                                    .anyMatch(o -> o.outcomeId().equals(redirectedTargetOutcomeId))
+                    ? redirectedTargetOutcomeId
+                    : appliedTargetOutcomeId(effectiveKind, inverted, a);
+            var shift = toProbabilityShift(effectiveKind, sourceOutcomeId, targetOutcomeId);
+            int amplifiedMagnitude = (int) Math.round(baseMagnitude(effectiveKind, a.grade()) * amplifierMultiplier);
+            int magnitude =
+                    rallyAdjustedMagnitude(rallyDeclaredOutcomes, effectiveKind, targetOutcomeId, amplifiedMagnitude);
 
-        var result = applyDirectShift(futureEvent, shift, magnitude, touchedEventIds);
+            var result = applyDirectShift(futureEvent, shift, magnitude, touchedEventIds);
 
-        if (result instanceof ProbabilityShifted) {
-            tookEffectEnvelopeIds.add(a.envelopeEventId());
-        }
+            if (result instanceof ProbabilityShifted) {
+                tookEffectEnvelopeIds.add(a.envelopeEventId());
+            }
+        });
     }
 
     /** {@code null} unless this is a SWING or COLLIDE, the two shifters with a source outcome. */
@@ -586,11 +612,12 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     private void applyStall(BufferedAction a) {
-        var futureEvent = futureEvents.findById(a.targetEventId());
-        if (futureEvent.resolved() || futureEvent.stalled()) {
-            return;
-        }
-        futureEvents.append(a.targetEventId(), futureEvent.markStalled());
+        tryFindEvent(a.targetEventId()).ifPresent(futureEvent -> {
+            if (futureEvent.resolved() || futureEvent.stalled()) {
+                return;
+            }
+            futureEvents.append(a.targetEventId(), futureEvent.markStalled());
+        });
     }
 
     private void publishCorruptConfirmations(
