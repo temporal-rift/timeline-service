@@ -4,10 +4,10 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Driven port for durable SCAN reveal entitlements (scan-probability-reveals capability): one row per
- * {@code (gameId, eraNumber, playerId, eventId)}, created only after same-round NULLIFY cancellation and final
- * post-round event state are known. Consulted at every round close to republish each active entitlement's
- * current exact outcome state, and cleared on {@code EraEnded}/{@code GameEnded}.
+ * Driven port for durable SCAN reveal entitlements: one row per {@code (gameId, eraNumber, playerId, eventId)},
+ * created only after same-round NULLIFY cancellation and final post-round event state are known. Consulted at
+ * every round close to republish each active entitlement's current exact outcome state, and cleared on
+ * {@code EraEnded}/{@code GameEnded}.
  */
 public interface ScanEntitlementPort {
 

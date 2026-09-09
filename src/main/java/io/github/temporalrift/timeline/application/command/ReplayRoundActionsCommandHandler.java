@@ -117,7 +117,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             replayActions(gameId, eraNumber, roundNumber, actions);
         }
         // Every round close republishes current state for entitlements earned in an earlier round, including a
-        // round with no buffered actions at all (scan-probability-reveals capability).
+        // round with no buffered actions at all.
         publishScanReveals(gameId, eraNumber, roundNumber);
         if (roundNumber == 2) {
             publishBandedProbability(gameId, eraNumber);
@@ -177,9 +177,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
     /**
      * Records one durable entitlement per non-nullified SCAN's still-active selected event, using the final
-     * post-round state every other effect in this round has already been applied against (scan-probability-reveals
-     * capability, design.md "Resolve the complete round before recording or publishing"). A same-round-nullified
-     * SCAN, or a target stalled/resolved by this same round's final effective actions, records nothing.
+     * post-round state every other effect in this round has already been applied against — resolving NULLIFY
+     * and every modifier first means a same-round-nullified SCAN, or a target stalled/resolved by this same
+     * round's final effective actions, records nothing.
      */
     private void resolveScanEntitlements(UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
         for (var scan : sorted) {
@@ -204,10 +204,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     /**
-     * Republishes every active SCAN entitlement's current exact outcome state, addressed only to its player
-     * (scan-probability-reveals capability). Runs at every round close, including one with no buffered actions,
-     * so a live entitlement from an earlier round keeps revealing. An entitlement whose event has since stalled or
-     * resolved is silently skipped rather than deleted — {@code EraEnded}/{@code GameEnded} own cleanup.
+     * Republishes every active SCAN entitlement's current exact outcome state, addressed only to its player.
+     * Runs at every round close, including one with no buffered actions, so a live entitlement from an earlier
+     * round keeps revealing. An entitlement whose event has since stalled or resolved is silently skipped rather
+     * than deleted — {@code EraEnded}/{@code GameEnded} own cleanup.
      */
     private void publishScanReveals(UUID gameId, int eraNumber, int roundNumber) {
         for (var entitlement : scanEntitlements.findByGameAndEra(gameId, eraNumber)) {
