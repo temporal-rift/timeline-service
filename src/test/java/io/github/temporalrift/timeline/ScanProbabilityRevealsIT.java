@@ -157,6 +157,7 @@ class ScanProbabilityRevealsIT {
         var countAfterFirstDelivery = collector.messagesFor(gameId).stream()
                 .filter(m -> PROBABILITY_STATE_REVEALED.equals(m.eventType()))
                 .count();
+        assertThat(countAfterFirstDelivery).isEqualTo(1);
 
         // Same envelope eventId — must be claimed-and-skipped, not replayed a second time.
         publishActionRoundClosed(gameId, eraNumber, 1, actionRoundClosedEventId);
