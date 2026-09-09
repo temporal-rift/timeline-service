@@ -23,9 +23,9 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * End-to-end proof of emit-scan-probability-reveals: a list-mode SCAN's {@code ProbabilityStateRevealed} is
- * published at the round it was played and at a later round with no buffered actions, stops after
- * {@code EraEnded} cleans up its entitlement, and never mutates the scanned event's probabilities.
+ * End-to-end proof that a list-mode SCAN's {@code ProbabilityStateRevealed} is published at the round it was
+ * played and at a later round with no buffered actions, stops after {@code EraEnded} cleans up its entitlement,
+ * and never mutates the scanned event's probabilities.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -73,7 +73,7 @@ class ScanProbabilityRevealsIT {
         assertOutcomeProbabilities(firstReveal, winnerOutcomeId, 70, loserOutcomeId, 30);
 
         // Round 2 closes with no buffered actions at all — the entitlement earned in round 1 must still
-        // reveal current state (scan-probability-reveals: "later round with no buffered actions").
+        // reveal current state.
         publishActionRoundClosed(gameId, eraNumber, 2);
 
         await().atMost(Duration.ofSeconds(30))
@@ -110,6 +110,48 @@ class ScanProbabilityRevealsIT {
                                 .filter(m -> PROBABILITY_STATE_REVEALED.equals(m.eventType()))
                                 .count())
                         .isEqualTo(2));
+    }
+
+    @Test
+    void gameEnded_deletesEntitlementsWithoutAnEraEndedFirst_andIsIdempotent() {
+        var gameId = UUID.randomUUID();
+        var eraNumber = 1;
+        var futureEventId = UUID.randomUUID();
+        var winnerOutcomeId = UUID.randomUUID();
+        var loserOutcomeId = UUID.randomUUID();
+        var scanningPlayerId = UUID.randomUUID();
+
+        publishEraStarted(gameId, eraNumber);
+        publishEventsDrawn(gameId, eraNumber, futureEventId, winnerOutcomeId, 60, loserOutcomeId, 40);
+        awaitFutureEventIndexed(gameId, eraNumber);
+        publishScanCardPlayed(gameId, eraNumber, 1, scanningPlayerId, List.of(futureEventId));
+        publishActionRoundClosed(gameId, eraNumber, 1);
+
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
+                                "SELECT COUNT(*) FROM scan_entitlement WHERE game_id = ? AND era_number = ?",
+                                Integer.class,
+                                gameId,
+                                eraNumber))
+                        .isEqualTo(1));
+
+        // A final game can end with no EraEnded at all — GameEnded alone must remove the entitlement.
+        publishGameEnded(gameId);
+
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
+                                "SELECT COUNT(*) FROM scan_entitlement WHERE game_id = ?", Integer.class, gameId))
+                        .isZero());
+
+        // A second GameEnded for the same game, with nothing left to remove, must not error and must leave
+        // the table empty.
+        publishGameEnded(gameId);
+
+        await().pollDelay(Duration.ofSeconds(3))
+                .atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
+                                "SELECT COUNT(*) FROM scan_entitlement WHERE game_id = ?", Integer.class, gameId))
+                        .isZero());
     }
 
     private void awaitFutureEventIndexed(UUID gameId, int eraNumber) {
@@ -249,6 +291,10 @@ class ScanProbabilityRevealsIT {
                         0,
                         "nextEraNumber",
                         eraNumber + 1));
+    }
+
+    private void publishGameEnded(UUID gameId) {
+        publish(gameId, "GameEnded", Map.of("gameId", gameId, "endReason", "COLLAPSE", "finalScores", List.of()));
     }
 
     private void publish(UUID gameId, String eventType, Object payload) {

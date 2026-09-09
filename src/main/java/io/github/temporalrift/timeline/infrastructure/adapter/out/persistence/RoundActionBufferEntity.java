@@ -41,7 +41,7 @@ class RoundActionBufferEntity extends RoundScopedEntity {
     @Column(name = "target_event_id")
     private UUID targetEventId;
 
-    /** JSON-encoded list of UUIDs; populated only for a list-mode SCAN (scan-probability-reveals capability). */
+    /** JSON-encoded list of UUIDs; populated only for a list-mode SCAN. */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "target_event_ids")
     private String targetEventIds;

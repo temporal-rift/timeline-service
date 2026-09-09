@@ -6,10 +6,10 @@
             https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
 
   <!--
-      Durable per-(game, era, player, event) SCAN reveal entitlement (scan-probability-reveals capability):
-      created after same-round NULLIFY cancellation and final event state are known, consulted at every round
-      close to republish that player's current exact outcome state for as long as the event stays active.
-      Deleted on EraEnded (that game/era) and GameEnded (all remaining rows for that game).
+      Durable per-(game, era, player, event) SCAN reveal entitlement: created after same-round NULLIFY
+      cancellation and final event state are known, consulted at every round close to republish that player's
+      current exact outcome state for as long as the event stays active. Deleted on EraEnded (that game/era)
+      and GameEnded (all remaining rows for that game).
   -->
   <changeSet id="001-create-scan-entitlement" author="timeline-service">
     <createTable tableName="scan_entitlement">

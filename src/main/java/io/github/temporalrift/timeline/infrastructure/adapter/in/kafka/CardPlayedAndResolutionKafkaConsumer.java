@@ -35,21 +35,15 @@ import io.github.temporalrift.timeline.domain.port.out.ScanEntitlementPort;
 /**
  * Consumes {@code CardPlayed}, {@code SpecialActionPlayed}, {@code ActionRoundClosed}, {@code ResolutionStarted},
  * {@code ParadoxResolutionCardPlayed}, {@code ActivistDeclarationRecorded}, {@code EraEnded}, and {@code GameEnded}
- * from {@code game.events} in one Kafka consumer group (design.md Decision 1/3 of timeline-mvp4-card-modifiers,
- * revised after PR #25 review; extended by timeline-mvp5-faction-specials Decision 2,
- * timeline-mvp8-paradox-completion, superseded for {@code CardPlayed}/{@code SpecialActionPlayed} by
- * timeline-mvp9-resolution-ordering-paradox-cards design.md Decision 1, extended again by
- * add-remaining-faction-specials design.md "ActivistDeclarationRecorded is consumed by the existing
- * CardPlayedAndResolutionKafkaConsumer, not a new class", and again by emit-scan-probability-reveals design.md
- * "Use the existing ordered consumer path for terminal cleanup"): a single {@code @KafkaListener} reading one
- * assigned partition processes records strictly in the order {@code game-service} produced them, so a round's
- * buffered actions (including a Rally declaration) are durably recorded before that round's
- * {@code ActionRoundClosed} replays them in priority-tier order, every era's replayed effects are applied before
- * that era's {@code ResolutionStarted} is handled, a resolution-phase submission is applied in the order it was
- * played, and SCAN entitlement cleanup on {@code EraEnded}/{@code GameEnded} can never run ahead of the round
- * replay that created the entitlements it must remove. Splitting these into independent consumer groups would let
- * a lagging one be overtaken by a faster one — reachable in practice (consumer rebalance, GC pause, retry), not
- * just theoretical — silently losing or misordering an effect.
+ * from {@code game.events} in one Kafka consumer group: a single {@code @KafkaListener} reading one assigned
+ * partition processes records strictly in the order {@code game-service} produced them, so a round's buffered
+ * actions (including a Rally declaration) are durably recorded before that round's {@code ActionRoundClosed}
+ * replays them in priority-tier order, every era's replayed effects are applied before that era's
+ * {@code ResolutionStarted} is handled, a resolution-phase submission is applied in the order it was played, and
+ * SCAN entitlement cleanup on {@code EraEnded}/{@code GameEnded} can never run ahead of the round replay that
+ * created the entitlements it must remove. Splitting these into independent consumer groups would let a lagging
+ * one be overtaken by a faster one — reachable in practice (consumer rebalance, GC pause, retry), not just
+ * theoretical — silently losing or misordering an effect.
  */
 @Component
 class CardPlayedAndResolutionKafkaConsumer {
@@ -218,14 +212,13 @@ class CardPlayedAndResolutionKafkaConsumer {
         GameEventIngestion.accept(message, ERA_ENDED_SPEC, processedEvents).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), EraEndedPayload.class);
             // Runs in this same consumer group so it can never overtake the round replay that created this
-            // game/era's entitlements (scan-probability-reveals capability, design.md "Use the existing ordered
-            // consumer path for terminal cleanup"). Idempotent: harmless on redelivery.
+            // game/era's entitlements. Idempotent: harmless on redelivery.
             scanEntitlements.deleteByGameAndEra(payload.gameId(), payload.eraNumber());
         });
         GameEventIngestion.accept(message, GAME_ENDED_SPEC, processedEvents).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), GameEndedPayload.class);
             // A final game can end without a following EraEnded, so this removes whatever the last era left
-            // behind too (scan-probability-reveals capability). Idempotent: harmless on redelivery.
+            // behind too. Idempotent: harmless on redelivery.
             scanEntitlements.deleteByGame(payload.gameId());
         });
     }

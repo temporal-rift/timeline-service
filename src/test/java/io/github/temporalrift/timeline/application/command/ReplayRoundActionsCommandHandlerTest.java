@@ -275,8 +275,7 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         // AMPLIFY targeting a non-shifter (SCAN) has no probability effect. SCAN itself never mutates —
-        // its read of the target's post-round state to build a reveal entitlement is expected
-        // (scan-probability-reveals capability).
+        // its read of the target's post-round state to build a reveal entitlement is expected.
         then(futureEvents).should(never()).append(any(), any());
     }
 
@@ -762,8 +761,7 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         // REDIRECT targeting a non-shifter (SCAN) has no probability effect. SCAN itself never mutates —
-        // its read of the target's post-round state to build a reveal entitlement is expected
-        // (scan-probability-reveals capability).
+        // its read of the target's post-round state to build a reveal entitlement is expected.
         then(futureEvents).should(never()).append(any(), any());
     }
 
