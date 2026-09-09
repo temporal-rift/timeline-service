@@ -31,11 +31,12 @@ public interface RoundActionBufferPort {
      * {@code specialAction} for {@code SPECIAL_ACTION_PLAYED} only. {@code cardInstanceId}/{@code sourceOutcomeId}/
      * {@code targetPlayerId} are populated only when the originating payload carries them (see
      * {@code CardPlayedPayload}/{@code SpecialActionPlayedPayload}). {@code targetEventIds} is populated only for
-     * a list-mode {@code CardPlayed} (currently only SCAN's grade-sized multi-event selection); {@code null} for
-     * every scalar- or player-targeting action, including a scalar-mode SCAN. {@code grade} is populated for
-     * {@code CARD_PLAYED} only, from the originating {@code CardPlayedPayload}'s grade; {@code null} for
-     * {@code SPECIAL_ACTION_PLAYED}, which carries no grade. {@code envelopeEventId} is the tie-break secondary
-     * sort key for two actions sharing an identical {@code occurredAt}.
+     * a list-mode {@code CardPlayed} (currently only SCAN's grade-sized multi-event selection); empty for every
+     * scalar- or player-targeting action, including a scalar-mode SCAN — never {@code null}, so callers can test
+     * {@code isEmpty()} without a null check. {@code grade} is populated for {@code CARD_PLAYED} only, from the
+     * originating {@code CardPlayedPayload}'s grade; {@code null} for {@code SPECIAL_ACTION_PLAYED}, which carries
+     * no grade. {@code envelopeEventId} is the tie-break secondary sort key for two actions sharing an identical
+     * {@code occurredAt}.
      */
     record BufferedAction(
             ActionKind kind,
@@ -50,5 +51,9 @@ public interface RoundActionBufferPort {
             UUID targetPlayerId,
             CardGrade grade,
             Instant occurredAt,
-            UUID envelopeEventId) {}
+            UUID envelopeEventId) {
+        public BufferedAction {
+            targetEventIds = targetEventIds == null ? List.of() : List.copyOf(targetEventIds);
+        }
+    }
 }

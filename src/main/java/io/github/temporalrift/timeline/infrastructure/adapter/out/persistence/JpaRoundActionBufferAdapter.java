@@ -34,7 +34,7 @@ class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
                 action.playerId(),
                 action.cardInstanceId(),
                 action.targetEventId(),
-                action.targetEventIds() == null ? null : objectMapper.writeValueAsString(action.targetEventIds()),
+                action.targetEventIds().isEmpty() ? null : objectMapper.writeValueAsString(action.targetEventIds()),
                 action.sourceOutcomeId(),
                 action.targetOutcomeId(),
                 action.targetPlayerId(),
@@ -69,7 +69,7 @@ class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
     /** Drops any null entry a degenerate persisted array might contain — {@code List.of} rejects nulls outright. */
     private List<UUID> toTargetEventIds(String json) {
         if (json == null) {
-            return null;
+            return List.of();
         }
         return Arrays.stream(objectMapper.readValue(json, UUID[].class))
                 .filter(Objects::nonNull)
