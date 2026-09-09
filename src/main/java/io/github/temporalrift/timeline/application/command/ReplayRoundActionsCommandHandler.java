@@ -204,7 +204,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
     /** The 1-3 event ids a list-mode SCAN selected, or the single id a scalar-mode SCAN targeted. */
     private static List<UUID> effectiveScanTargets(BufferedAction scan) {
-        if (scan.targetEventIds() != null && !scan.targetEventIds().isEmpty()) {
+        if (!scan.targetEventIds().isEmpty()) {
             return scan.targetEventIds();
         }
         return scan.targetEventId() != null ? List.of(scan.targetEventId()) : List.of();
@@ -329,7 +329,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private Optional<FutureEvent> tryFindEvent(UUID eventId) {
         try {
             return Optional.of(futureEvents.findById(eventId));
-        } catch (FutureEventNotFoundException e) {
+        } catch (FutureEventNotFoundException _) {
             log.warn("Buffered action targets unknown FutureEvent {} — skipping its effect", eventId);
             return Optional.empty();
         }

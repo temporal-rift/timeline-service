@@ -59,7 +59,7 @@ class JpaRoundActionBufferAdapterTest {
     }
 
     @Test
-    void save_scalarModeAction_leavesTargetEventIdsNull() {
+    void save_scalarModeAction_leavesTargetEventIdsEmpty() {
         var gameId = UUID.randomUUID();
         var targetEventId = UUID.randomUUID();
         var action = new BufferedAction(
@@ -81,7 +81,7 @@ class JpaRoundActionBufferAdapterTest {
 
         var found = buffer.findByRound(gameId, 1, 1);
         assertThat(found).hasSize(1);
-        assertThat(found.getFirst().targetEventIds()).isNull();
+        assertThat(found.getFirst().targetEventIds()).isEmpty();
         assertThat(found.getFirst().targetEventId()).isEqualTo(targetEventId);
     }
 
