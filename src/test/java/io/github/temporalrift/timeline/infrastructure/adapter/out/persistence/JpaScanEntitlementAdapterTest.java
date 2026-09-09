@@ -99,8 +99,15 @@ class JpaScanEntitlementAdapterTest {
 
     @Test
     void deleteByGameAndEra_noMatchingRows_isHarmless() {
-        // No exception is the assertion; JUnit fails the test if deleteByGameAndEra throws.
+        var unrelatedGameId = UUID.randomUUID();
+        var unrelatedPlayerId = UUID.randomUUID();
+        var unrelatedEventId = UUID.randomUUID();
+        scanEntitlements.upsert(unrelatedGameId, 1, unrelatedPlayerId, unrelatedEventId);
+
         scanEntitlements.deleteByGameAndEra(UUID.randomUUID(), 1);
+
+        assertThat(scanEntitlements.findByGameAndEra(unrelatedGameId, 1))
+                .containsExactly(new ScanEntitlement(unrelatedPlayerId, unrelatedEventId));
     }
 
     @Test

@@ -24,8 +24,10 @@ import org.springframework.test.context.ActiveProfiles;
 
 /**
  * End-to-end proof that a list-mode SCAN's {@code ProbabilityStateRevealed} is published at the round it was
- * played and at a later round with no buffered actions, stops after {@code EraEnded} cleans up its entitlement,
- * and never mutates the scanned event's probabilities.
+ * played, at a later round with no buffered actions, and again at a further round while still active; agrees
+ * with the banded state published at the same round close; stops after {@code EraEnded} cleans up its
+ * entitlement; never mutates the scanned event's probabilities; is not duplicated by a redelivered
+ * {@code ActionRoundClosed}; and is cleaned up by a direct {@code GameEnded} with no preceding {@code EraEnded}.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -34,6 +36,7 @@ class ScanProbabilityRevealsIT {
 
     private static final String GAME_EVENTS_TOPIC = "game.events";
     private static final String PROBABILITY_STATE_REVEALED = "ProbabilityStateRevealed";
+    private static final String BANDED_PROBABILITY_PUBLISHED = "BandedProbabilityPublished";
 
     @Autowired
     KafkaTemplate<Object, Object> kafkaTemplate;
@@ -86,12 +89,33 @@ class ScanProbabilityRevealsIT {
         assertThat(secondReveal).containsEntry("roundNumber", 2);
         assertOutcomeProbabilities(secondReveal, winnerOutcomeId, 70, loserOutcomeId, 30);
 
+        // Round 2's exact reveal and the public banded state published at the same round close must derive
+        // from identical underlying probabilities: 70% bands HIGH and 30% bands LOW under this profile's
+        // configured band-low-max/band-medium-max (30/60).
+        var bandedPayload = collector.messagesFor(gameId).stream()
+                .filter(m -> BANDED_PROBABILITY_PUBLISHED.equals(m.eventType()))
+                .map(TimelineEventsTestCollector.CollectedMessage::payload)
+                .findFirst()
+                .orElseThrow();
+        assertBand(bandedPayload, futureEventId, winnerOutcomeId, "HIGH");
+        assertBand(bandedPayload, futureEventId, loserOutcomeId, "LOW");
+
         // SCAN never mutates: the scanned event's own probabilities are untouched by any of the above.
         assertThat(jdbcTemplate.queryForObject(
                         "SELECT COUNT(*) FROM event_store WHERE aggregate_id = ? AND event_type = 'ProbabilityShifted'",
                         Integer.class,
                         futureEventId))
                 .isZero();
+
+        // Round 3 closes while the entitlement is still active (era has not ended) — it must keep revealing.
+        publishActionRoundClosed(gameId, eraNumber, 3);
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(collector.messagesFor(gameId).stream()
+                                .filter(m -> PROBABILITY_STATE_REVEALED.equals(m.eventType()))
+                                .count())
+                        .isEqualTo(3));
+        var thirdReveal = revealFor(gameId, futureEventId, 3);
+        assertOutcomeProbabilities(thirdReveal, winnerOutcomeId, 70, loserOutcomeId, 30);
 
         publishEraEnded(gameId, eraNumber);
         await().atMost(Duration.ofSeconds(30))
@@ -103,13 +127,46 @@ class ScanProbabilityRevealsIT {
                         .isZero());
 
         // A further round close in the same era must not resurrect a reveal for the now-cleaned-up entitlement.
-        publishActionRoundClosed(gameId, eraNumber, 3);
+        publishActionRoundClosed(gameId, eraNumber, 4);
         await().pollDelay(Duration.ofSeconds(5))
                 .atMost(Duration.ofSeconds(10))
                 .untilAsserted(() -> assertThat(collector.messagesFor(gameId).stream()
                                 .filter(m -> PROBABILITY_STATE_REVEALED.equals(m.eventType()))
                                 .count())
-                        .isEqualTo(2));
+                        .isEqualTo(3));
+    }
+
+    @Test
+    void redeliveredActionRoundClosed_doesNotDuplicateTheReveal() {
+        var gameId = UUID.randomUUID();
+        var eraNumber = 1;
+        var futureEventId = UUID.randomUUID();
+        var winnerOutcomeId = UUID.randomUUID();
+        var loserOutcomeId = UUID.randomUUID();
+        var scanningPlayerId = UUID.randomUUID();
+        var actionRoundClosedEventId = UUID.randomUUID();
+
+        publishEraStarted(gameId, eraNumber);
+        publishEventsDrawn(gameId, eraNumber, futureEventId, winnerOutcomeId, 55, loserOutcomeId, 45);
+        awaitFutureEventIndexed(gameId, eraNumber);
+        publishScanCardPlayed(gameId, eraNumber, 1, scanningPlayerId, List.of(futureEventId));
+        publishActionRoundClosed(gameId, eraNumber, 1, actionRoundClosedEventId);
+
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(collector.eventTypesFor(gameId)).contains(PROBABILITY_STATE_REVEALED));
+        var countAfterFirstDelivery = collector.messagesFor(gameId).stream()
+                .filter(m -> PROBABILITY_STATE_REVEALED.equals(m.eventType()))
+                .count();
+
+        // Same envelope eventId — must be claimed-and-skipped, not replayed a second time.
+        publishActionRoundClosed(gameId, eraNumber, 1, actionRoundClosedEventId);
+
+        await().pollDelay(Duration.ofSeconds(5))
+                .atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(collector.messagesFor(gameId).stream()
+                                .filter(m -> PROBABILITY_STATE_REVEALED.equals(m.eventType()))
+                                .count())
+                        .isEqualTo(countAfterFirstDelivery));
     }
 
     @Test
@@ -176,6 +233,22 @@ class ScanProbabilityRevealsIT {
                         && Integer.valueOf(roundNumber).equals(p.get("roundNumber")))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertBand(
+            Map<String, Object> bandedPayload, UUID eventId, UUID outcomeId, String expectedBand) {
+        var eventStates = (List<Map<String, Object>>) bandedPayload.get("eventStates");
+        var eventState = eventStates.stream()
+                .filter(e -> eventId.toString().equals(e.get("eventId")))
+                .findFirst()
+                .orElseThrow();
+        var outcomes = (List<Map<String, Object>>) eventState.get("outcomes");
+        var outcome = outcomes.stream()
+                .filter(o -> outcomeId.toString().equals(o.get("outcomeId")))
+                .findFirst()
+                .orElseThrow();
+        assertThat(outcome).containsEntry("band", expectedBand);
     }
 
     @SuppressWarnings("unchecked")
@@ -262,6 +335,10 @@ class ScanProbabilityRevealsIT {
     }
 
     private void publishActionRoundClosed(UUID gameId, int eraNumber, int roundNumber) {
+        publishActionRoundClosed(gameId, eraNumber, roundNumber, UUID.randomUUID());
+    }
+
+    private void publishActionRoundClosed(UUID gameId, int eraNumber, int roundNumber, UUID eventId) {
         publish(
                 gameId,
                 "ActionRoundClosed",
@@ -275,7 +352,8 @@ class ScanProbabilityRevealsIT {
                         "closedReason",
                         "ALL_SUBMITTED",
                         "totalActions",
-                        1));
+                        1),
+                eventId);
     }
 
     private void publishEraEnded(UUID gameId, int eraNumber) {
@@ -298,10 +376,14 @@ class ScanProbabilityRevealsIT {
     }
 
     private void publish(UUID gameId, String eventType, Object payload) {
+        publish(gameId, eventType, payload, UUID.randomUUID());
+    }
+
+    private void publish(UUID gameId, String eventType, Object payload, UUID eventId) {
         Message<Object> message = MessageBuilder.withPayload(payload)
                 .setHeader(KafkaHeaders.TOPIC, GAME_EVENTS_TOPIC)
                 .setHeader(KafkaHeaders.KEY, gameId.toString())
-                .setHeader("eventId", UUID.randomUUID().toString())
+                .setHeader("eventId", eventId.toString())
                 .setHeader("aggregateId", gameId.toString())
                 .setHeader("aggregateType", "Game")
                 .setHeader("gameId", gameId.toString())

@@ -1,6 +1,8 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 import org.springframework.stereotype.Repository;
@@ -55,12 +57,22 @@ class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
                 e.playerId(),
                 e.cardInstanceId(),
                 e.targetEventId(),
-                e.targetEventIds() == null ? null : List.of(objectMapper.readValue(e.targetEventIds(), UUID[].class)),
+                toTargetEventIds(e.targetEventIds()),
                 e.sourceOutcomeId(),
                 e.targetOutcomeId(),
                 e.targetPlayerId(),
                 e.grade(),
                 e.occurredAt(),
                 e.envelopeEventId());
+    }
+
+    /** Drops any null entry a degenerate persisted array might contain — {@code List.of} rejects nulls outright. */
+    private List<UUID> toTargetEventIds(String json) {
+        if (json == null) {
+            return null;
+        }
+        return Arrays.stream(objectMapper.readValue(json, UUID[].class))
+                .filter(Objects::nonNull)
+                .toList();
     }
 }
