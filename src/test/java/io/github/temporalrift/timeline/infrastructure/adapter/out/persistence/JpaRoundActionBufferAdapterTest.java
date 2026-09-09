@@ -40,6 +40,9 @@ class JpaRoundActionBufferAdapterTest {
     @Autowired
     RoundActionBufferPort buffer;
 
+    @Autowired
+    RoundActionBufferJpaRepository jpaRepository;
+
     @Test
     void save_listModeScan_roundTripsTargetEventIds() {
         var gameId = UUID.randomUUID();
@@ -80,6 +83,33 @@ class JpaRoundActionBufferAdapterTest {
         assertThat(found).hasSize(1);
         assertThat(found.getFirst().targetEventIds()).isNull();
         assertThat(found.getFirst().targetEventId()).isEqualTo(targetEventId);
+    }
+
+    @Test
+    void findByRound_persistedTargetEventIdsContainsNull_dropsTheNullEntryInstead() {
+        var gameId = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        var entity = new RoundActionBufferEntity(
+                new RoundKey(gameId, 1, 1),
+                ActionKind.CARD_PLAYED,
+                "SCAN",
+                null,
+                CardGrade.I,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                null,
+                "[\"" + eventId + "\", null]",
+                null,
+                null,
+                null,
+                Instant.now(),
+                UUID.randomUUID());
+        jpaRepository.save(entity);
+
+        var found = buffer.findByRound(gameId, 1, 1);
+
+        assertThat(found).hasSize(1);
+        assertThat(found.getFirst().targetEventIds()).containsExactly(eventId);
     }
 
     private static BufferedAction scanAction(List<UUID> targetEventIds) {
