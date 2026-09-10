@@ -13,14 +13,11 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
-import org.springframework.test.context.ActiveProfiles;
 
 /**
  * End-to-end proof of {@code ParadoxResolutionSaga}'s force-cascade branch
@@ -28,9 +25,7 @@ import org.springframework.test.context.ActiveProfiles;
  * (2s in {@code application-test.yml}) expires with no submissions, force-cascading it into a
  * {@code ParadoxCascaded} and a single, deferred {@code EraResolutionCompleted} in reveal order.
  */
-@SpringBootTest
-@ActiveProfiles("test")
-@Import({TestcontainersConfiguration.class, TimelineEventsTestCollector.class})
+@TimelineServiceIntegrationTest
 class ParadoxResolutionForceCascadeIT {
 
     private static final String GAME_EVENTS_TOPIC = "game.events";

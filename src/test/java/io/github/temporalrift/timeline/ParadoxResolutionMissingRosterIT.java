@@ -10,10 +10,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 
 /**
@@ -22,12 +19,11 @@ import org.springframework.test.context.TestPropertySource;
  * against the group that opens phases) neither closes on its first submission nor drops the rest.
  *
  * <p>Runs with a longer resolution timer than the rest of the suite so the assertions are about the
- * all-submitted trigger rather than about racing a 2s timer.
+ * all-submitted trigger rather than about racing a 2s timer — that property override is also why this is
+ * the one class in the suite that boots a context of its own.
  */
-@SpringBootTest
-@ActiveProfiles("test")
+@TimelineServiceIntegrationTest
 @TestPropertySource(properties = "game.rules.paradox-resolution-timer-seconds=15")
-@Import({TestcontainersConfiguration.class, TimelineEventsTestCollector.class, GameEventsTestPublisher.class})
 class ParadoxResolutionMissingRosterIT {
 
     private static final String PARADOX_RESOLUTION_PHASE_STARTED = "ParadoxResolutionPhaseStarted";

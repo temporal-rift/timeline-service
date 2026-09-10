@@ -13,14 +13,11 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
-import org.springframework.test.context.ActiveProfiles;
 
 /**
  * End-to-end proof that a list-mode SCAN's {@code ProbabilityStateRevealed} is published at the round it was
@@ -29,9 +26,7 @@ import org.springframework.test.context.ActiveProfiles;
  * entitlement; never mutates the scanned event's probabilities; is not duplicated by a redelivered
  * {@code ActionRoundClosed}; and is cleaned up by a direct {@code GameEnded} with no preceding {@code EraEnded}.
  */
-@SpringBootTest
-@ActiveProfiles("test")
-@Import({TestcontainersConfiguration.class, TimelineEventsTestCollector.class})
+@TimelineServiceIntegrationTest
 class ScanProbabilityRevealsIT {
 
     private static final String GAME_EVENTS_TOPIC = "game.events";
