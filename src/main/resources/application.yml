@@ -1,19 +1,3 @@
-game:
-  rules:
-    probability:
-      # push-shift/suppress-shift/swing-shift/amplify-multiplier/band-low-max/band-medium-max come from the
-      # shared Config Server by default (spring.config.import below) — no longer hard-coded here. A profile
-      # document or environment variable can still override any individual key.
-      floor: 0
-      ceiling: 90
-      # Activist specials: Momentum's declaration-time bonus and Rally's Round 1 transfer multiplier.
-      momentum-bonus: 10
-      rally-multiplier: 1.5
-    # ParadoxResolutionPhaseStarted.timerSeconds default.
-    paradox-resolution-timer-seconds: 60
-  timers:
-    paradox-resolution-sweep-interval: 1s
-
 spring:
   application:
     name: timeline-service
