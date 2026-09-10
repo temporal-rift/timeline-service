@@ -86,7 +86,13 @@ class ScanProbabilityRevealsIT {
 
         // Round 2's exact reveal and the public banded state published at the same round close must derive
         // from identical underlying probabilities: 70% bands HIGH and 30% bands LOW under this profile's
-        // configured band-low-max/band-medium-max (30/60).
+        // configured band-low-max/band-medium-max (30/60). Published by a separate listener than
+        // PROBABILITY_STATE_REVEALED off the same round close, so it needs its own await rather than
+        // assuming it already landed.
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(
+                        () -> assertThat(collector.eventTypesFor(gameId)).contains(BANDED_PROBABILITY_PUBLISHED));
+
         var bandedPayload = collector.messagesFor(gameId).stream()
                 .filter(m -> BANDED_PROBABILITY_PUBLISHED.equals(m.eventType()))
                 .map(TimelineEventsTestCollector.CollectedMessage::payload)
