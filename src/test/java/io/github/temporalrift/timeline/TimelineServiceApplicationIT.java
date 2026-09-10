@@ -9,18 +9,13 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.test.context.ActiveProfiles;
 
 import io.github.temporalrift.timeline.domain.eventstore.StoredEvent;
 import io.github.temporalrift.timeline.domain.port.out.EventStorePort;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
-@SpringBootTest
-@ActiveProfiles("test")
-@Import(TestcontainersConfiguration.class)
+@TimelineServiceIntegrationTest
 class TimelineServiceApplicationIT {
 
     @Autowired

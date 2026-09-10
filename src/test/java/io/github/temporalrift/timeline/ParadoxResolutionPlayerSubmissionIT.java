@@ -11,10 +11,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
 
 /**
  * End-to-end proof of {@code ParadoxResolutionSaga}'s player-submission branch
@@ -22,9 +19,7 @@ import org.springframework.test.context.ActiveProfiles;
  * 2s test timer (application-test.yml), and a multi-paradox event where one paradox clears while another
  * (a permanent {@code SEAL_BREACH}) does not.
  */
-@SpringBootTest
-@ActiveProfiles("test")
-@Import({TestcontainersConfiguration.class, TimelineEventsTestCollector.class, GameEventsTestPublisher.class})
+@TimelineServiceIntegrationTest
 class ParadoxResolutionPlayerSubmissionIT {
 
     private static final String PARADOX_DETECTED = "ParadoxDetected";

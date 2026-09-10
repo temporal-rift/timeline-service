@@ -13,14 +13,11 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
-import org.springframework.test.context.ActiveProfiles;
 
 /**
  * End-to-end proof of the MVP2 walking skeleton: publishes real-shaped {@code EraStarted} /
@@ -30,9 +27,7 @@ import org.springframework.test.context.ActiveProfiles;
  * — lands on {@code timeline.events}. Also confirms the {@code eventType}
  * header round-trips end-to-end (design.md Decision 2).
  */
-@SpringBootTest
-@ActiveProfiles("test")
-@Import({TestcontainersConfiguration.class, TimelineEventsTestCollector.class})
+@TimelineServiceIntegrationTest
 class ResolutionWalkingSkeletonIT {
 
     private static final String GAME_EVENTS_TOPIC = "game.events";
