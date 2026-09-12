@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -34,18 +35,31 @@ class JpaWeaverChainRepository implements WeaverChainRepository {
     private final AggregateSnapshotPort snapshots;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final int snapshotInterval;
 
+    @Autowired
     JpaWeaverChainRepository(
             EventStorePort eventStore,
             EventStoreAppender appender,
             AggregateSnapshotPort snapshots,
             ObjectMapper objectMapper,
             Clock clock) {
+        this(eventStore, appender, snapshots, objectMapper, clock, SNAPSHOT_INTERVAL);
+    }
+
+    JpaWeaverChainRepository(
+            EventStorePort eventStore,
+            EventStoreAppender appender,
+            AggregateSnapshotPort snapshots,
+            ObjectMapper objectMapper,
+            Clock clock,
+            int snapshotInterval) {
         this.eventStore = eventStore;
         this.appender = appender;
         this.snapshots = snapshots;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.snapshotInterval = snapshotInterval;
     }
 
     @Override
@@ -87,7 +101,7 @@ class JpaWeaverChainRepository implements WeaverChainRepository {
     }
 
     void maybeSnapshot(UUID chainId, long streamSize) {
-        if (isSnapshotDue(streamSize)) {
+        if (isSnapshotDue(streamSize, snapshotInterval)) {
             var chain = findById(chainId);
             snapshots.save(new AggregateSnapshot(
                     chainId,
@@ -98,8 +112,8 @@ class JpaWeaverChainRepository implements WeaverChainRepository {
         }
     }
 
-    static boolean isSnapshotDue(long streamSize) {
-        return streamSize > 0 && streamSize % SNAPSHOT_INTERVAL == 0;
+    static boolean isSnapshotDue(long streamSize, int interval) {
+        return streamSize > 0 && streamSize % interval == 0;
     }
 
     private WeaverChainEvent toDomainEvent(StoredEvent stored) {

@@ -113,6 +113,27 @@ class WeaverChainTest {
     }
 
     @Test
+    void replay_duplicateEventLink_throwsIllegalState() {
+        var eventId = UUID.randomUUID();
+        var history = List.of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkAdded(CHAIN_ID, eventId, UUID.randomUUID(), 1),
+                new ChainLinkAdded(CHAIN_ID, eventId, UUID.randomUUID(), 2));
+
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void replay_completionBelowThreeLinks_throwsIllegalState() {
+        var history = List.of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1),
+                new ChainCompleted(CHAIN_ID));
+
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void replay_eventAfterTerminal_throwsIllegalState() {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();

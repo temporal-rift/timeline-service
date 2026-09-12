@@ -70,6 +70,27 @@ class JpaWeaverChainRepositorySnapshotTest {
         assertThat(eventStore.streamSize(chainId)).isZero();
     }
 
+    @Test
+    void append_reachingInterval_snapshotsThroughTheProductionPath() {
+        var snapshotting = new JpaWeaverChainRepository(
+                eventStore, new EventStoreAppender(eventStore, objectMapper, clock), snapshots, objectMapper, clock, 2);
+        var chainId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+
+        snapshotting.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
+        assertThat(snapshots.saved).isEmpty();
+        snapshotting.append(chainId, new ChainLinkAdded(chainId, eventId, outcomeId, 1));
+
+        assertThat(snapshots.saved).containsKey(chainId);
+        var saved = snapshots.saved.get(chainId);
+        assertThat(saved.sequenceNr()).isEqualTo(2);
+        assertThat(objectMapper.readValue(saved.snapshotData(), WeaverChainSnapshot.class))
+                .isEqualTo(snapshotting.findById(chainId).snapshot());
+    }
+
     private UUID seedChain() {
         var chainId = UUID.randomUUID();
         var eventId = UUID.randomUUID();
