@@ -70,11 +70,24 @@ class JpaWeaverChainRepository implements WeaverChainRepository {
     @Override
     @Transactional
     public void appendAll(UUID chainId, List<Object> domainEvents) {
+        for (var domainEvent : domainEvents) {
+            requireChainEvent(domainEvent);
+        }
         var streamSize = eventStore.streamSize(chainId);
         for (var domainEvent : domainEvents) {
             streamSize = appender.append(chainId, AGGREGATE_TYPE, EVENT_VERSION, domainEvent);
         }
         maybeSnapshot(chainId, streamSize);
+    }
+
+    private static void requireChainEvent(Object domainEvent) {
+        if (!(domainEvent instanceof WeaverChainStarted
+                || domainEvent instanceof ChainLinkAdded
+                || domainEvent instanceof ChainCompleted
+                || domainEvent instanceof ChainBroken)) {
+            throw new IllegalArgumentException("Unsupported WeaverChain event type: "
+                    + domainEvent.getClass().getName());
+        }
     }
 
     void maybeSnapshot(UUID chainId, long streamSize) {

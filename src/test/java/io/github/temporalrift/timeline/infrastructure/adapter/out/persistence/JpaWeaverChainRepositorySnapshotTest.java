@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -59,6 +60,16 @@ class JpaWeaverChainRepositorySnapshotTest {
         assertThat(saved.sequenceNr()).isEqualTo(20);
         assertThat(objectMapper.readValue(saved.snapshotData(), WeaverChainSnapshot.class))
                 .isEqualTo(chains.findById(chainId).snapshot());
+    }
+
+    @Test
+    void append_unsupportedEventType_throwsAndPersistsNothing() {
+        var chainId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> chains.append(chainId, "invalid")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> chains.appendAll(chainId, List.of("invalid")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(eventStore.streamSize(chainId)).isZero();
     }
 
     private UUID seedChain() {

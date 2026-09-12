@@ -168,8 +168,9 @@ class WeaverChainTest {
         var outcomeId = UUID.randomUUID();
         chain.addLink(eventId, outcomeId, 1, Set.of(new ResolvedOutcome(eventId, outcomeId)));
 
+        var duplicateOutcomeId = UUID.randomUUID();
         assertThatThrownBy(() -> chain.addLink(
-                        eventId, UUID.randomUUID(), 2, Set.of(new ResolvedOutcome(eventId, UUID.randomUUID()))))
+                        eventId, duplicateOutcomeId, 2, Set.of(new ResolvedOutcome(eventId, duplicateOutcomeId))))
                 .isInstanceOf(InvalidChainLinkException.class);
         assertThat(chain.length()).isEqualTo(1);
     }
@@ -278,6 +279,33 @@ class WeaverChainTest {
                 WeaverChain.restore(snapshot, List.of(new ChainLinkAdded(CHAIN_ID, secondEvent, secondOutcome, 2)));
 
         assertThat(fromSnapshot.snapshot()).isEqualTo(fromHistory.snapshot());
+    }
+
+    @Test
+    void replay_startedForDifferentChain_throwsIllegalState() {
+        var otherChainId = UUID.randomUUID();
+
+        assertThatThrownBy(() ->
+                        WeaverChain.replay(CHAIN_ID, List.of(new WeaverChainStarted(otherChainId, PLAYER_ID, GAME_ID))))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void replay_linkFromDifferentChain_throwsIllegalState() {
+        var otherChainId = UUID.randomUUID();
+        var history = List.<Object>of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkAdded(otherChainId, UUID.randomUUID(), UUID.randomUUID(), 1));
+
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void restore_tailFromDifferentChain_throwsIllegalState() {
+        var snapshot = new WeaverChainSnapshot(CHAIN_ID, PLAYER_ID, GAME_ID, List.of(), ChainStatus.ACTIVE);
+        var tail = List.<Object>of(new ChainLinkAdded(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1));
+
+        assertThatThrownBy(() -> WeaverChain.restore(snapshot, tail)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
