@@ -54,7 +54,7 @@ class WeaverChainTest {
 
     @Test
     void replay_threeLinksWithoutTerminal_derivesCompleted() {
-        var history = List.<Object>of(
+        var history = List.of(
                 new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
                 new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1),
                 new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2),
@@ -70,7 +70,7 @@ class WeaverChainTest {
     void addLink_zombieStreamWithThreeLinksAndNoTerminal_rejectsFourth() {
         var zombie = WeaverChain.replay(
                 CHAIN_ID,
-                List.<Object>of(
+                List.of(
                         new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
                         new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1),
                         new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2),
@@ -85,7 +85,7 @@ class WeaverChainTest {
 
     @Test
     void replay_repeatedChainCompleted_isIdempotentEcho() {
-        var history = List.<Object>of(
+        var history = List.of(
                 new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
                 new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1),
                 new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2),
@@ -101,7 +101,7 @@ class WeaverChainTest {
 
     @Test
     void replay_chainBrokenAfterCompleted_throwsIllegalState() {
-        var history = List.<Object>of(
+        var history = List.of(
                 new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
                 new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1),
                 new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2),
@@ -116,7 +116,7 @@ class WeaverChainTest {
     void replay_eventAfterTerminal_throwsIllegalState() {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
-        var history = List.<Object>of(
+        var history = List.of(
                 new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
                 new ChainLinkAdded(CHAIN_ID, eventId, outcomeId, 1),
                 new ChainBroken(CHAIN_ID, "UNRAVEL"),
@@ -247,7 +247,7 @@ class WeaverChainTest {
     void replay_fullHistory_rebuildsCompletedChain() {
         var firstEvent = UUID.randomUUID();
         var firstOutcome = UUID.randomUUID();
-        var history = List.<Object>of(
+        var history = List.of(
                 new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
                 new ChainLinkAdded(CHAIN_ID, firstEvent, firstOutcome, 1),
                 new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2),
@@ -267,7 +267,7 @@ class WeaverChainTest {
         var firstOutcome = UUID.randomUUID();
         var secondEvent = UUID.randomUUID();
         var secondOutcome = UUID.randomUUID();
-        var fullHistory = List.<Object>of(
+        var fullHistory = List.of(
                 new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
                 new ChainLinkAdded(CHAIN_ID, firstEvent, firstOutcome, 1),
                 new ChainLinkAdded(CHAIN_ID, secondEvent, secondOutcome, 2));
@@ -293,7 +293,7 @@ class WeaverChainTest {
     @Test
     void replay_linkFromDifferentChain_throwsIllegalState() {
         var otherChainId = UUID.randomUUID();
-        var history = List.<Object>of(
+        var history = List.of(
                 new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
                 new ChainLinkAdded(otherChainId, UUID.randomUUID(), UUID.randomUUID(), 1));
 
@@ -303,7 +303,7 @@ class WeaverChainTest {
     @Test
     void restore_tailFromDifferentChain_throwsIllegalState() {
         var snapshot = new WeaverChainSnapshot(CHAIN_ID, PLAYER_ID, GAME_ID, List.of(), ChainStatus.ACTIVE);
-        var tail = List.<Object>of(new ChainLinkAdded(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1));
+        var tail = List.of(new ChainLinkAdded(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1));
 
         assertThatThrownBy(() -> WeaverChain.restore(snapshot, tail)).isInstanceOf(IllegalStateException.class);
     }

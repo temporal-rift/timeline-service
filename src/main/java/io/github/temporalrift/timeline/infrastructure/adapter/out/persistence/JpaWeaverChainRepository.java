@@ -2,6 +2,7 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 import org.springframework.stereotype.Repository;
@@ -11,6 +12,7 @@ import tools.jackson.databind.ObjectMapper;
 import io.github.temporalrift.timeline.domain.event.ChainBroken;
 import io.github.temporalrift.timeline.domain.event.ChainCompleted;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
+import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.eventstore.AggregateSnapshot;
 import io.github.temporalrift.timeline.domain.eventstore.StoredEvent;
@@ -63,31 +65,25 @@ class JpaWeaverChainRepository implements WeaverChainRepository {
 
     @Override
     @Transactional
-    public void append(UUID chainId, Object domainEvent) {
-        appendAll(chainId, List.of(domainEvent));
+    public void append(UUID chainId, WeaverChainEvent domainEvent) {
+        appendBatch(chainId, List.of(domainEvent));
     }
 
     @Override
     @Transactional
-    public void appendAll(UUID chainId, List<Object> domainEvents) {
+    public void appendAll(UUID chainId, List<? extends WeaverChainEvent> domainEvents) {
+        appendBatch(chainId, domainEvents);
+    }
+
+    private void appendBatch(UUID chainId, List<? extends WeaverChainEvent> domainEvents) {
         for (var domainEvent : domainEvents) {
-            requireChainEvent(domainEvent);
+            Objects.requireNonNull(domainEvent, "domainEvent");
         }
         var streamSize = eventStore.streamSize(chainId);
         for (var domainEvent : domainEvents) {
             streamSize = appender.append(chainId, AGGREGATE_TYPE, EVENT_VERSION, domainEvent);
         }
         maybeSnapshot(chainId, streamSize);
-    }
-
-    private static void requireChainEvent(Object domainEvent) {
-        if (!(domainEvent instanceof WeaverChainStarted
-                || domainEvent instanceof ChainLinkAdded
-                || domainEvent instanceof ChainCompleted
-                || domainEvent instanceof ChainBroken)) {
-            throw new IllegalArgumentException("Unsupported WeaverChain event type: "
-                    + domainEvent.getClass().getName());
-        }
     }
 
     void maybeSnapshot(UUID chainId, long streamSize) {
@@ -106,7 +102,7 @@ class JpaWeaverChainRepository implements WeaverChainRepository {
         return streamSize > 0 && streamSize % SNAPSHOT_INTERVAL == 0;
     }
 
-    private Object toDomainEvent(StoredEvent stored) {
+    private WeaverChainEvent toDomainEvent(StoredEvent stored) {
         return switch (stored.eventType()) {
             case "WeaverChainStarted" -> objectMapper.readValue(stored.payload(), WeaverChainStarted.class);
             case "ChainLinkAdded" -> objectMapper.readValue(stored.payload(), ChainLinkAdded.class);
