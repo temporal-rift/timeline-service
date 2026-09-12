@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.in.kafka;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -867,6 +868,30 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
 
         then(weaverChainSaga).should().playUnravel(gameId, ERA_NUMBER, playerId, targetPlayerId);
+    }
+
+    @Test
+    @DisplayName("special missing identity coordinates — fails loud without buffering or saga effects")
+    void handle_specialMissingGameId_throwsWithoutSideEffects() {
+        var eventId = UUID.randomUUID();
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("gameId", null);
+        payload.put("eraNumber", ERA_NUMBER);
+        payload.put("roundNumber", ROUND_NUMBER);
+        payload.put("playerId", UUID.randomUUID());
+        payload.put("faction", "ERASERS");
+        payload.put("specialAction", "CORRUPT");
+        payload.put("targetEventId", null);
+        payload.put("targetOutcomeId", null);
+        payload.put("targetPlayerId", UUID.randomUUID());
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+
+        assertThatThrownBy(() -> consumer.handle(
+                        KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1)))
+                .isInstanceOf(NullPointerException.class);
+
+        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
+        then(weaverChainSaga).shouldHaveNoInteractions();
     }
 
     private static ActivistDeclarationRecordedPayload activistDeclarationRecorded(

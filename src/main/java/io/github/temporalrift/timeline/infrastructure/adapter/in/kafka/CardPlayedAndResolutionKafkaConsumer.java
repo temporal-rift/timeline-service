@@ -163,7 +163,8 @@ class CardPlayedAndResolutionKafkaConsumer {
                     // the generated payload type wrongly requires — read the lenient shape instead.
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), SpecialActionPlayedInbound.class);
-                    if (payload.specialAction() != null && KNOWN_SPECIAL_ACTIONS.contains(payload.specialAction())) {
+                    payload.requireEnvelope();
+                    if (KNOWN_SPECIAL_ACTIONS.contains(payload.specialAction())) {
                         buffer.save(
                                 payload.gameId(),
                                 payload.eraNumber(),
@@ -239,9 +240,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                 .ifPresent(envelope -> {
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), SpecialActionPlayedInbound.class);
-                    if (payload.specialAction() == null) {
-                        return;
-                    }
+                    payload.requireEnvelope();
                     switch (payload.specialAction()) {
                         case THREAD -> {
                             if (payload.targetEventId() != null && payload.targetOutcomeId() != null) {

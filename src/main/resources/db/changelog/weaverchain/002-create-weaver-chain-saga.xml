@@ -33,6 +33,14 @@
       <column name="game_id"/>
       <column name="player_id"/>
     </createIndex>
+    <!-- At most one OPEN saga per (game, player): same-partition ordering makes concurrent creation
+         unreachable in practice; this backstops it so a loser rolls back and converges on retry instead
+         of forking duplicate chains. Terminal rows (COMPLETED/BROKEN/ENDED) are unconstrained. -->
+    <sql dbms="postgresql">
+      CREATE UNIQUE INDEX uq_weaver_chain_saga_open_game_player
+      ON weaver_chain_saga (game_id, player_id)
+      WHERE status = 'OPEN';
+    </sql>
   </changeSet>
 
 </databaseChangeLog>
