@@ -1,6 +1,5 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 
-import java.time.Clock;
 import java.util.UUID;
 
 import org.springframework.stereotype.Repository;
@@ -26,13 +25,13 @@ class JpaFutureEventRepository implements FutureEventRepository {
     private static final int EVENT_VERSION = 1;
 
     private final EventStorePort eventStore;
+    private final EventStoreAppender appender;
     private final ObjectMapper objectMapper;
-    private final Clock clock;
 
-    JpaFutureEventRepository(EventStorePort eventStore, ObjectMapper objectMapper, Clock clock) {
+    JpaFutureEventRepository(EventStorePort eventStore, EventStoreAppender appender, ObjectMapper objectMapper) {
         this.eventStore = eventStore;
+        this.appender = appender;
         this.objectMapper = objectMapper;
-        this.clock = clock;
     }
 
     @Override
@@ -44,18 +43,7 @@ class JpaFutureEventRepository implements FutureEventRepository {
 
     @Override
     public void append(UUID eventId, Object domainEvent) {
-        var sequenceNr = eventStore.readStream(eventId).size();
-        var eventType = domainEvent.getClass().getSimpleName();
-        var payload = objectMapper.writeValueAsString(domainEvent);
-        eventStore.append(new StoredEvent(
-                UUID.randomUUID(),
-                eventId,
-                AGGREGATE_TYPE,
-                eventType,
-                EVENT_VERSION,
-                payload,
-                clock.instant(),
-                sequenceNr));
+        appender.append(eventId, AGGREGATE_TYPE, EVENT_VERSION, domainEvent);
     }
 
     private Object toDomainEvent(StoredEvent stored) {

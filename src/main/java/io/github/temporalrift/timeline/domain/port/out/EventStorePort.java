@@ -19,4 +19,13 @@ public interface EventStorePort {
 
     /** Reads an aggregate's full event stream in ascending {@code sequenceNr} order. */
     List<StoredEvent> readStream(UUID aggregateId);
+
+    /**
+     * Reads an aggregate's stream from {@code fromSequenceNr} (inclusive) in ascending {@code sequenceNr} order, so
+     * snapshot-covered prefixes never leave the database.
+     */
+    List<StoredEvent> readStreamFrom(UUID aggregateId, long fromSequenceNr);
+
+    /** Counts an aggregate's stream length without loading its rows. */
+    long streamSize(UUID aggregateId);
 }

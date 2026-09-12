@@ -28,4 +28,18 @@ class JpaEventStoreAdapter implements EventStorePort {
                 .map(EventStoreEntity::toDomain)
                 .toList();
     }
+
+    @Override
+    public List<StoredEvent> readStreamFrom(UUID aggregateId, long fromSequenceNr) {
+        return repository
+                .findByAggregateIdAndSequenceNrGreaterThanEqualOrderBySequenceNrAsc(aggregateId, fromSequenceNr)
+                .stream()
+                .map(EventStoreEntity::toDomain)
+                .toList();
+    }
+
+    @Override
+    public long streamSize(UUID aggregateId) {
+        return repository.countByAggregateId(aggregateId);
+    }
 }

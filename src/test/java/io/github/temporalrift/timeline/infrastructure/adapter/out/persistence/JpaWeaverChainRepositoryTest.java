@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -32,6 +34,7 @@ import io.github.temporalrift.timeline.domain.weaverchain.WeaverChainNotFoundExc
     JpaWeaverChainRepositoryTest.TestConfig.class,
     JpaAggregateSnapshotAdapter.class,
     JpaEventStoreAdapter.class,
+    EventStoreAppender.class,
     JpaWeaverChainRepository.class
 })
 class JpaWeaverChainRepositoryTest {
@@ -122,5 +125,35 @@ class JpaWeaverChainRepositoryTest {
         var chain = chains.findById(chainId);
 
         assertThat(chain.snapshot()).isEqualTo(covered.snapshot());
+    }
+
+    @Test
+    void appendAll_batchOfLinkPlusCompletion_loadsAsCompleted() {
+        var chainId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
+        var resolved = new HashSet<ResolvedOutcome>();
+        var facts = new ArrayList<Object>();
+        var live = chains.findById(chainId);
+        for (int era = 1; era <= 3; era++) {
+            var eventId = UUID.randomUUID();
+            var outcomeId = UUID.randomUUID();
+            resolved.add(new ResolvedOutcome(eventId, outcomeId));
+            if (era < 3) {
+                for (var fact : live.addLink(eventId, outcomeId, era, resolved)) {
+                    chains.append(chainId, fact);
+                }
+                live = chains.findById(chainId);
+            } else {
+                facts.addAll(live.addLink(eventId, outcomeId, era, resolved));
+            }
+        }
+
+        chains.appendAll(chainId, facts);
+
+        var chain = chains.findById(chainId);
+        assertThat(chain.length()).isEqualTo(3);
+        assertThat(chain.status()).isEqualTo(ChainStatus.COMPLETED);
     }
 }

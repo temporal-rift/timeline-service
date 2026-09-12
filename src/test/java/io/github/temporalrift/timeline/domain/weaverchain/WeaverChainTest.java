@@ -53,6 +53,66 @@ class WeaverChainTest {
     }
 
     @Test
+    void replay_threeLinksWithoutTerminal_derivesCompleted() {
+        var history = List.<Object>of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1),
+                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2),
+                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 3));
+
+        var chain = WeaverChain.replay(CHAIN_ID, history);
+
+        assertThat(chain.length()).isEqualTo(3);
+        assertThat(chain.status()).isEqualTo(ChainStatus.COMPLETED);
+    }
+
+    @Test
+    void addLink_zombieStreamWithThreeLinksAndNoTerminal_rejectsFourth() {
+        var zombie = WeaverChain.replay(
+                CHAIN_ID,
+                List.<Object>of(
+                        new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                        new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1),
+                        new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2),
+                        new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 3)));
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> zombie.addLink(eventId, outcomeId, 4, Set.of(new ResolvedOutcome(eventId, outcomeId))))
+                .isInstanceOf(WeaverChainCompletedException.class);
+        assertThat(zombie.length()).isEqualTo(3);
+    }
+
+    @Test
+    void replay_repeatedChainCompleted_isIdempotentEcho() {
+        var history = List.<Object>of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1),
+                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2),
+                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 3),
+                new ChainCompleted(CHAIN_ID),
+                new ChainCompleted(CHAIN_ID));
+
+        var chain = WeaverChain.replay(CHAIN_ID, history);
+
+        assertThat(chain.length()).isEqualTo(3);
+        assertThat(chain.status()).isEqualTo(ChainStatus.COMPLETED);
+    }
+
+    @Test
+    void replay_chainBrokenAfterCompleted_throwsIllegalState() {
+        var history = List.<Object>of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1),
+                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2),
+                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 3),
+                new ChainCompleted(CHAIN_ID),
+                new ChainBroken(CHAIN_ID, "UNRAVEL"));
+
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void replay_eventAfterTerminal_throwsIllegalState() {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
