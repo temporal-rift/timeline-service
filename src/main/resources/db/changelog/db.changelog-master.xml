@@ -13,6 +13,9 @@
     <!-- FutureEvent: era index -->
     <include file="db/changelog/futureevent/001-create-future-event-era-index.xml"/>
 
+    <!-- WeaverChain: aggregate snapshots -->
+    <include file="db/changelog/weaverchain/001-create-aggregate-snapshot.xml"/>
+
     <!-- Era: player roster carried by EraStarted -->
     <include file="db/changelog/era/001-create-era-players.xml"/>
 
