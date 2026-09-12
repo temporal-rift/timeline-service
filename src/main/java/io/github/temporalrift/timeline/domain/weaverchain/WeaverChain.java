@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import io.github.temporalrift.timeline.domain.event.ChainBroken;
 import io.github.temporalrift.timeline.domain.event.ChainCompleted;
+import io.github.temporalrift.timeline.domain.event.ChainFact;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
 import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
@@ -42,6 +43,7 @@ public final class WeaverChain {
             throw new WeaverChainNotFoundException(chainId);
         }
         WeaverChain chain = null;
+        // if-chains, not a switch: every guard below depends on the stream content, which keeps this path quiet.
         for (var event : history) {
             if (event instanceof WeaverChainStarted started) {
                 if (chain != null) {
@@ -53,12 +55,12 @@ public final class WeaverChain {
                 }
                 chain = new WeaverChain(
                         chainId, started.playerId(), started.gameId(), new ArrayList<>(), ChainStatus.ACTIVE);
-            } else {
+            } else if (event instanceof ChainFact fact) {
                 if (chain == null) {
                     throw new IllegalStateException(
                             "Event replayed outside the started and active state for " + chainId);
                 }
-                chain.applyReplayed(event, chainId);
+                chain.applyReplayed(fact, chainId);
             }
         }
         return chain;
@@ -79,7 +81,9 @@ public final class WeaverChain {
                 throw new IllegalStateException(
                         "WeaverChainStarted cannot follow a snapshot for " + snapshot.chainId());
             }
-            chain.applyReplayed(event, snapshot.chainId());
+            if (event instanceof ChainFact fact) {
+                chain.applyReplayed(fact, snapshot.chainId());
+            }
         }
         return chain;
     }
@@ -89,10 +93,9 @@ public final class WeaverChain {
      * still rebuilds as completed. A repeated {@link ChainCompleted} is an idempotent echo; anything else after a
      * terminal state fails loudly. Facts carrying another chain's id are rejected before any state mutation.
      */
-    private void applyReplayed(WeaverChainEvent event, UUID chainId) {
-        var eventChainId = chainIdOf(event);
-        if (!Objects.equals(eventChainId, chainId)) {
-            throw new IllegalStateException("Event belongs to WeaverChain " + eventChainId + ", not " + chainId);
+    private void applyReplayed(ChainFact event, UUID chainId) {
+        if (!Objects.equals(event.chainId(), chainId)) {
+            throw new IllegalStateException("Event belongs to WeaverChain " + event.chainId() + ", not " + chainId);
         }
         if (event instanceof ChainCompleted && status == ChainStatus.COMPLETED) {
             return;
@@ -103,16 +106,7 @@ public final class WeaverChain {
         apply(event);
     }
 
-    private static UUID chainIdOf(WeaverChainEvent event) {
-        return switch (event) {
-            case WeaverChainStarted e -> e.chainId();
-            case ChainLinkAdded e -> e.chainId();
-            case ChainCompleted e -> e.chainId();
-            case ChainBroken e -> e.chainId();
-        };
-    }
-
-    private void apply(WeaverChainEvent event) {
+    private void apply(ChainFact event) {
         switch (event) {
             case ChainLinkAdded e -> {
                 links.add(new ChainLink(e.eventId(), e.outcomeId(), e.eraNumber()));
@@ -122,8 +116,6 @@ public final class WeaverChain {
             }
             case ChainCompleted _ -> status = ChainStatus.COMPLETED;
             case ChainBroken _ -> status = ChainStatus.BROKEN;
-            case WeaverChainStarted _ ->
-                throw new IllegalStateException("WeaverChainStarted cannot be applied to chain " + chainId);
         }
     }
 
