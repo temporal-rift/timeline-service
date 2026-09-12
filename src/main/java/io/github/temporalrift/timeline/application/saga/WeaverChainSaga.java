@@ -3,6 +3,7 @@ package io.github.temporalrift.timeline.application.saga;
 import java.time.Clock;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -236,7 +237,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         if (!futureEvent.resolved()) {
             return false;
         }
-        return winningOutcomeId(futureEvent.outcomes()).equals(outcomeId);
+        return Objects.equals(winningOutcomeId(futureEvent.outcomes()), outcomeId);
     }
 
     /** Highest-probability non-annihilated outcome, ties broken by smallest outcomeId — as resolved. */

@@ -1,9 +1,13 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.UUID;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.PersistenceException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -22,6 +26,9 @@ class JpaWeaverChainSagaAdapterTest {
 
     @Autowired
     WeaverChainSagaRepository sagas;
+
+    @PersistenceContext
+    EntityManager entityManager;
 
     @Test
     void save_thenFindByChainId_roundTripsOrchestrationFlags() {
@@ -86,6 +93,32 @@ class JpaWeaverChainSagaAdapterTest {
 
         var state = sagas.findByChainId(chainId).orElseThrow();
         assertThat(state.tapestryProtected()).isFalse();
+        assertThat(sagas.findOpenByGameAndPlayer(gameId, playerId)).isPresent();
+    }
+
+    @Test
+    void save_secondOpenSagaForSameGameAndPlayer_violatesPartialUniqueIndex() {
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        sagas.save(
+                new WeaverChainSagaState(UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null));
+        sagas.save(
+                new WeaverChainSagaState(UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null));
+
+        assertThatThrownBy(entityManager::flush).isInstanceOf(PersistenceException.class);
+    }
+
+    @Test
+    void save_openAndTerminalSagasForSameGameAndPlayer_coexist() {
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        sagas.save(
+                new WeaverChainSagaState(UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null));
+        sagas.save(new WeaverChainSagaState(
+                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null));
+
+        entityManager.flush();
+
         assertThat(sagas.findOpenByGameAndPlayer(gameId, playerId)).isPresent();
     }
 }

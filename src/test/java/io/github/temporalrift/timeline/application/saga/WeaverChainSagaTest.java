@@ -148,6 +148,21 @@ class WeaverChainSagaTest {
     }
 
     @Test
+    void thread_fullyAnnihilatedResolvedEvent_rejectedWithoutGrowth() {
+        var chainId = openChainWithLinks(1);
+        var targetEvent = UUID.randomUUID();
+        var targetOutcome = UUID.randomUUID();
+        given(futureEvents.findById(targetEvent)).willReturn(fullyAnnihilatedEvent(targetEvent));
+
+        saga.playThread(GAME_ID, ERA, PLAYER_ID, targetEvent, targetOutcome);
+
+        assertThat(chains.findById(chainId).length()).isEqualTo(1);
+        var rejected = published(ThreadRejectedEvent.class);
+        assertThat(rejected.reason()).isEqualTo("OUTCOME_DID_NOT_RESOLVE");
+        publishedNever(ChainLinkAddedEvent.class);
+    }
+
+    @Test
     void thread_invalidWithoutActiveChain_rejectedWithoutMaterializingAChain() {
         var targetEvent = UUID.randomUUID();
         var targetOutcome = UUID.randomUUID();
@@ -304,6 +319,19 @@ class WeaverChainSagaTest {
                 new Outcome(UUID.randomUUID(), "second", 33),
                 new Outcome(UUID.randomUUID(), "third", 33));
         return FutureEvent.replay(eventId, List.of(new FutureEventDrafted(eventId, outcomes)));
+    }
+
+    private FutureEvent fullyAnnihilatedEvent(UUID eventId) {
+        var outcomes = List.of(
+                new Outcome(UUID.randomUUID(), "first", 34, false, true),
+                new Outcome(UUID.randomUUID(), "second", 33, false, true),
+                new Outcome(UUID.randomUUID(), "third", 33, false, true));
+        return FutureEvent.replay(
+                eventId,
+                List.of(
+                        new FutureEventDrafted(eventId, outcomes),
+                        new OutcomeApplied(
+                                GAME_ID, ERA - 1, eventId, outcomes.get(0).outcomeId(), outcomes)));
     }
 
     @SuppressWarnings("unchecked")
