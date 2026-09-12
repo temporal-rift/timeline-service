@@ -91,7 +91,8 @@ public final class WeaverChain {
     /**
      * Applies one replayed event, deriving completion from the link count so a stream missing its terminal fact
      * still rebuilds as completed. A repeated {@link ChainCompleted} is an idempotent echo; anything else after a
-     * terminal state fails loudly. Facts carrying another chain's id are rejected before any state mutation.
+     * terminal state fails loudly. Facts carrying another chain's id, repeating a linked event, or completing a
+     * short chain are rejected before any state mutation.
      */
     private void applyReplayed(ChainFact event, UUID chainId) {
         if (!Objects.equals(event.chainId(), chainId)) {
@@ -102,6 +103,13 @@ public final class WeaverChain {
         }
         if (status != ChainStatus.ACTIVE) {
             throw new IllegalStateException("Event replayed outside the started and active state for " + chainId);
+        }
+        if (event instanceof ChainLinkAdded added
+                && links.stream().anyMatch(link -> link.eventId().equals(added.eventId()))) {
+            throw new IllegalStateException("Duplicate event link for " + added.eventId());
+        }
+        if (event instanceof ChainCompleted && links.size() != COMPLETION_LENGTH) {
+            throw new IllegalStateException("ChainCompleted requires " + COMPLETION_LENGTH + " links");
         }
         apply(event);
     }
