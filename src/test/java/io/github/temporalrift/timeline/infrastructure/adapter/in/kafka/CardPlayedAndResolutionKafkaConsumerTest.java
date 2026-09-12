@@ -11,7 +11,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
@@ -41,6 +43,7 @@ import io.github.temporalrift.timeline.application.port.in.ApplyMomentumBonusUse
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
+import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.ActionKind;
@@ -66,6 +69,8 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     private static final String ERA_ENDED_CONSUMER = "futureevent.era-ended";
     private static final String GAME_ENDED_EVENT_TYPE = "GameEnded";
     private static final String GAME_ENDED_CONSUMER = "futureevent.game-ended";
+    private static final String WEAVER_SAGA_SPECIAL_CONSUMER = "weaverchain.saga-special";
+    private static final String WEAVER_SAGA_GAME_ENDED_CONSUMER = "weaverchain.game-ended";
     private static final int ERA_NUMBER = 2;
     private static final int ROUND_NUMBER = 3;
 
@@ -86,6 +91,9 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
     @Mock
     ApplyMomentumBonusUseCase applyMomentumBonus;
+
+    @Mock
+    WeaverChainSagaUseCase weaverChainSaga;
 
     @Mock
     ScanEntitlementPort scanEntitlements;
@@ -744,6 +752,121 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 new GameEndedPayload(UUID.randomUUID(), "COLLAPSE", List.of()), eventId, GAME_ENDED_EVENT_TYPE, 1));
 
         then(scanEntitlements).should(never()).deleteByGame(any());
+    }
+
+    @Test
+    @DisplayName("THREAD — routed to the Weaver chain saga, never buffered for replay")
+    void handle_thread_delegatesToWeaverChainSaga() {
+        var eventId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var payload = specialActionPlayed(SpecialAction.THREAD, targetEventId, targetOutcomeId, null);
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        then(weaverChainSaga)
+                .should()
+                .playThread(payload.gameId(), ERA_NUMBER, payload.playerId(), targetEventId, targetOutcomeId);
+        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("TAPESTRY — routed to the Weaver chain saga, never buffered for replay")
+    void handle_tapestry_delegatesToWeaverChainSaga() {
+        var eventId = UUID.randomUUID();
+        var payload = specialActionPlayed(SpecialAction.TAPESTRY, null, null, null);
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        then(weaverChainSaga).should().playTapestry(payload.gameId(), ERA_NUMBER, payload.playerId());
+        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("UNRAVEL — routed to the Weaver chain saga, never buffered for replay")
+    void handle_unravel_delegatesToWeaverChainSaga() {
+        var eventId = UUID.randomUUID();
+        var targetPlayerId = UUID.randomUUID();
+        var payload = specialActionPlayed(SpecialAction.UNRAVEL, null, null, targetPlayerId);
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        then(weaverChainSaga).should().playUnravel(payload.gameId(), ERA_NUMBER, payload.playerId(), targetPlayerId);
+        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("GameEnded — ends every open Weaver chain in that game")
+    void handle_gameEnded_endsOpenWeaverChains() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        given(processedEvents.claim(eventId, GAME_ENDED_CONSUMER)).willReturn(true);
+        given(processedEvents.claim(eventId, WEAVER_SAGA_GAME_ENDED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(
+                new GameEndedPayload(gameId, "COLLAPSE", List.of()), eventId, GAME_ENDED_EVENT_TYPE, 1));
+
+        then(weaverChainSaga).should().endGame(gameId);
+    }
+
+    @Test
+    @DisplayName("player-targeted special with null event targets — buffers without deserialization failure")
+    void handle_playerTargetedSpecialWithNullEventTargets_buffersPlayerTarget() {
+        // game-service legitimately publishes CORRUPT with null targetEventId/targetOutcomeId; the
+        // generated payload type marks both required, so the consumer reads a lenient shape instead.
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var targetPlayerId = UUID.randomUUID();
+        var payload = new HashMap<String, Object>();
+        payload.put("gameId", gameId);
+        payload.put("eraNumber", ERA_NUMBER);
+        payload.put("roundNumber", ROUND_NUMBER);
+        payload.put("playerId", playerId);
+        payload.put("faction", "ERASERS");
+        payload.put("specialAction", "CORRUPT");
+        payload.put("targetEventId", null);
+        payload.put("targetOutcomeId", null);
+        payload.put("targetPlayerId", targetPlayerId);
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
+        then(buffer).should().save(eq(gameId), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
+        assertThat(actionCaptor.getValue().targetPlayerId()).isEqualTo(targetPlayerId);
+    }
+
+    @Test
+    @DisplayName("UNRAVEL with null event targets — delegates to the Weaver chain saga")
+    void handle_unravelWithNullEventTargets_delegatesToWeaverChainSaga() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var targetPlayerId = UUID.randomUUID();
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("gameId", gameId);
+        payload.put("eraNumber", ERA_NUMBER);
+        payload.put("roundNumber", ROUND_NUMBER);
+        payload.put("playerId", playerId);
+        payload.put("faction", "WEAVERS");
+        payload.put("specialAction", "UNRAVEL");
+        payload.put("targetEventId", null);
+        payload.put("targetOutcomeId", null);
+        payload.put("targetPlayerId", targetPlayerId);
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        then(weaverChainSaga).should().playUnravel(gameId, ERA_NUMBER, playerId, targetPlayerId);
     }
 
     private static ActivistDeclarationRecordedPayload activistDeclarationRecorded(

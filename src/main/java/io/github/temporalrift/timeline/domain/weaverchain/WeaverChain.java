@@ -3,6 +3,7 @@ package io.github.temporalrift.timeline.domain.weaverchain;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -10,6 +11,7 @@ import io.github.temporalrift.timeline.domain.event.ChainBroken;
 import io.github.temporalrift.timeline.domain.event.ChainCompleted;
 import io.github.temporalrift.timeline.domain.event.ChainFact;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
+import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidated;
 import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 
@@ -106,6 +108,12 @@ public final class WeaverChain {
                 && links.stream().anyMatch(link -> link.eventId().equals(added.eventId()))) {
             throw new IllegalStateException("Duplicate event link for " + added.eventId());
         }
+        if (event instanceof ChainLinkInvalidated invalidated
+                && links.stream()
+                        .noneMatch(link -> link.eventId().equals(invalidated.eventId())
+                                && link.outcomeId().equals(invalidated.outcomeId()))) {
+            throw new IllegalStateException("Invalidated link was never appended for " + invalidated.eventId());
+        }
         if (event instanceof ChainCompleted && links.size() != COMPLETION_LENGTH) {
             throw new IllegalStateException("ChainCompleted requires " + COMPLETION_LENGTH + " links");
         }
@@ -120,6 +128,9 @@ public final class WeaverChain {
                     status = ChainStatus.COMPLETED;
                 }
             }
+            case ChainLinkInvalidated e ->
+                links.removeIf(link ->
+                        link.eventId().equals(e.eventId()) && link.outcomeId().equals(e.outcomeId()));
             case ChainCompleted _ -> status = ChainStatus.COMPLETED;
             case ChainBroken _ -> status = ChainStatus.BROKEN;
         }
@@ -169,6 +180,27 @@ public final class WeaverChain {
         }
         status = ChainStatus.BROKEN;
         return new ChainBroken(chainId, reason);
+    }
+
+    /**
+     * Removes one annihilated link, keeping the chain open for rebuilding. Returns the invalidation fact,
+     * or empty when the annihilated outcome was never part of this chain.
+     */
+    public Optional<ChainLinkInvalidated> invalidateLink(UUID eventId, UUID outcomeId) {
+        Objects.requireNonNull(eventId, "eventId");
+        Objects.requireNonNull(outcomeId, "outcomeId");
+        if (status != ChainStatus.ACTIVE) {
+            return Optional.empty();
+        }
+        var linked = links.stream()
+                .anyMatch(link ->
+                        link.eventId().equals(eventId) && link.outcomeId().equals(outcomeId));
+        if (!linked) {
+            return Optional.empty();
+        }
+        links.removeIf(
+                link -> link.eventId().equals(eventId) && link.outcomeId().equals(outcomeId));
+        return Optional.of(new ChainLinkInvalidated(chainId, eventId, outcomeId));
     }
 
     /** Captures this chain's full value state for snapshot persistence. */

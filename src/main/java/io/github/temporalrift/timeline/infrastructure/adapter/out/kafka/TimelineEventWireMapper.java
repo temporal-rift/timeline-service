@@ -6,6 +6,11 @@ import org.mapstruct.Mapping;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.BandedProbabilityPublishedEventBandState;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.BandedProbabilityPublishedOutcomeBandState;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.BandedProbabilityPublishedPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ChainBrokenPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ChainCompletedChainLink;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ChainCompletedPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ChainLinkAddedPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ChainLinkInvalidatedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.CorruptInversionConfirmedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.EraResolutionCompletedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.EraTerminalResolution;
@@ -24,7 +29,12 @@ import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.P
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ProbabilityStateRevealedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ResolutionFailedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ResolutionWarningPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ThreadRejectedPayload;
 import io.github.temporalrift.timeline.domain.event.BandedProbabilityPublished;
+import io.github.temporalrift.timeline.domain.event.ChainBrokenEvent;
+import io.github.temporalrift.timeline.domain.event.ChainCompletedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainLinkAddedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidatedEvent;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
@@ -37,6 +47,7 @@ import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
+import io.github.temporalrift.timeline.domain.event.ThreadRejectedEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 
 @Mapper(componentModel = "spring")
@@ -80,6 +91,18 @@ interface TimelineEventWireMapper {
     BandedProbabilityPublishedOutcomeBandState toWire(BandedProbabilityPublished.OutcomeState outcomeState);
 
     CorruptInversionConfirmedPayload toWire(CorruptInversionConfirmed event);
+
+    ChainLinkAddedPayload toWire(ChainLinkAddedEvent event);
+
+    ChainCompletedPayload toWire(ChainCompletedEvent event);
+
+    ChainCompletedChainLink toWire(ChainCompletedEvent.ChainLinkEntry entry);
+
+    ChainBrokenPayload toWire(ChainBrokenEvent event);
+
+    ChainLinkInvalidatedPayload toWire(ChainLinkInvalidatedEvent event);
+
+    ThreadRejectedPayload toWire(ThreadRejectedEvent event);
 
     ResolutionFailedPayload toWire(ResolutionFailed event);
 

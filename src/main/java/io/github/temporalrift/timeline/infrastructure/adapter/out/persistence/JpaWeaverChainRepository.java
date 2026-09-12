@@ -13,6 +13,7 @@ import tools.jackson.databind.ObjectMapper;
 import io.github.temporalrift.timeline.domain.event.ChainBroken;
 import io.github.temporalrift.timeline.domain.event.ChainCompleted;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
+import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidated;
 import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.eventstore.AggregateSnapshot;
@@ -120,6 +121,7 @@ class JpaWeaverChainRepository implements WeaverChainRepository {
         return switch (stored.eventType()) {
             case "WeaverChainStarted" -> objectMapper.readValue(stored.payload(), WeaverChainStarted.class);
             case "ChainLinkAdded" -> objectMapper.readValue(stored.payload(), ChainLinkAdded.class);
+            case "ChainLinkInvalidated" -> objectMapper.readValue(stored.payload(), ChainLinkInvalidated.class);
             case "ChainCompleted" -> objectMapper.readValue(stored.payload(), ChainCompleted.class);
             case "ChainBroken" -> objectMapper.readValue(stored.payload(), ChainBroken.class);
             default -> throw new IllegalStateException("Unknown WeaverChain event type: " + stored.eventType());
