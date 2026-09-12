@@ -45,16 +45,14 @@ public final class WeaverChain {
         WeaverChain chain = null;
         // if-chains, not a switch: every guard below depends on the stream content, which keeps this path quiet.
         for (var event : history) {
-            if (event instanceof WeaverChainStarted started) {
+            if (event instanceof WeaverChainStarted(var id, var player, var game)) {
                 if (chain != null) {
                     throw new IllegalStateException("WeaverChainStarted replayed after initialization for " + chainId);
                 }
-                if (!Objects.equals(started.chainId(), chainId)) {
-                    throw new IllegalStateException(
-                            "Event belongs to WeaverChain " + started.chainId() + ", not " + chainId);
+                if (!Objects.equals(id, chainId)) {
+                    throw new IllegalStateException("Event belongs to WeaverChain " + id + ", not " + chainId);
                 }
-                chain = new WeaverChain(
-                        chainId, started.playerId(), started.gameId(), new ArrayList<>(), ChainStatus.ACTIVE);
+                chain = new WeaverChain(chainId, player, game, new ArrayList<>(), ChainStatus.ACTIVE);
             } else if (event instanceof ChainFact fact) {
                 if (chain == null) {
                     throw new IllegalStateException(
