@@ -77,16 +77,15 @@ class WeaverChainSagaIT {
         assertThat(added).hasSize(3);
         var chainId = added.get(0).get("chainId").toString();
         assertThat(added)
-                .allSatisfy(
-                        payload -> assertThat(payload.get("chainId").toString()).isEqualTo(chainId));
+                .allSatisfy(payload -> assertThat(payload.get("chainId")).hasToString(chainId));
         assertThat(added.get(0)).containsEntry("chainLength", 1);
         assertThat(added.get(1)).containsEntry("chainLength", 2);
         assertThat(added.get(2)).containsEntry("chainLength", 3);
-        assertThat(added.get(1).get("previousLinkEventId").toString()).isEqualTo(firstEvent.toString());
+        assertThat(added.get(1).get("previousLinkEventId")).hasToString(firstEvent.toString());
 
         var completed = payloadsOf(messagesFor(gameId), CHAIN_COMPLETED).getFirst();
-        assertThat(completed.get("chainId").toString()).isEqualTo(chainId);
-        assertThat(completed.get("playerId").toString()).isEqualTo(weaver.toString());
+        assertThat(completed.get("chainId")).hasToString(chainId);
+        assertThat(completed.get("playerId")).hasToString(weaver.toString());
         assertThat((List<?>) completed.get("links")).hasSize(3);
     }
 
@@ -108,8 +107,8 @@ class WeaverChainSagaIT {
                         () -> assertThat(eventTypesOf(messagesFor(gameId))).contains(CHAIN_BROKEN));
 
         var broken = payloadsOf(messagesFor(gameId), CHAIN_BROKEN).getFirst();
-        assertThat(broken.get("targetPlayerId").toString()).isEqualTo(weaver.toString());
-        assertThat(broken.get("brokenByPlayerId").toString()).isEqualTo(unraveler.toString());
+        assertThat(broken.get("targetPlayerId")).hasToString(weaver.toString());
+        assertThat(broken.get("brokenByPlayerId")).hasToString(unraveler.toString());
         assertThat(broken).containsEntry("chainLengthAtBreak", 1);
     }
 

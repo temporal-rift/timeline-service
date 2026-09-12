@@ -179,7 +179,7 @@ class WeaverChainSagaTest {
 
     @Test
     void unravel_breaksActiveChainAndEndsSagaInFailure() {
-        var chainId = openChainWithLinks(2);
+        openChainWithLinks(2);
         var unraveler = UUID.randomUUID();
 
         saga.playUnravel(GAME_ID, ERA, unraveler, PLAYER_ID);
