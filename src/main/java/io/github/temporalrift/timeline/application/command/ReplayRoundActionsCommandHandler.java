@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
+import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.BandedProbabilityPublished;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
@@ -95,6 +96,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private final ProbabilityRulesPort rules;
     private final ProbabilityBandRulesPort bandRules;
     private final TimelineEventPublisher publisher;
+    private final WeaverChainSagaUseCase weaverChainSaga;
     private final Clock clock;
 
     ReplayRoundActionsCommandHandler(
@@ -105,6 +107,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             ProbabilityRulesPort rules,
             ProbabilityBandRulesPort bandRules,
             TimelineEventPublisher publisher,
+            WeaverChainSagaUseCase weaverChainSaga,
             Clock clock) {
         this.buffer = buffer;
         this.futureEvents = futureEvents;
@@ -113,6 +116,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         this.rules = rules;
         this.bandRules = bandRules;
         this.publisher = publisher;
+        this.weaverChainSaga = weaverChainSaga;
         this.clock = clock;
     }
 
@@ -142,7 +146,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var cancelled = computeNullifyCancellations(sorted, selectedActionByPlayer);
 
         applyTier(sorted, cancelled, a -> isSpecial(a, "SEAL"), this::applySeal);
-        applyTier(sorted, cancelled, a -> isSpecial(a, "ANNIHILATE"), this::applyAnnihilate);
+        applyAnnihilateTier(gameId, eraNumber, sorted, cancelled);
 
         var corruptTargets = resolveCorruptTargets(sorted, cancelled);
         var amplifyMultipliers = resolveAmplifyMultipliers(sorted, selectedActionByPlayer, cancelled);
@@ -315,10 +319,23 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                         futureEvents.append(a.targetEventId(), futureEvent.sealOutcome(a.targetOutcomeId())));
     }
 
-    private void applyAnnihilate(BufferedAction a) {
-        tryFindEvent(a.targetEventId())
-                .ifPresent(futureEvent ->
-                        futureEvents.append(a.targetEventId(), futureEvent.annihilateOutcome(a.targetOutcomeId())));
+    /**
+     * Applies each still-live ANNIHILATE in submission order, then notifies the Weaver chain saga so any
+     * chain link on the removed outcome is invalidated (or TAPESTRY-consumed). Runs here — not at
+     * SpecialActionPlayed consumption — so a NULLIFY-cancelled ANNIHILATE never invalidates a chain.
+     */
+    private void applyAnnihilateTier(UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
+        for (var a : sorted) {
+            if (!isSpecial(a, "ANNIHILATE") || cancelled.contains(a.envelopeEventId())) {
+                continue;
+            }
+            tryFindEvent(a.targetEventId()).ifPresent(futureEvent -> {
+                futureEvents.append(a.targetEventId(), futureEvent.annihilateOutcome(a.targetOutcomeId()));
+                if (a.targetOutcomeId() != null) {
+                    weaverChainSaga.annihilateOutcome(gameId, eraNumber, a.targetEventId(), a.targetOutcomeId());
+                }
+            });
+        }
     }
 
     /**

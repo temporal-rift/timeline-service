@@ -9,6 +9,10 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 
 import io.github.temporalrift.timeline.domain.event.BandedProbabilityPublished;
+import io.github.temporalrift.timeline.domain.event.ChainBrokenEvent;
+import io.github.temporalrift.timeline.domain.event.ChainCompletedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainLinkAddedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidatedEvent;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
@@ -20,6 +24,7 @@ import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
+import io.github.temporalrift.timeline.domain.event.ThreadRejectedEvent;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
@@ -57,6 +62,11 @@ class TimelineEventPublisherAdapter implements TimelineEventPublisher {
             case ParadoxResolved e -> publish("ParadoxResolved", mapper.toWire(e), event);
             case BandedProbabilityPublished e -> publish("BandedProbabilityPublished", mapper.toWire(e), event);
             case CorruptInversionConfirmed e -> publish("CorruptInversionConfirmed", mapper.toWire(e), event);
+            case ChainLinkAddedEvent e -> publish("ChainLinkAdded", mapper.toWire(e), event);
+            case ChainCompletedEvent e -> publish("ChainCompleted", mapper.toWire(e), event);
+            case ChainBrokenEvent e -> publish("ChainBroken", mapper.toWire(e), event);
+            case ChainLinkInvalidatedEvent e -> publish("ChainLinkInvalidated", mapper.toWire(e), event);
+            case ThreadRejectedEvent e -> publish("ThreadRejected", mapper.toWire(e), event);
             case ResolutionFailed e -> publish("ResolutionFailed", mapper.toWire(e), event);
             case ResolutionWarning e -> publish("ResolutionWarning", mapper.toWire(e), event);
             default ->

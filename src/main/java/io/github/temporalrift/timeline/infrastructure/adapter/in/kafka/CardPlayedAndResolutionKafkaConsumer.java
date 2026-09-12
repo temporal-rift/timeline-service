@@ -17,7 +17,6 @@ import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.Car
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardType;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ParadoxResolutionCardPlayedPayload;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialAction;
-import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialActionPlayedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EraEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.GameEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.ResolutionStartedPayload;
@@ -25,6 +24,7 @@ import io.github.temporalrift.timeline.application.port.in.ApplyMomentumBonusUse
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
+import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
@@ -44,6 +44,11 @@ import io.github.temporalrift.timeline.domain.port.out.ScanEntitlementPort;
  * created the entitlements it must remove. Splitting these into independent consumer groups would let a lagging
  * one be overtaken by a faster one — reachable in practice (consumer rebalance, GC pause, retry), not just
  * theoretical — silently losing or misordering an effect.
+ *
+ * <p>The Weaver chain saga's {@code THREAD}/{@code TAPESTRY}/{@code UNRAVEL} plays and {@code GameEnded}
+ * termination join this same group for the same reason: a THREAD must validate against durably resolved
+ * outcomes, never overtake the resolution that records them, and a game-end must not close chains ahead of
+ * the last round's replay.
  */
 @Component
 class CardPlayedAndResolutionKafkaConsumer {
@@ -65,6 +70,10 @@ class CardPlayedAndResolutionKafkaConsumer {
             new GameEventIngestion.Spec("EraEnded", "futureevent.era-ended", 1);
     private static final GameEventIngestion.Spec GAME_ENDED_SPEC =
             new GameEventIngestion.Spec("GameEnded", "futureevent.game-ended", 1);
+    private static final GameEventIngestion.Spec WEAVER_SAGA_SPECIAL_SPEC =
+            new GameEventIngestion.Spec("SpecialActionPlayed", "weaverchain.saga-special", 1);
+    private static final GameEventIngestion.Spec WEAVER_SAGA_GAME_ENDED_SPEC =
+            new GameEventIngestion.Spec("GameEnded", "weaverchain.game-ended", 1);
 
     // The generated CardType/SpecialAction enums carry every value declared across the whole action-event
     // contract, including ones this consumer intentionally doesn't buffer (e.g. CardType.STABILIZE/DETONATE,
@@ -103,6 +112,7 @@ class CardPlayedAndResolutionKafkaConsumer {
     private final ResolveEraUseCase resolveEra;
     private final PlayParadoxResolutionCardUseCase playParadoxResolutionCard;
     private final ApplyMomentumBonusUseCase applyMomentumBonus;
+    private final WeaverChainSagaUseCase weaverChainSaga;
     private final ScanEntitlementPort scanEntitlements;
     private final ObjectMapper objectMapper;
 
@@ -113,6 +123,7 @@ class CardPlayedAndResolutionKafkaConsumer {
             ResolveEraUseCase resolveEra,
             PlayParadoxResolutionCardUseCase playParadoxResolutionCard,
             ApplyMomentumBonusUseCase applyMomentumBonus,
+            WeaverChainSagaUseCase weaverChainSaga,
             ScanEntitlementPort scanEntitlements,
             ObjectMapper objectMapper) {
         this.processedEvents = processedEvents;
@@ -121,6 +132,7 @@ class CardPlayedAndResolutionKafkaConsumer {
         this.resolveEra = resolveEra;
         this.playParadoxResolutionCard = playParadoxResolutionCard;
         this.applyMomentumBonus = applyMomentumBonus;
+        this.weaverChainSaga = weaverChainSaga;
         this.scanEntitlements = scanEntitlements;
         this.objectMapper = objectMapper;
     }
@@ -147,8 +159,10 @@ class CardPlayedAndResolutionKafkaConsumer {
         });
         GameEventIngestion.accept(message, SPECIAL_ACTION_PLAYED_SPEC, processedEvents)
                 .ifPresent(envelope -> {
+                    // Player-targeting specials (CORRUPT, UNRAVEL, ...) carry no event target, which
+                    // the generated payload type wrongly requires — read the lenient shape instead.
                     var payload = GameEventPayloads.read(
-                            objectMapper, message.getPayload(), SpecialActionPlayedPayload.class);
+                            objectMapper, message.getPayload(), SpecialActionPlayedInbound.class);
                     if (payload.specialAction() != null && KNOWN_SPECIAL_ACTIONS.contains(payload.specialAction())) {
                         buffer.save(
                                 payload.gameId(),
@@ -221,6 +235,46 @@ class CardPlayedAndResolutionKafkaConsumer {
             // behind too. Idempotent: harmless on redelivery.
             scanEntitlements.deleteByGame(payload.gameId());
         });
+        GameEventIngestion.accept(message, WEAVER_SAGA_SPECIAL_SPEC, processedEvents)
+                .ifPresent(envelope -> {
+                    var payload = GameEventPayloads.read(
+                            objectMapper, message.getPayload(), SpecialActionPlayedInbound.class);
+                    if (payload.specialAction() == null) {
+                        return;
+                    }
+                    switch (payload.specialAction()) {
+                        case THREAD -> {
+                            if (payload.targetEventId() != null && payload.targetOutcomeId() != null) {
+                                weaverChainSaga.playThread(
+                                        payload.gameId(),
+                                        payload.eraNumber(),
+                                        payload.playerId(),
+                                        payload.targetEventId(),
+                                        payload.targetOutcomeId());
+                            }
+                        }
+                        case TAPESTRY ->
+                            weaverChainSaga.playTapestry(payload.gameId(), payload.eraNumber(), payload.playerId());
+                        case UNRAVEL -> {
+                            if (payload.targetPlayerId() != null) {
+                                weaverChainSaga.playUnravel(
+                                        payload.gameId(),
+                                        payload.eraNumber(),
+                                        payload.playerId(),
+                                        payload.targetPlayerId());
+                            }
+                        }
+                        default -> {
+                            // SEAL/ANNIHILATE/CORRUPT/MIMIC replay through the round buffer; every other
+                            // special stays a same-slice no-op at this consumer.
+                        }
+                    }
+                });
+        GameEventIngestion.accept(message, WEAVER_SAGA_GAME_ENDED_SPEC, processedEvents)
+                .ifPresent(envelope -> {
+                    var payload = GameEventPayloads.read(objectMapper, message.getPayload(), GameEndedPayload.class);
+                    weaverChainSaga.endGame(payload.gameId());
+                });
     }
 
     private static BufferedAction toBufferedAction(
@@ -241,7 +295,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                 envelope.eventId());
     }
 
-    private static BufferedAction toBufferedAction(SpecialActionPlayedPayload payload, GameEventEnvelope envelope) {
+    private static BufferedAction toBufferedAction(SpecialActionPlayedInbound payload, GameEventEnvelope envelope) {
         return new BufferedAction(
                 ActionKind.SPECIAL_ACTION_PLAYED,
                 null,

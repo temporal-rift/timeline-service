@@ -22,6 +22,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.BandedProbabilityPublished;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
@@ -75,6 +76,9 @@ class ReplayRoundActionsCommandHandlerTest {
     @Mock
     TimelineEventPublisher publisher;
 
+    @Mock
+    WeaverChainSagaUseCase weaverChainSaga;
+
     private final Clock clock = Clock.fixed(BASE_TIME, ZoneOffset.UTC);
 
     private ReplayRoundActionsCommandHandler handler;
@@ -82,7 +86,7 @@ class ReplayRoundActionsCommandHandlerTest {
     @BeforeEach
     void setUp() {
         handler = new ReplayRoundActionsCommandHandler(
-                buffer, futureEvents, eraIndex, scanEntitlements, rules, bandRules, publisher, clock);
+                buffer, futureEvents, eraIndex, scanEntitlements, rules, bandRules, publisher, weaverChainSaga, clock);
     }
 
     @Test
@@ -853,6 +857,38 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         assertThat(futureEvent.stalled()).isTrue();
+    }
+
+    @Test
+    void replay_annihilate_notifiesWeaverChainSaga() {
+        var eventId = UUID.randomUUID();
+        var target = UUID.randomUUID();
+        var futureEvent =
+                drafted(eventId, outcome(target, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialAction("ANNIHILATE", eventId, target, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(weaverChainSaga).should().annihilateOutcome(GAME_ID, ERA_NUMBER, eventId, target);
+    }
+
+    @Test
+    void replay_nullifiedAnnihilate_neverNotifiesWeaverChainSaga() {
+        var eventId = UUID.randomUUID();
+        var target = UUID.randomUUID();
+        var annihilatingPlayer = UUID.randomUUID();
+        var nullifyingPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialActionBy(annihilatingPlayer, "ANNIHILATE", eventId, target, at(1)),
+                        playerTargetedCard(nullifyingPlayer, "NULLIFY", annihilatingPlayer, null, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).findById(eventId);
+        then(weaverChainSaga).should(never()).annihilateOutcome(any(), anyInt(), any(), any());
     }
 
     @Test

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Durable Weaver chain saga orchestration state. One row per chain; at most one OPEN row per
+      (game_id, player_id). Link truth lives in the WeaverChain aggregate stream — this table holds
+      only saga flags (TAPESTRY arming and per-era usage) so an open saga resumes after a restart.
+  -->
+  <changeSet id="002-create-weaver-chain-saga" author="timeline-service">
+    <createTable tableName="weaver_chain_saga">
+      <column name="chain_id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="player_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="status" type="VARCHAR(20)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="tapestry_protected" type="BOOLEAN">
+        <constraints nullable="false"/>
+      </column>
+      <column name="tapestry_used_era" type="INTEGER"/>
+    </createTable>
+    <createIndex tableName="weaver_chain_saga" indexName="idx_weaver_chain_saga_game_player">
+      <column name="game_id"/>
+      <column name="player_id"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>
