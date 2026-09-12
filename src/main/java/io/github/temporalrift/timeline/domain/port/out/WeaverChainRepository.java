@@ -1,5 +1,6 @@
 package io.github.temporalrift.timeline.domain.port.out;
 
+import java.util.List;
 import java.util.UUID;
 
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
@@ -16,4 +17,10 @@ public interface WeaverChainRepository {
 
     /** Appends one new domain event to {@code chainId}'s stream, snapshotting every 20 events. */
     void append(UUID chainId, Object domainEvent);
+
+    /**
+     * Appends several domain events to {@code chainId}'s stream atomically, so a multi-fact step such as the third
+     * link plus its completion never persists half-written.
+     */
+    void appendAll(UUID chainId, List<Object> domainEvents);
 }

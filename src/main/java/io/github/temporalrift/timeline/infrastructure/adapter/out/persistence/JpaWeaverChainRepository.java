@@ -1,9 +1,11 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import io.github.temporalrift.timeline.domain.event.ChainBroken;
@@ -26,13 +28,19 @@ class JpaWeaverChainRepository implements WeaverChainRepository {
     static final int SNAPSHOT_INTERVAL = 20;
 
     private final EventStorePort eventStore;
+    private final EventStoreAppender appender;
     private final AggregateSnapshotPort snapshots;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
     JpaWeaverChainRepository(
-            EventStorePort eventStore, AggregateSnapshotPort snapshots, ObjectMapper objectMapper, Clock clock) {
+            EventStorePort eventStore,
+            EventStoreAppender appender,
+            AggregateSnapshotPort snapshots,
+            ObjectMapper objectMapper,
+            Clock clock) {
         this.eventStore = eventStore;
+        this.appender = appender;
         this.snapshots = snapshots;
         this.objectMapper = objectMapper;
         this.clock = clock;
@@ -40,38 +48,43 @@ class JpaWeaverChainRepository implements WeaverChainRepository {
 
     @Override
     public WeaverChain findById(UUID chainId) {
-        var history =
-                eventStore.readStream(chainId).stream().map(this::toDomainEvent).toList();
         var snapshot = snapshots.findByAggregateId(chainId);
-        if (snapshot.isPresent() && snapshot.get().sequenceNr() <= history.size()) {
+        if (snapshot.isPresent() && snapshot.get().sequenceNr() <= eventStore.streamSize(chainId)) {
+            var tail = eventStore.readStreamFrom(chainId, snapshot.get().sequenceNr()).stream()
+                    .map(this::toDomainEvent)
+                    .toList();
             var state = objectMapper.readValue(snapshot.get().snapshotData(), WeaverChainSnapshot.class);
-            var tail = history.subList((int) snapshot.get().sequenceNr(), history.size());
             return WeaverChain.restore(state, tail);
         }
+        var history =
+                eventStore.readStream(chainId).stream().map(this::toDomainEvent).toList();
         return WeaverChain.replay(chainId, history);
     }
 
     @Override
+    @Transactional
     public void append(UUID chainId, Object domainEvent) {
-        var sequenceNr = eventStore.readStream(chainId).size();
-        var eventType = domainEvent.getClass().getSimpleName();
-        var payload = objectMapper.writeValueAsString(domainEvent);
-        eventStore.append(new StoredEvent(
-                UUID.randomUUID(),
-                chainId,
-                AGGREGATE_TYPE,
-                eventType,
-                EVENT_VERSION,
-                payload,
-                clock.instant(),
-                sequenceNr));
-        if (isSnapshotDue(sequenceNr + 1)) {
+        appendAll(chainId, List.of(domainEvent));
+    }
+
+    @Override
+    @Transactional
+    public void appendAll(UUID chainId, List<Object> domainEvents) {
+        var streamSize = eventStore.streamSize(chainId);
+        for (var domainEvent : domainEvents) {
+            streamSize = appender.append(chainId, AGGREGATE_TYPE, EVENT_VERSION, domainEvent);
+        }
+        maybeSnapshot(chainId, streamSize);
+    }
+
+    void maybeSnapshot(UUID chainId, long streamSize) {
+        if (isSnapshotDue(streamSize)) {
             var chain = findById(chainId);
             snapshots.save(new AggregateSnapshot(
                     chainId,
                     AGGREGATE_TYPE,
                     objectMapper.writeValueAsString(chain.snapshot()),
-                    sequenceNr + 1,
+                    streamSize,
                     clock.instant()));
         }
     }

@@ -49,11 +49,11 @@ public final class WeaverChain {
                 chain = new WeaverChain(
                         chainId, started.playerId(), started.gameId(), new ArrayList<>(), ChainStatus.ACTIVE);
             } else {
-                if (chain == null || chain.status != ChainStatus.ACTIVE) {
+                if (chain == null) {
                     throw new IllegalStateException(
                             "Event replayed outside the started and active state for " + chainId);
                 }
-                chain.apply(event);
+                chain.applyReplayed(event, chainId);
             }
         }
         return chain;
@@ -74,18 +74,34 @@ public final class WeaverChain {
                 throw new IllegalStateException(
                         "WeaverChainStarted cannot follow a snapshot for " + snapshot.chainId());
             }
-            if (chain.status != ChainStatus.ACTIVE) {
-                throw new IllegalStateException(
-                        "Event replayed outside the started and active state for " + snapshot.chainId());
-            }
-            chain.apply(event);
+            chain.applyReplayed(event, snapshot.chainId());
         }
         return chain;
     }
 
+    /**
+     * Applies one replayed event, deriving completion from the link count so a stream missing its terminal fact
+     * still rebuilds as completed. A repeated {@link ChainCompleted} is an idempotent echo; anything else after a
+     * terminal state fails loudly.
+     */
+    private void applyReplayed(Object event, UUID chainId) {
+        if (event instanceof ChainCompleted && status == ChainStatus.COMPLETED) {
+            return;
+        }
+        if (status != ChainStatus.ACTIVE) {
+            throw new IllegalStateException("Event replayed outside the started and active state for " + chainId);
+        }
+        apply(event);
+    }
+
     private void apply(Object event) {
         switch (event) {
-            case ChainLinkAdded e -> links.add(new ChainLink(e.eventId(), e.outcomeId(), e.eraNumber()));
+            case ChainLinkAdded e -> {
+                links.add(new ChainLink(e.eventId(), e.outcomeId(), e.eraNumber()));
+                if (links.size() >= COMPLETION_LENGTH) {
+                    status = ChainStatus.COMPLETED;
+                }
+            }
             case ChainCompleted ignored -> status = ChainStatus.COMPLETED;
             case ChainBroken ignored -> status = ChainStatus.BROKEN;
             default -> throw new IllegalArgumentException("Unknown WeaverChain domain event: " + event.getClass());
@@ -105,6 +121,9 @@ public final class WeaverChain {
         }
         if (status == ChainStatus.BROKEN) {
             throw new WeaverChainBrokenException(chainId);
+        }
+        if (links.size() >= COMPLETION_LENGTH) {
+            throw new WeaverChainCompletedException(chainId);
         }
         if (!resolvedOutcomes.contains(new ResolvedOutcome(eventId, outcomeId))) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "outcome did not resolve");
