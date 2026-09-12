@@ -11,8 +11,10 @@ class AggregateSnapshotTest {
 
     @Test
     void constructor_negativeSequenceNr_throws() {
-        assertThatThrownBy(() -> new AggregateSnapshot(
-                        UUID.randomUUID(), "WeaverChain", "{}", -1, Instant.parse("2026-09-12T00:00:00Z")))
+        var chainId = UUID.randomUUID();
+        var createdAt = Instant.parse("2026-09-12T00:00:00Z");
+
+        assertThatThrownBy(() -> new AggregateSnapshot(chainId, "WeaverChain", "{}", -1, createdAt))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

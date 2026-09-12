@@ -40,16 +40,17 @@ class WeaverChainTest {
     @Test
     void replay_linkBeforeStarted_throwsIllegalState() {
         var link = new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1);
+        var history = List.of(link);
 
-        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, List.of(link))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void replay_secondStarted_throwsIllegalState() {
         var started = new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID);
+        var history = List.of(started, started);
 
-        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, List.of(started, started)))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -77,8 +78,9 @@ class WeaverChainTest {
                         new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 3)));
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
+        var resolved = Set.of(new ResolvedOutcome(eventId, outcomeId));
 
-        assertThatThrownBy(() -> zombie.addLink(eventId, outcomeId, 4, Set.of(new ResolvedOutcome(eventId, outcomeId))))
+        assertThatThrownBy(() -> zombie.addLink(eventId, outcomeId, 4, resolved))
                 .isInstanceOf(WeaverChainCompletedException.class);
         assertThat(zombie.length()).isEqualTo(3);
     }
@@ -164,8 +166,9 @@ class WeaverChainTest {
         var chain = started();
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
+        var resolved = Set.<ResolvedOutcome>of();
 
-        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 1, Set.of()))
+        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 1, resolved))
                 .isInstanceOf(InvalidChainLinkException.class);
         assertThat(chain.length()).isZero();
         assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
@@ -175,9 +178,10 @@ class WeaverChainTest {
     void addLink_wrongOutcomeForResolvedEvent_rejected() {
         var chain = started();
         var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var resolved = Set.of(new ResolvedOutcome(eventId, UUID.randomUUID()));
 
-        assertThatThrownBy(() -> chain.addLink(
-                        eventId, UUID.randomUUID(), 1, Set.of(new ResolvedOutcome(eventId, UUID.randomUUID()))))
+        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 1, resolved))
                 .isInstanceOf(InvalidChainLinkException.class);
         assertThat(chain.length()).isZero();
     }
@@ -190,8 +194,8 @@ class WeaverChainTest {
         chain.addLink(eventId, outcomeId, 1, Set.of(new ResolvedOutcome(eventId, outcomeId)));
 
         var duplicateOutcomeId = UUID.randomUUID();
-        assertThatThrownBy(() -> chain.addLink(
-                        eventId, duplicateOutcomeId, 2, Set.of(new ResolvedOutcome(eventId, duplicateOutcomeId))))
+        var resolved = Set.of(new ResolvedOutcome(eventId, duplicateOutcomeId));
+        assertThatThrownBy(() -> chain.addLink(eventId, duplicateOutcomeId, 2, resolved))
                 .isInstanceOf(InvalidChainLinkException.class);
         assertThat(chain.length()).isEqualTo(1);
     }
@@ -221,8 +225,11 @@ class WeaverChainTest {
     @Test
     void addLink_afterCompleted_throws() {
         var chain = completedChain();
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var resolved = Set.<ResolvedOutcome>of();
 
-        assertThatThrownBy(() -> chain.addLink(UUID.randomUUID(), UUID.randomUUID(), 4, Set.of()))
+        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 4, resolved))
                 .isInstanceOf(WeaverChainCompletedException.class);
     }
 
@@ -244,8 +251,11 @@ class WeaverChainTest {
     void addLink_afterBroken_throws() {
         var chain = started();
         chain.breakChain("UNRAVEL");
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var resolved = Set.<ResolvedOutcome>of();
 
-        assertThatThrownBy(() -> chain.addLink(UUID.randomUUID(), UUID.randomUUID(), 2, Set.of()))
+        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 2, resolved))
                 .isInstanceOf(WeaverChainBrokenException.class);
     }
 
@@ -305,10 +315,9 @@ class WeaverChainTest {
     @Test
     void replay_startedForDifferentChain_throwsIllegalState() {
         var otherChainId = UUID.randomUUID();
+        var history = List.of(new WeaverChainStarted(otherChainId, PLAYER_ID, GAME_ID));
 
-        assertThatThrownBy(() ->
-                        WeaverChain.replay(CHAIN_ID, List.of(new WeaverChainStarted(otherChainId, PLAYER_ID, GAME_ID))))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -332,10 +341,9 @@ class WeaverChainTest {
     @Test
     void restore_tailWithStarted_throws() {
         var snapshot = new WeaverChainSnapshot(CHAIN_ID, PLAYER_ID, GAME_ID, List.of(), ChainStatus.ACTIVE);
+        var tail = List.of(new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID));
 
-        assertThatThrownBy(() ->
-                        WeaverChain.restore(snapshot, List.of(new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID))))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> WeaverChain.restore(snapshot, tail)).isInstanceOf(IllegalStateException.class);
     }
 
     private static WeaverChain started() {

@@ -66,7 +66,9 @@ class JpaWeaverChainRepositoryTest {
 
     @Test
     void find_noStream_throwsNotFound() {
-        assertThatThrownBy(() -> chains.findById(UUID.randomUUID())).isInstanceOf(WeaverChainNotFoundException.class);
+        var chainId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> chains.findById(chainId)).isInstanceOf(WeaverChainNotFoundException.class);
     }
 
     @Test
