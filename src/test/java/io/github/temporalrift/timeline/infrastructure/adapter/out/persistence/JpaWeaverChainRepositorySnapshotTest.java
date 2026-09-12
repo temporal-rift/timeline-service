@@ -63,12 +63,10 @@ class JpaWeaverChainRepositorySnapshotTest {
     }
 
     @Test
-    void append_unsupportedEventType_throwsAndPersistsNothing() {
+    void append_nullEvent_throwsAndPersistsNothing() {
         var chainId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> chains.append(chainId, "invalid")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> chains.appendAll(chainId, List.of("invalid")))
-                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> chains.append(chainId, null)).isInstanceOf(NullPointerException.class);
         assertThat(eventStore.streamSize(chainId)).isZero();
     }
 

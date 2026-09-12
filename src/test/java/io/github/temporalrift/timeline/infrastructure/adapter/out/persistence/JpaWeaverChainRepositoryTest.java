@@ -19,6 +19,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import io.github.temporalrift.timeline.TestcontainersConfiguration;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
+import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.eventstore.AggregateSnapshot;
 import io.github.temporalrift.timeline.domain.port.out.AggregateSnapshotPort;
@@ -134,7 +135,7 @@ class JpaWeaverChainRepositoryTest {
         var gameId = UUID.randomUUID();
         chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
         var resolved = new HashSet<ResolvedOutcome>();
-        var facts = new ArrayList<Object>();
+        var facts = new ArrayList<WeaverChainEvent>();
         var live = chains.findById(chainId);
         for (int era = 1; era <= 3; era++) {
             var eventId = UUID.randomUUID();

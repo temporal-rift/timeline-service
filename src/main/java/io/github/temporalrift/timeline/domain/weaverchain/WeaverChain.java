@@ -9,6 +9,7 @@ import java.util.UUID;
 import io.github.temporalrift.timeline.domain.event.ChainBroken;
 import io.github.temporalrift.timeline.domain.event.ChainCompleted;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
+import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 
 /**
@@ -34,7 +35,7 @@ public final class WeaverChain {
     }
 
     /** Rebuilds this aggregate by replaying its domain-event stream in order. */
-    public static WeaverChain replay(UUID chainId, List<Object> history) {
+    public static WeaverChain replay(UUID chainId, List<? extends WeaverChainEvent> history) {
         Objects.requireNonNull(chainId, "chainId");
         Objects.requireNonNull(history, "history");
         if (history.isEmpty()) {
@@ -64,7 +65,7 @@ public final class WeaverChain {
     }
 
     /** Rebuilds this aggregate from a snapshot plus the tail events appended after it. */
-    public static WeaverChain restore(WeaverChainSnapshot snapshot, List<Object> tail) {
+    public static WeaverChain restore(WeaverChainSnapshot snapshot, List<? extends WeaverChainEvent> tail) {
         Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(tail, "tail");
         var chain = new WeaverChain(
@@ -88,7 +89,7 @@ public final class WeaverChain {
      * still rebuilds as completed. A repeated {@link ChainCompleted} is an idempotent echo; anything else after a
      * terminal state fails loudly. Facts carrying another chain's id are rejected before any state mutation.
      */
-    private void applyReplayed(Object event, UUID chainId) {
+    private void applyReplayed(WeaverChainEvent event, UUID chainId) {
         var eventChainId = chainIdOf(event);
         if (!Objects.equals(eventChainId, chainId)) {
             throw new IllegalStateException("Event belongs to WeaverChain " + eventChainId + ", not " + chainId);
@@ -102,17 +103,16 @@ public final class WeaverChain {
         apply(event);
     }
 
-    private static UUID chainIdOf(Object event) {
+    private static UUID chainIdOf(WeaverChainEvent event) {
         return switch (event) {
             case WeaverChainStarted e -> e.chainId();
             case ChainLinkAdded e -> e.chainId();
             case ChainCompleted e -> e.chainId();
             case ChainBroken e -> e.chainId();
-            default -> throw new IllegalArgumentException("Unknown WeaverChain domain event: " + event.getClass());
         };
     }
 
-    private void apply(Object event) {
+    private void apply(WeaverChainEvent event) {
         switch (event) {
             case ChainLinkAdded e -> {
                 links.add(new ChainLink(e.eventId(), e.outcomeId(), e.eraNumber()));
@@ -120,9 +120,10 @@ public final class WeaverChain {
                     status = ChainStatus.COMPLETED;
                 }
             }
-            case ChainCompleted ignored -> status = ChainStatus.COMPLETED;
-            case ChainBroken ignored -> status = ChainStatus.BROKEN;
-            default -> throw new IllegalArgumentException("Unknown WeaverChain domain event: " + event.getClass());
+            case ChainCompleted _ -> status = ChainStatus.COMPLETED;
+            case ChainBroken _ -> status = ChainStatus.BROKEN;
+            case WeaverChainStarted _ ->
+                throw new IllegalStateException("WeaverChainStarted cannot be applied to chain " + chainId);
         }
     }
 
@@ -130,7 +131,8 @@ public final class WeaverChain {
      * Appends one validated causal link. Returns the stream facts to append in order — one {@link ChainLinkAdded},
      * plus a {@link ChainCompleted} when the third link lands.
      */
-    public List<Object> addLink(UUID eventId, UUID outcomeId, int eraNumber, Set<ResolvedOutcome> resolvedOutcomes) {
+    public List<WeaverChainEvent> addLink(
+            UUID eventId, UUID outcomeId, int eraNumber, Set<ResolvedOutcome> resolvedOutcomes) {
         Objects.requireNonNull(eventId, "eventId");
         Objects.requireNonNull(outcomeId, "outcomeId");
         Objects.requireNonNull(resolvedOutcomes, "resolvedOutcomes");
