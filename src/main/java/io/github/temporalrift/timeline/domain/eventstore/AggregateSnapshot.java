@@ -16,5 +16,8 @@ public record AggregateSnapshot(
         Objects.requireNonNull(aggregateType, "aggregateType");
         Objects.requireNonNull(snapshotData, "snapshotData");
         Objects.requireNonNull(createdAt, "createdAt");
+        if (sequenceNr < 0) {
+            throw new IllegalArgumentException("sequenceNr must not be negative: " + sequenceNr);
+        }
     }
 }

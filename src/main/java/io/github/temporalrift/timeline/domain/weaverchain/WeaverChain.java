@@ -46,6 +46,10 @@ public final class WeaverChain {
                 if (chain != null) {
                     throw new IllegalStateException("WeaverChainStarted replayed after initialization for " + chainId);
                 }
+                if (!Objects.equals(started.chainId(), chainId)) {
+                    throw new IllegalStateException(
+                            "Event belongs to WeaverChain " + started.chainId() + ", not " + chainId);
+                }
                 chain = new WeaverChain(
                         chainId, started.playerId(), started.gameId(), new ArrayList<>(), ChainStatus.ACTIVE);
             } else {
@@ -82,9 +86,13 @@ public final class WeaverChain {
     /**
      * Applies one replayed event, deriving completion from the link count so a stream missing its terminal fact
      * still rebuilds as completed. A repeated {@link ChainCompleted} is an idempotent echo; anything else after a
-     * terminal state fails loudly.
+     * terminal state fails loudly. Facts carrying another chain's id are rejected before any state mutation.
      */
     private void applyReplayed(Object event, UUID chainId) {
+        var eventChainId = chainIdOf(event);
+        if (!Objects.equals(eventChainId, chainId)) {
+            throw new IllegalStateException("Event belongs to WeaverChain " + eventChainId + ", not " + chainId);
+        }
         if (event instanceof ChainCompleted && status == ChainStatus.COMPLETED) {
             return;
         }
@@ -92,6 +100,16 @@ public final class WeaverChain {
             throw new IllegalStateException("Event replayed outside the started and active state for " + chainId);
         }
         apply(event);
+    }
+
+    private static UUID chainIdOf(Object event) {
+        return switch (event) {
+            case WeaverChainStarted e -> e.chainId();
+            case ChainLinkAdded e -> e.chainId();
+            case ChainCompleted e -> e.chainId();
+            case ChainBroken e -> e.chainId();
+            default -> throw new IllegalArgumentException("Unknown WeaverChain domain event: " + event.getClass());
+        };
     }
 
     private void apply(Object event) {
