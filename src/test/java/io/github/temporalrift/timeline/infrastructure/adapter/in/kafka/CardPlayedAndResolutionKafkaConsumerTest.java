@@ -886,9 +886,8 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         payload.put("targetPlayerId", UUID.randomUUID());
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
 
-        assertThatThrownBy(() -> consumer.handle(
-                        KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1)))
-                .isInstanceOf(NullPointerException.class);
+        var message = KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1);
+        assertThatThrownBy(() -> consumer.handle(message)).isInstanceOf(NullPointerException.class);
 
         then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
         then(weaverChainSaga).shouldHaveNoInteractions();

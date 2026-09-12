@@ -111,7 +111,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 new ChainLinkAddedEvent(
                         gameId, chainId, playerId, targetEventId, targetOutcomeId, grown.length(), previousLinkEventId),
                 clock));
-        if (facts.stream().anyMatch(fact -> fact instanceof ChainCompleted)) {
+        if (facts.stream().anyMatch(ChainCompleted.class::isInstance)) {
             publisher.publish(TimelineEventEnvelope.create(
                     chainId,
                     AGGREGATE_TYPE,
@@ -169,44 +169,49 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     @Transactional
     public void annihilateOutcome(UUID gameId, int eraNumber, UUID targetEventId, UUID targetOutcomeId) {
         for (var saga : sagas.findOpenByGame(gameId)) {
-            var chain = chains.findById(saga.chainId());
-            boolean linked = chain.links().stream()
-                    .anyMatch(link -> link.eventId().equals(targetEventId)
-                            && link.outcomeId().equals(targetOutcomeId));
-            if (!linked) {
-                continue;
-            }
-            if (saga.tapestryProtected()) {
-                sagas.save(new WeaverChainSagaState(
-                        saga.chainId(),
-                        gameId,
-                        saga.playerId(),
-                        WeaverChainSagaStatus.OPEN,
-                        false,
-                        saga.tapestryUsedEra()));
-                continue;
-            }
-            var invalidated = chain.invalidateLink(targetEventId, targetOutcomeId);
-            if (invalidated.isEmpty()) {
-                continue;
-            }
-            chains.append(saga.chainId(), invalidated.get());
-            var current = chains.findById(saga.chainId());
-            publisher.publish(TimelineEventEnvelope.create(
-                    saga.chainId(),
-                    AGGREGATE_TYPE,
-                    gameId,
-                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new ChainLinkInvalidatedEvent(
-                            gameId,
-                            eraNumber,
-                            saga.chainId(),
-                            saga.playerId(),
-                            targetEventId,
-                            targetOutcomeId,
-                            current.length()),
-                    clock));
+            invalidateLinkedOutcome(saga, gameId, eraNumber, targetEventId, targetOutcomeId);
         }
+    }
+
+    private void invalidateLinkedOutcome(
+            WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID targetEventId, UUID targetOutcomeId) {
+        var chain = chains.findById(saga.chainId());
+        boolean linked = chain.links().stream()
+                .anyMatch(link ->
+                        link.eventId().equals(targetEventId) && link.outcomeId().equals(targetOutcomeId));
+        if (!linked) {
+            return;
+        }
+        if (saga.tapestryProtected()) {
+            sagas.save(new WeaverChainSagaState(
+                    saga.chainId(),
+                    gameId,
+                    saga.playerId(),
+                    WeaverChainSagaStatus.OPEN,
+                    false,
+                    saga.tapestryUsedEra()));
+            return;
+        }
+        var invalidated = chain.invalidateLink(targetEventId, targetOutcomeId);
+        if (invalidated.isEmpty()) {
+            return;
+        }
+        chains.append(saga.chainId(), invalidated.get());
+        var current = chains.findById(saga.chainId());
+        publisher.publish(TimelineEventEnvelope.create(
+                saga.chainId(),
+                AGGREGATE_TYPE,
+                gameId,
+                TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                new ChainLinkInvalidatedEvent(
+                        gameId,
+                        eraNumber,
+                        saga.chainId(),
+                        saga.playerId(),
+                        targetEventId,
+                        targetOutcomeId,
+                        current.length()),
+                clock));
     }
 
     @Override

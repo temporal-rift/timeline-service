@@ -241,39 +241,45 @@ class CardPlayedAndResolutionKafkaConsumer {
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), SpecialActionPlayedInbound.class);
                     payload.requireEnvelope();
-                    switch (payload.specialAction()) {
-                        case THREAD -> {
-                            if (payload.targetEventId() != null && payload.targetOutcomeId() != null) {
-                                weaverChainSaga.playThread(
-                                        payload.gameId(),
-                                        payload.eraNumber(),
-                                        payload.playerId(),
-                                        payload.targetEventId(),
-                                        payload.targetOutcomeId());
-                            }
-                        }
-                        case TAPESTRY ->
-                            weaverChainSaga.playTapestry(payload.gameId(), payload.eraNumber(), payload.playerId());
-                        case UNRAVEL -> {
-                            if (payload.targetPlayerId() != null) {
-                                weaverChainSaga.playUnravel(
-                                        payload.gameId(),
-                                        payload.eraNumber(),
-                                        payload.playerId(),
-                                        payload.targetPlayerId());
-                            }
-                        }
-                        default -> {
-                            // SEAL/ANNIHILATE/CORRUPT/MIMIC replay through the round buffer; every other
-                            // special stays a same-slice no-op at this consumer.
-                        }
-                    }
+                    handleWeaverSpecial(payload);
                 });
         GameEventIngestion.accept(message, WEAVER_SAGA_GAME_ENDED_SPEC, processedEvents)
                 .ifPresent(envelope -> {
                     var payload = GameEventPayloads.read(objectMapper, message.getPayload(), GameEndedPayload.class);
                     weaverChainSaga.endGame(payload.gameId());
                 });
+    }
+
+    private void handleWeaverSpecial(SpecialActionPlayedInbound payload) {
+        switch (payload.specialAction()) {
+            case THREAD -> playThreadIfTargeted(payload);
+            case TAPESTRY -> weaverChainSaga.playTapestry(payload.gameId(), payload.eraNumber(), payload.playerId());
+            case UNRAVEL -> playUnravelIfTargeted(payload);
+            default -> {
+                // SEAL/ANNIHILATE/CORRUPT/MIMIC replay through the round buffer; every other
+                // special stays a same-slice no-op at this consumer.
+            }
+        }
+    }
+
+    private void playThreadIfTargeted(SpecialActionPlayedInbound payload) {
+        if (payload.targetEventId() == null || payload.targetOutcomeId() == null) {
+            return;
+        }
+        weaverChainSaga.playThread(
+                payload.gameId(),
+                payload.eraNumber(),
+                payload.playerId(),
+                payload.targetEventId(),
+                payload.targetOutcomeId());
+    }
+
+    private void playUnravelIfTargeted(SpecialActionPlayedInbound payload) {
+        if (payload.targetPlayerId() == null) {
+            return;
+        }
+        weaverChainSaga.playUnravel(
+                payload.gameId(), payload.eraNumber(), payload.playerId(), payload.targetPlayerId());
     }
 
     private static BufferedAction toBufferedAction(
