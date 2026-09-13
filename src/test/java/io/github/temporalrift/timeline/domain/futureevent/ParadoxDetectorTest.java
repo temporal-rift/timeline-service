@@ -209,19 +209,34 @@ class ParadoxDetectorTest {
     }
 
     @Test
-    void detect_unlinkedAndInactiveChains_ignored() {
+    void detect_unlinkedChain_ignored() {
         var eventId = UUID.randomUUID();
-        var firstOutcomeId = UUID.randomUUID();
-        var secondOutcomeId = UUID.randomUUID();
         var outcomes = List.of(
                 new Outcome(UUID.randomUUID(), "first", 40),
                 new Outcome(UUID.randomUUID(), "second", 35),
                 new Outcome(UUID.randomUUID(), "third", 25));
 
-        var unlinked = chainLinking(UUID.randomUUID(), firstOutcomeId);
-        var broken = brokenChainLinking(eventId, secondOutcomeId);
+        var paradoxes = ParadoxDetector.detect(
+                outcomes, false, eventId, List.of(chainLinking(UUID.randomUUID(), UUID.randomUUID())));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, eventId, List.of(unlinked, broken));
+        assertThat(paradoxes).noneMatch(p -> p.type() == ParadoxType.CHAIN_CONFLICT);
+    }
+
+    @Test
+    void detect_brokenChainWithConflictingOutcome_ignored() {
+        var eventId = UUID.randomUUID();
+        var activeOutcomeId = UUID.randomUUID();
+        var brokenOutcomeId = UUID.randomUUID();
+        var outcomes = List.of(
+                new Outcome(UUID.randomUUID(), "first", 40),
+                new Outcome(UUID.randomUUID(), "second", 35),
+                new Outcome(UUID.randomUUID(), "third", 25));
+
+        var paradoxes = ParadoxDetector.detect(
+                outcomes,
+                false,
+                eventId,
+                List.of(chainLinking(eventId, activeOutcomeId), brokenChainLinking(eventId, brokenOutcomeId)));
 
         assertThat(paradoxes).noneMatch(p -> p.type() == ParadoxType.CHAIN_CONFLICT);
     }
