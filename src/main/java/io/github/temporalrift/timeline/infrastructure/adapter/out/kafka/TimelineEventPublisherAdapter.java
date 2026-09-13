@@ -2,7 +2,10 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.kafka;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Validator;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
@@ -43,10 +46,13 @@ class TimelineEventPublisherAdapter implements TimelineEventPublisher {
 
     private final ApplicationEventPublisher applicationEventPublisher;
     private final TimelineEventWireMapper mapper;
+    private final Validator validator;
 
-    TimelineEventPublisherAdapter(ApplicationEventPublisher applicationEventPublisher, TimelineEventWireMapper mapper) {
+    TimelineEventPublisherAdapter(
+            ApplicationEventPublisher applicationEventPublisher, TimelineEventWireMapper mapper, Validator validator) {
         this.applicationEventPublisher = applicationEventPublisher;
         this.mapper = mapper;
+        this.validator = validator;
     }
 
     @Override
@@ -76,11 +82,24 @@ class TimelineEventPublisherAdapter implements TimelineEventPublisher {
     }
 
     private void publish(String eventType, Object payload, TimelineEventEnvelope<?> event) {
+        validatePayload(eventType, payload);
         Map<String, Object> headers = TimelineEventHeaders.populate(new LinkedHashMap<>(), event, eventType);
         headers.put(SCS_DESTINATION_HEADER, TIMELINE_EVENTS_TOPIC);
 
         Message<Object> message =
                 MessageBuilder.withPayload(payload).copyHeaders(headers).build();
         applicationEventPublisher.publishEvent(message);
+    }
+
+    private void validatePayload(String eventType, Object payload) {
+        var violations = validator.validate(payload);
+        if (!violations.isEmpty()) {
+            var details = violations.stream()
+                    .map(v -> v.getPropertyPath() + " " + v.getMessage())
+                    .sorted()
+                    .collect(Collectors.joining("; "));
+            throw new ConstraintViolationException(
+                    "Invalid timeline event payload '" + eventType + "': " + details, violations);
+        }
     }
 }
