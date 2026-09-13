@@ -26,12 +26,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.github.temporalrift.timeline.application.port.in.OpenParadoxResolutionPhaseUseCase;
+import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
+import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
@@ -40,7 +42,12 @@ import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.I
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.PendingParadox;
+import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaState;
+import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaStatus;
+import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
 @ExtendWith(MockitoExtension.class)
 class ResolveEraCommandHandlerTest {
@@ -60,13 +67,21 @@ class ResolveEraCommandHandlerTest {
     @Mock
     OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase;
 
+    @Mock
+    WeaverChainSagaRepository chainSagas;
+
+    @Mock
+    WeaverChainRepository chains;
+
     private final Clock clock = Clock.fixed(Instant.parse("2026-07-31T00:00:00Z"), ZoneOffset.UTC);
 
     private ResolveEraCommandHandler handler;
 
     @BeforeEach
     void setUp() {
-        handler = new ResolveEraCommandHandler(eraIndex, futureEvents, publisher, openParadoxResolutionPhase, clock);
+        handler = new ResolveEraCommandHandler(
+                eraIndex, futureEvents, publisher, openParadoxResolutionPhase, chainSagas, chains, clock);
+        given(chainSagas.findOpenByGame(any())).willReturn(List.of());
     }
 
     @Test
@@ -491,6 +506,76 @@ class ResolveEraCommandHandlerTest {
         // Each call still asks to open a resolution phase — ResolveEraCommandHandler doesn't itself guard
         // against a duplicate open; ParadoxResolutionSaga's own (gameId, eraNumber) idempotency does.
         then(openParadoxResolutionPhase).should(times(2)).open(eq(GAME_ID), eq(ERA_NUMBER), any(), any());
+    }
+
+    @Test
+    void resolve_conflictingChains_publishesChainConflictParadox() {
+        var eventId = UUID.randomUUID();
+        var firstOutcomeId = UUID.randomUUID();
+        var secondOutcomeId = UUID.randomUUID();
+        var futureEvent = draftedFutureEvent(eventId, firstOutcomeId);
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        givenActiveChains(eventId, firstOutcomeId, secondOutcomeId);
+        givenOpenEchoesBackItsPendingParadoxes();
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeastOnce()).publish(captor.capture());
+        var paradoxDetected = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .filter(ParadoxDetected.class::isInstance)
+                .map(ParadoxDetected.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(paradoxDetected.paradoxes()).singleElement().satisfies(paradox -> {
+            assertThat(paradox.type()).isEqualTo(ParadoxType.CHAIN_CONFLICT);
+            assertThat(paradox.affectedEventId()).isEqualTo(eventId);
+            assertThat(paradox.affectedOutcomeIds()).containsExactlyInAnyOrder(firstOutcomeId, secondOutcomeId);
+        });
+    }
+
+    @Test
+    void resolve_compatibleChains_publishesNoParadox() {
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var futureEvent = draftedFutureEvent(eventId, outcomeId);
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        givenActiveChains(eventId, outcomeId, outcomeId);
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeastOnce()).publish(captor.capture());
+        assertThat(captor.getAllValues().stream().map(TimelineEventEnvelope::payload))
+                .noneMatch(ParadoxDetected.class::isInstance);
+    }
+
+    private void givenActiveChains(UUID eventId, UUID firstOutcomeId, UUID secondOutcomeId) {
+        var firstChainId = UUID.randomUUID();
+        var secondChainId = UUID.randomUUID();
+        given(chainSagas.findOpenByGame(GAME_ID))
+                .willReturn(List.of(
+                        new WeaverChainSagaState(
+                                firstChainId, GAME_ID, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null),
+                        new WeaverChainSagaState(
+                                secondChainId, GAME_ID, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null)));
+        given(chains.findById(firstChainId)).willReturn(chainLinking(firstChainId, eventId, firstOutcomeId));
+        given(chains.findById(secondChainId)).willReturn(chainLinking(secondChainId, eventId, secondOutcomeId));
+    }
+
+    private static WeaverChain chainLinking(UUID chainId, UUID eventId, UUID outcomeId) {
+        return WeaverChain.replay(
+                chainId,
+                List.of(
+                        new WeaverChainStarted(chainId, UUID.randomUUID(), GAME_ID),
+                        new ChainLinkAdded(chainId, eventId, outcomeId, ERA_NUMBER)));
     }
 
     /**

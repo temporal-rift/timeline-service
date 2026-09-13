@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
@@ -74,6 +75,12 @@ class ParadoxResolutionSagaImplTest {
     @Mock
     ProbabilityRulesPort probabilityRules;
 
+    @Mock
+    io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository chainSagas;
+
+    @Mock
+    io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository chains;
+
     private final Clock clock = Clock.fixed(Instant.parse("2026-08-09T00:00:00Z"), ZoneOffset.UTC);
 
     private ParadoxResolutionSagaImpl saga;
@@ -81,7 +88,17 @@ class ParadoxResolutionSagaImplTest {
     @BeforeEach
     void setUp() {
         saga = new ParadoxResolutionSagaImpl(
-                stateManager, futureEvents, eraIndex, eraPlayers, publisher, rules, probabilityRules, clock);
+                stateManager,
+                futureEvents,
+                eraIndex,
+                eraPlayers,
+                publisher,
+                rules,
+                probabilityRules,
+                chainSagas,
+                chains,
+                clock);
+        lenient().when(chainSagas.findOpenByGame(any())).thenReturn(List.of());
     }
 
     @Test

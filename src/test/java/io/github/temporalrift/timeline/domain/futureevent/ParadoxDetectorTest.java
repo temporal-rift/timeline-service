@@ -7,6 +7,11 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import io.github.temporalrift.timeline.domain.event.ChainBroken;
+import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
+import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
+import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
+
 class ParadoxDetectorTest {
 
     @Test
@@ -152,15 +157,92 @@ class ParadoxDetectorTest {
     }
 
     @Test
-    void detect_chainConflict_neverReported() {
+    void detect_conflictingChains_reportsChainConflict() {
+        var eventId = UUID.randomUUID();
+        var firstOutcomeId = UUID.randomUUID();
+        var secondOutcomeId = UUID.randomUUID();
+        var outcomes = List.of(
+                new Outcome(firstOutcomeId, "first", 40),
+                new Outcome(secondOutcomeId, "second", 35),
+                new Outcome(UUID.randomUUID(), "third", 25));
+
+        var paradoxes = ParadoxDetector.detect(
+                outcomes,
+                false,
+                eventId,
+                List.of(chainLinking(eventId, firstOutcomeId), chainLinking(eventId, secondOutcomeId)));
+
+        assertThat(paradoxes)
+                .filteredOn(p -> p.type() == ParadoxType.CHAIN_CONFLICT)
+                .singleElement()
+                .satisfies(p ->
+                        assertThat(p.affectedOutcomeIds()).containsExactlyInAnyOrder(firstOutcomeId, secondOutcomeId));
+    }
+
+    @Test
+    void detect_compatibleChains_reportsNoChainConflict() {
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var outcomes = List.of(
+                new Outcome(outcomeId, "first", 40),
+                new Outcome(UUID.randomUUID(), "second", 35),
+                new Outcome(UUID.randomUUID(), "third", 25));
+
+        var paradoxes = ParadoxDetector.detect(
+                outcomes, false, eventId, List.of(chainLinking(eventId, outcomeId), chainLinking(eventId, outcomeId)));
+
+        assertThat(paradoxes).noneMatch(p -> p.type() == ParadoxType.CHAIN_CONFLICT);
+    }
+
+    @Test
+    void detect_singleLinkingChain_reportsNoChainConflict() {
+        var eventId = UUID.randomUUID();
         var outcomes = List.of(
                 new Outcome(UUID.randomUUID(), "first", 40),
                 new Outcome(UUID.randomUUID(), "second", 35),
                 new Outcome(UUID.randomUUID(), "third", 25));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, true);
+        var paradoxes =
+                ParadoxDetector.detect(outcomes, false, eventId, List.of(chainLinking(eventId, UUID.randomUUID())));
 
         assertThat(paradoxes).noneMatch(p -> p.type() == ParadoxType.CHAIN_CONFLICT);
+    }
+
+    @Test
+    void detect_unlinkedAndInactiveChains_ignored() {
+        var eventId = UUID.randomUUID();
+        var firstOutcomeId = UUID.randomUUID();
+        var secondOutcomeId = UUID.randomUUID();
+        var outcomes = List.of(
+                new Outcome(UUID.randomUUID(), "first", 40),
+                new Outcome(UUID.randomUUID(), "second", 35),
+                new Outcome(UUID.randomUUID(), "third", 25));
+
+        var unlinked = chainLinking(UUID.randomUUID(), firstOutcomeId);
+        var broken = brokenChainLinking(eventId, secondOutcomeId);
+
+        var paradoxes = ParadoxDetector.detect(outcomes, false, eventId, List.of(unlinked, broken));
+
+        assertThat(paradoxes).noneMatch(p -> p.type() == ParadoxType.CHAIN_CONFLICT);
+    }
+
+    private static WeaverChain chainLinking(UUID eventId, UUID outcomeId) {
+        var chainId = UUID.randomUUID();
+        return WeaverChain.replay(
+                chainId,
+                List.of(
+                        new WeaverChainStarted(chainId, UUID.randomUUID(), UUID.randomUUID()),
+                        new ChainLinkAdded(chainId, eventId, outcomeId, 1)));
+    }
+
+    private static WeaverChain brokenChainLinking(UUID eventId, UUID outcomeId) {
+        var chainId = UUID.randomUUID();
+        return WeaverChain.replay(
+                chainId,
+                List.of(
+                        new WeaverChainStarted(chainId, UUID.randomUUID(), UUID.randomUUID()),
+                        new ChainLinkAdded(chainId, eventId, outcomeId, 1),
+                        new ChainBroken(chainId, "UNRAVEL")));
     }
 
     @Test

@@ -2,6 +2,10 @@ package io.github.temporalrift.timeline.domain.futureevent;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
+
+import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
+import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
 /**
  * Detects paradox conditions on a {@link FutureEvent}'s final, post-effects outcome state. Plain
@@ -19,10 +23,20 @@ public final class ParadoxDetector {
      * these two inputs so it can run independently of the aggregate.
      */
     public static List<DetectedParadox> detect(List<Outcome> outcomes, boolean sealBreach) {
+        return detect(outcomes, sealBreach, null, List.of());
+    }
+
+    /**
+     * Chain-aware detection for one active event: {@code eventId} is the event under evaluation and
+     * {@code chains} are the game's currently loaded chains. Only {@code ACTIVE} chains linking
+     * {@code eventId} participate; a null event id or empty chain input reports no conflict.
+     */
+    public static List<DetectedParadox> detect(
+            List<Outcome> outcomes, boolean sealBreach, UUID eventId, List<WeaverChain> chains) {
         var paradoxes = new ArrayList<DetectedParadox>();
         paradoxes.addAll(detectDeadHeat(outcomes));
         paradoxes.addAll(detectImpossibleErasure(outcomes));
-        paradoxes.addAll(detectChainConflict());
+        paradoxes.addAll(detectChainConflict(eventId, chains));
         paradoxes.addAll(detectSealBreach(outcomes, sealBreach));
         return List.copyOf(paradoxes);
     }
@@ -77,12 +91,28 @@ public final class ParadoxDetector {
     }
 
     /**
-     * Deferred stub: no live Weaver chains exist anywhere in the codebase yet, so this always
-     * reports no paradox. The Weaver chain slice changes {@link #detect}'s signature to accept real chain state
-     * and replaces this method's body with actual conflict detection.
+     * Reports one {@link DetectedParadox} of type {@code CHAIN_CONFLICT} when two or more active chains
+     * link the same event but require different outcomes on it.
      */
-    private static List<DetectedParadox> detectChainConflict() {
-        return List.of();
+    private static List<DetectedParadox> detectChainConflict(UUID eventId, List<WeaverChain> chains) {
+        if (eventId == null || chains == null || chains.isEmpty()) {
+            return List.of();
+        }
+        var conflictingOutcomeIds = chains.stream()
+                .filter(chain -> chain != null && chain.status() == ChainStatus.ACTIVE)
+                .flatMap(chain -> chain.links().stream()
+                        .filter(link -> eventId.equals(link.eventId()))
+                        .map(link -> link.outcomeId()))
+                .distinct()
+                .sorted()
+                .toList();
+        if (conflictingOutcomeIds.size() < 2) {
+            return List.of();
+        }
+        return List.of(new DetectedParadox(
+                ParadoxType.CHAIN_CONFLICT,
+                conflictingOutcomeIds,
+                "Weaver chains require conflicting outcomes " + conflictingOutcomeIds + " for event " + eventId));
     }
 
     /**

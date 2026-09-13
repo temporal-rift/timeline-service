@@ -22,7 +22,11 @@ import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.I
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.PendingParadox;
+import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
+import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
 /**
  * Resolves every {@code FutureEvent} drawn for an era: highest-probability wins, deterministic
@@ -46,6 +50,8 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     private final FutureEventRepository futureEvents;
     private final TimelineEventPublisher publisher;
     private final OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase;
+    private final WeaverChainSagaRepository chainSagas;
+    private final WeaverChainRepository chains;
     private final Clock clock;
 
     ResolveEraCommandHandler(
@@ -53,11 +59,15 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             FutureEventRepository futureEvents,
             TimelineEventPublisher publisher,
             OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase,
+            WeaverChainSagaRepository chainSagas,
+            WeaverChainRepository chains,
             Clock clock) {
         this.eraIndex = eraIndex;
         this.futureEvents = futureEvents;
         this.publisher = publisher;
         this.openParadoxResolutionPhase = openParadoxResolutionPhase;
+        this.chainSagas = chainSagas;
+        this.chains = chains;
         this.clock = clock;
     }
 
@@ -72,16 +82,28 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                 .collect(Collectors.toSet());
 
         var accumulator = new ResolutionAccumulator();
+        var activeChains = loadActiveChains(gameId);
         for (var indexedEventId : indexedEventIds) {
             // Already carried into eraNumber + 1 and reported as STALLED by a prior call for this era.
             // addStalled clears stalled() as part of carrying an event forward, so a redelivered call
             // reaching this event again would otherwise fall through to resolving it a second time.
             if (!alreadyCarriedForward.contains(indexedEventId.eventId())) {
                 var futureEvent = futureEvents.findById(indexedEventId.eventId());
-                resolveEvent(gameId, eraNumber, indexedEventId, futureEvent, accumulator);
+                resolveEvent(gameId, eraNumber, indexedEventId, futureEvent, activeChains, accumulator);
             }
         }
         publishResolution(gameId, eraNumber, accumulator);
+    }
+
+    private List<WeaverChain> loadActiveChains(UUID gameId) {
+        var activeChains = new ArrayList<WeaverChain>();
+        for (var saga : chainSagas.findOpenByGame(gameId)) {
+            var chain = chains.findById(saga.chainId());
+            if (chain.status() == ChainStatus.ACTIVE && chain.gameId().equals(gameId)) {
+                activeChains.add(chain);
+            }
+        }
+        return List.copyOf(activeChains);
     }
 
     private void resolveEvent(
@@ -89,6 +111,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             int eraNumber,
             IndexedEventId indexedEventId,
             FutureEvent futureEvent,
+            List<WeaverChain> activeChains,
             ResolutionAccumulator accumulator) {
         if (futureEvent.resolved()) {
             // already resolved in a prior call for this era — nothing to do
@@ -98,7 +121,8 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             addStalled(gameId, eraNumber, indexedEventId, futureEvent, accumulator.terminalResolutions());
             return;
         }
-        var detected = ParadoxDetector.detect(futureEvent.outcomes(), futureEvent.sealBreach());
+        var detected = ParadoxDetector.detect(
+                futureEvent.outcomes(), futureEvent.sealBreach(), futureEvent.id(), activeChains);
         if (detected.isEmpty()) {
             var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
             accumulator.resolutions().add(outcomeApplied);

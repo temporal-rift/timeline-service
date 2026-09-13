@@ -29,10 +29,14 @@ import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionRulesPor
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.PendingParadox;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.Submission;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhaseStatus;
+import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
+import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
 /**
  * Business logic for the paradox-resolution saga: both the force-cascade (timer expiry) and player-submission
@@ -58,6 +62,8 @@ class ParadoxResolutionSagaImpl {
     private final TimelineEventPublisher publisher;
     private final ParadoxResolutionRulesPort rules;
     private final ProbabilityRulesPort probabilityRules;
+    private final WeaverChainSagaRepository chainSagas;
+    private final WeaverChainRepository chains;
     private final Clock clock;
 
     ParadoxResolutionSagaImpl(
@@ -68,6 +74,8 @@ class ParadoxResolutionSagaImpl {
             TimelineEventPublisher publisher,
             ParadoxResolutionRulesPort rules,
             ProbabilityRulesPort probabilityRules,
+            WeaverChainSagaRepository chainSagas,
+            WeaverChainRepository chains,
             Clock clock) {
         this.stateManager = stateManager;
         this.futureEvents = futureEvents;
@@ -76,6 +84,8 @@ class ParadoxResolutionSagaImpl {
         this.publisher = publisher;
         this.rules = rules;
         this.probabilityRules = probabilityRules;
+        this.chainSagas = chainSagas;
+        this.chains = chains;
         this.clock = clock;
     }
 
@@ -177,9 +187,10 @@ class ParadoxResolutionSagaImpl {
 
         var resolvedByPlayerIdByEvent = applySubmissions(phase);
 
+        var activeChains = loadActiveChains(phase.gameId());
         var terminalResolutions = new ArrayList<TerminalResolution>();
         for (var affectedEventId : distinctAffectedEventIds(phase)) {
-            closeEvent(phase, affectedEventId, resolvedByPlayerIdByEvent, terminalResolutions);
+            closeEvent(phase, affectedEventId, resolvedByPlayerIdByEvent, activeChains, terminalResolutions);
         }
 
         stateManager.complete(phase);
@@ -254,10 +265,22 @@ class ParadoxResolutionSagaImpl {
      * {@code paradoxId} of its own and so gets no dedicated {@code ParadoxCascaded} fact this cycle
      * (design.md Non-Goals), but the event itself never wrongly resolves out from under it.
      */
+    private List<WeaverChain> loadActiveChains(UUID gameId) {
+        var activeChains = new ArrayList<WeaverChain>();
+        for (var saga : chainSagas.findOpenByGame(gameId)) {
+            var chain = chains.findById(saga.chainId());
+            if (chain.status() == ChainStatus.ACTIVE && chain.gameId().equals(gameId)) {
+                activeChains.add(chain);
+            }
+        }
+        return List.copyOf(activeChains);
+    }
+
     private void closeEvent(
             ParadoxResolutionPhase phase,
             UUID affectedEventId,
             Map<UUID, UUID> resolvedByPlayerIdByEvent,
+            List<WeaverChain> activeChains,
             List<TerminalResolution> terminalResolutions) {
         var eventPendingParadoxes = phase.pendingParadoxes().stream()
                 .filter(pending -> pending.affectedEventId().equals(affectedEventId))
@@ -273,7 +296,8 @@ class ParadoxResolutionSagaImpl {
                 .anyMatch(s -> "STABILIZE".equals(s.cardType()) && affectedEventId.equals(s.targetEventId()));
         var freshParadoxes = stabilized
                 ? List.<DetectedParadox>of()
-                : ParadoxDetector.detect(futureEvent.outcomes(), futureEvent.sealBreach());
+                : ParadoxDetector.detect(
+                        futureEvent.outcomes(), futureEvent.sealBreach(), futureEvent.id(), activeChains);
 
         var allResolved = stabilized || freshParadoxes.isEmpty();
         for (var pending : eventPendingParadoxes) {
