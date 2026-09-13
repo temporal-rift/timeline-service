@@ -15,6 +15,8 @@ import java.util.UUID;
 
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validation;
+import jakarta.validation.ValidatorFactory;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,11 +44,17 @@ class TimelineEventPublisherAdapterTest {
 
     TimelineEventPublisherAdapter adapter;
 
+    private static final ValidatorFactory VALIDATOR_FACTORY = Validation.buildDefaultValidatorFactory();
+
+    @AfterAll
+    static void closeValidatorFactory() {
+        VALIDATOR_FACTORY.close();
+    }
+
     @BeforeEach
     void setUp() {
-        try (var factory = Validation.buildDefaultValidatorFactory()) {
-            adapter = new TimelineEventPublisherAdapter(applicationEventPublisher, mapper, factory.getValidator());
-        }
+        adapter =
+                new TimelineEventPublisherAdapter(applicationEventPublisher, mapper, VALIDATOR_FACTORY.getValidator());
     }
 
     @Test
@@ -101,6 +109,27 @@ class TimelineEventPublisherAdapterTest {
 
         assertThat(thrown.getMessage()).contains("gameId");
         assertThat(thrown.getMessage()).doesNotContain("terminalResolutions=[]");
+        then(applicationEventPublisher).should(never()).publishEvent(any(Message.class));
+    }
+
+    @Test
+    void publish_nestedViolation_rejectedBeforeOutbox() {
+        var gameId = UUID.randomUUID();
+        var domain = new EraResolutionCompleted(
+                gameId,
+                1,
+                List.of(new TerminalResolution(
+                        UUID.randomUUID(), 0, TerminalResolution.TerminalState.OUTCOME_APPLIED, UUID.randomUUID())));
+        var wire = new EraResolutionCompletedPayload(
+                gameId, 1, List.of(new EraTerminalResolution(null, 0, "OUTCOME_APPLIED", UUID.randomUUID())));
+        given(mapper.toWire(domain)).willReturn(wire);
+        var envelope = TimelineEventEnvelope.create(UUID.randomUUID(), "FutureEvent", gameId, 1, domain, CLOCK);
+
+        assertThatThrownBy(() -> adapter.publish(envelope))
+                .isInstanceOf(ConstraintViolationException.class)
+                .hasMessageContaining("EraResolutionCompleted")
+                .hasMessageContaining("terminalResolutions[0].eventId");
+
         then(applicationEventPublisher).should(never()).publishEvent(any(Message.class));
     }
 }
