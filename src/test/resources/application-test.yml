@@ -41,6 +41,11 @@ spring:
     hibernate:
       ddl-auto: validate
     show-sql: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:9000
   kafka:
     bootstrap-servers: localhost:9092
     properties:

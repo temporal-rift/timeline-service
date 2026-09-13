@@ -57,6 +57,7 @@
         <timeline-event.version>2.2.0</timeline-event.version>
         <session-event.version>1.2.1</session-event.version>
         <action-event.version>2.1.0</action-event.version>
+        <chains-api.version>1.0.0</chains-api.version>
         <archunit-junit5.version>1.4.2</archunit-junit5.version>
     </properties>
 
@@ -81,6 +82,13 @@
             <groupId>io.github.temporal-rift</groupId>
             <artifactId>action-event</artifactId>
             <version>${action-event.version}</version>
+        </dependency>
+        <!-- Spec-only: bundles chains-api's OpenAPI specification. Codegen for it is driven by the
+             openapi-generator-maven-plugin execution below. -->
+        <dependency>
+            <groupId>io.github.temporal-rift</groupId>
+            <artifactId>chains-api</artifactId>
+            <version>${chains-api.version}</version>
         </dependency>
 
         <dependency>
@@ -119,8 +127,21 @@
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <!-- Required by the generated chains-api model classes' @Schema annotations. -->
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
         </dependency>
         <!-- Required by the generated timeline-event model classes' @NotNull/@Valid annotations. -->
         <dependency>
@@ -168,6 +189,11 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-testcontainers</artifactId>
             <scope>test</scope>
@@ -211,6 +237,65 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.openapitools</groupId>
+                <artifactId>openapi-generator-maven-plugin</artifactId>
+                <configuration>
+                    <importMappings>
+                        <importMapping>ProblemDetail=org.springframework.http.ProblemDetail</importMapping>
+                    </importMappings>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>generate-chains-api</id>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <inputSpec>
+                                ${project.build.directory}/dependency-specs/chains-api-${chains-api.version}-jar/openapi/v1/chains.yml
+                            </inputSpec>
+                            <output>${project.build.directory}/generated-sources/openapi/chains</output>
+                            <apiPackage>io.github.temporalrift.timeline.infrastructure.adapter.in.rest.v1
+                            </apiPackage>
+                            <modelPackage>io.github.temporalrift.timeline.infrastructure.adapter.in.rest.v1.model
+                            </modelPackage>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <configuration>
+                            <outputDirectory>${project.build.testOutputDirectory}</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <id>add-openapi-generated-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>
+                                    ${project.build.directory}/generated-sources/openapi/chains/src/main/java
+                                </source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

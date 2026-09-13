@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline;
 
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 
@@ -9,6 +10,8 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.annotation.Order;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @AnalyzeClasses(packages = "io.github.temporalrift.timeline", importOptions = ImportOption.DoNotIncludeTests.class)
 public class ArchitectureTest {
@@ -46,4 +49,12 @@ public class ArchitectureTest {
             .should()
             .beAnnotatedWith(Autowired.class)
             .as("Use constructor injection — never @Autowired on fields");
+
+    @ArchTest
+    static final ArchRule rest_advices_must_declare_explicit_order = classes()
+            .that()
+            .areAnnotatedWith(RestControllerAdvice.class)
+            .should()
+            .beAnnotatedWith(Order.class)
+            .as("Every @RestControllerAdvice must declare @Order(RestAdviceOrder.MODULE)");
 }

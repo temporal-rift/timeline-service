@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Game participation plus faction identity carried by FactionAssigned, persisted per
+      (game_id, player_id) so the gated chains endpoint can authorize from consumed events.
+  -->
+  <changeSet id="001-create-game-membership" author="timeline-service">
+    <createTable tableName="game_membership">
+      <column name="id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="player_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="faction" type="VARCHAR(20)">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+
+    <createIndex tableName="game_membership" indexName="ux_game_membership_game_player" unique="true">
+      <column name="game_id"/>
+      <column name="player_id"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>
