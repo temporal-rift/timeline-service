@@ -14,19 +14,23 @@ import tools.jackson.databind.ObjectMapper;
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
-        // Stateless bearer API: no cookie or session rides cross-site, so CSRF is inapplicable.
-        return http.csrf(AbstractHttpConfigurer::disable) // NOSONAR S4502
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth.requestMatchers("/actuator/health/**")
-                        .permitAll()
-                        .anyRequest()
-                        .authenticated())
-                .oauth2ResourceServer(
-                        oauth2 -> oauth2.authenticationEntryPoint(new UnauthorizedEntryPoint(objectMapper))
-                                .jwt(jwt -> jwt.jwtAuthenticationConverter(new PlayerAuthenticationConverter())))
-                .exceptionHandling(
-                        exceptions -> exceptions.accessDeniedHandler(new PlayerAccessDeniedHandler(objectMapper)))
-                .build();
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper) {
+        try {
+            // Stateless bearer API: no cookie or session rides cross-site, so CSRF is inapplicable.
+            return http.csrf(AbstractHttpConfigurer::disable) // NOSONAR S4502
+                    .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                    .authorizeHttpRequests(auth -> auth.requestMatchers("/actuator/health/**")
+                            .permitAll()
+                            .anyRequest()
+                            .authenticated())
+                    .oauth2ResourceServer(
+                            oauth2 -> oauth2.authenticationEntryPoint(new UnauthorizedEntryPoint(objectMapper))
+                                    .jwt(jwt -> jwt.jwtAuthenticationConverter(new PlayerAuthenticationConverter())))
+                    .exceptionHandling(
+                            exceptions -> exceptions.accessDeniedHandler(new PlayerAccessDeniedHandler(objectMapper)))
+                    .build();
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to build the chains security filter chain", e);
+        }
     }
 }
