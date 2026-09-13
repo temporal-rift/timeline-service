@@ -33,6 +33,13 @@ class JpaWeaverChainSagaAdapter implements WeaverChainSagaRepository {
     }
 
     @Override
+    public List<WeaverChainSagaState> findAllByGameAndPlayer(UUID gameId, UUID playerId) {
+        return jpaRepository.findByGameIdAndPlayerId(gameId, playerId).stream()
+                .map(JpaWeaverChainSagaAdapter::toState)
+                .toList();
+    }
+
+    @Override
     public List<WeaverChainSagaState> findOpenByGame(UUID gameId) {
         return jpaRepository.findByGameIdAndStatus(gameId, WeaverChainSagaStatus.OPEN).stream()
                 .map(JpaWeaverChainSagaAdapter::toState)

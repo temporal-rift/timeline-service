@@ -393,6 +393,14 @@ class WeaverChainSagaTest {
         }
 
         @Override
+        public List<WeaverChainSagaState> findAllByGameAndPlayer(UUID gameId, UUID playerId) {
+            return states.values().stream()
+                    .filter(state ->
+                            state.gameId().equals(gameId) && state.playerId().equals(playerId))
+                    .toList();
+        }
+
+        @Override
         public List<WeaverChainSagaState> findOpenByGame(UUID gameId) {
             return states.values().stream()
                     .filter(state -> state.gameId().equals(gameId) && state.status() == WeaverChainSagaStatus.OPEN)

@@ -67,6 +67,26 @@ class JpaWeaverChainSagaAdapterTest {
     }
 
     @Test
+    void findAllByGameAndPlayer_returnsOpenAndTerminalSagas() {
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var openChain = UUID.randomUUID();
+        var brokenChain = UUID.randomUUID();
+        sagas.save(new WeaverChainSagaState(openChain, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null));
+        sagas.save(new WeaverChainSagaState(brokenChain, gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null));
+
+        assertThat(sagas.findAllByGameAndPlayer(gameId, playerId))
+                .extracting(WeaverChainSagaState::chainId)
+                .containsExactlyInAnyOrder(openChain, brokenChain);
+    }
+
+    @Test
+    void findAllByGameAndPlayer_noSaga_returnsEmpty() {
+        assertThat(sagas.findAllByGameAndPlayer(UUID.randomUUID(), UUID.randomUUID()))
+                .isEmpty();
+    }
+
+    @Test
     void findOpenByGame_returnsEveryOpenSagaInThatGame() {
         var gameId = UUID.randomUUID();
         var first = UUID.randomUUID();

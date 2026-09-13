@@ -20,6 +20,9 @@
     <!-- Era: player roster carried by EraStarted -->
     <include file="db/changelog/era/001-create-era-players.xml"/>
 
+    <!-- Membership: participation + faction carried by FactionAssigned -->
+    <include file="db/changelog/membership/001-create-game-membership.xml"/>
+
     <!--
         Round-scoped card-modifier coordination state (AMPLIFY/NULLIFY/REDIRECT). Superseded by
         round_action_buffer below (design.md Decision 7, timeline-mvp9-resolution-ordering-paradox-cards) —
