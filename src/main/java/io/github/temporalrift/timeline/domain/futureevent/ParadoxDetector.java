@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import io.github.temporalrift.timeline.domain.weaverchain.ChainLink;
 import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
@@ -102,7 +103,7 @@ public final class ParadoxDetector {
                 .filter(chain -> chain != null && chain.status() == ChainStatus.ACTIVE)
                 .flatMap(chain -> chain.links().stream()
                         .filter(link -> eventId.equals(link.eventId()))
-                        .map(link -> link.outcomeId()))
+                        .map(ChainLink::outcomeId))
                 .distinct()
                 .sorted()
                 .toList();
