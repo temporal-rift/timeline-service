@@ -7,7 +7,7 @@ import java.util.UUID;
 
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase;
 
-/** Driven port for {@link ParadoxResolutionPhase} persistence (design.md Decision 1). */
+/** Driven port for {@link ParadoxResolutionPhase} persistence (the governing design Decision 1). */
 public interface ParadoxResolutionPhaseRepository {
 
     /**
@@ -28,7 +28,7 @@ public interface ParadoxResolutionPhaseRepository {
     /**
      * Row-level write lock by the phase's natural key — used by the player-submission path, which only knows
      * {@code (gameId, eraNumber)} from the inbound submission, not the phase's {@code sagaId}
-     * (timeline-mvp8-paradox-completion Decision 2).
+     * (the paradox-completion design Decision 2).
      */
     Optional<ParadoxResolutionPhase> findByGameIdAndEraNumberWithLock(UUID gameId, int eraNumber);
 

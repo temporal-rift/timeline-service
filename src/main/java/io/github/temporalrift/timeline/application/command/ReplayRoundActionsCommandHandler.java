@@ -46,12 +46,12 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
 /**
- * Replays one round's buffered actions in strict priority-tier order (design.md Decision 1, timeline-mvp9-
- * resolution-ordering-paradox-cards): {@code NULLIFY -> SEAL -> ANNIHILATE -> CORRUPT -> MIMIC -> AMPLIFY ->
+ * Replays one round's buffered actions in strict priority-tier order: {@code NULLIFY -> SEAL -> ANNIHILATE ->
+ * CORRUPT -> MIMIC -> AMPLIFY ->
  * remaining cards by submission timestamp}, all in one in-process pass. Folds in what
  * {@code ApplyProbabilityShiftUseCase},
  * {@code PlayCardModifierUseCase}, {@code PlaySpecialActionUseCase}, and {@code ResolvePendingCorruptUseCase}
- * did as standalone per-message handlers (design.md Decision 7) — every "last card"/"pending" concept those
+ * did as standalone per-message handlers (the governing design Decision 7) — every "last card"/"pending" concept those
  * needed a durable cross-transaction port for is now resolved once up front from the complete round buffer by
  * named player ({@code NULLIFY}, {@code AMPLIFY}, {@code REDIRECT}, and {@code CORRUPT}).
  */
@@ -83,8 +83,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     /**
      * MIMIC correlates only to these (faction-specials capability) — the same "direct transfer" vocabulary Rally
      * boosts (activist-declaration-effects capability), though Rally's own eligibility additionally excludes
-     * SUPPRESS and a SWING's source side (design.md "Rally/Momentum eligibility is a shared 'direct transfer'
-     * concept").
+     * SUPPRESS and a SWING's source side because Rally and Momentum share the same direct-transfer eligibility.
      */
     private static final Set<String> DIRECT_TRANSFER_TYPES =
             Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING);
@@ -379,8 +378,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     /**
      * Maps each {@code MIMIC}'s {@code envelopeEventId} to the same-round {@code PUSH}/{@code SUPPRESS}/
      * {@code SWING} played by a different player targeting the same outcome of the same {@code FutureEvent} — the
-     * earliest such card by submission order (design.md "MIMIC correlates by (targetEventId, targetOutcomeId), not
-     * by player"). A {@code MIMIC} with no matching card in that round has no effect.
+     * earliest such card by submission order. Correlation uses the target event and outcome, not the player. A
+     * {@code MIMIC} with no matching card in that round has no effect.
      */
     private static Map<UUID, BufferedAction> resolveMimicTargets(List<BufferedAction> sorted, Set<UUID> cancelled) {
         // LinkedHashMap so applyMimicTier can iterate its values directly in sorted order, without a second
@@ -405,11 +404,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     /**
      * Replays each correlated card's effect a second time, independently, at its configured base magnitude — not
      * the original's post-amplify magnitude, and independent of whether that same card was also the subject of a
-     * same-round {@code CORRUPT} (design.md "MIMIC's copy is a fresh, independent shift..."). Runs before the
-     * remaining-cards tier so a {@code MIMIC} copy of a sealed target still records {@code SEAL_BREACH} rather than
-     * applying (SEAL/ANNIHILATE already ran in their own tiers above). A copy landing on a Rally-declared outcome
-     * is boosted identically to an ordinary card (design.md "Rally/Momentum eligibility is a shared 'direct
-     * transfer' concept").
+     * same-round {@code CORRUPT}. Runs before the remaining-cards tier so a {@code MIMIC} copy of a sealed target
+     * still records {@code SEAL_BREACH} rather than applying (SEAL/ANNIHILATE already ran in their own tiers
+     * above). A copy landing on a Rally-declared outcome is boosted identically to an ordinary card because Rally
+     * and Momentum share the same direct-transfer eligibility.
      */
     private void applyMimicTier(
             Map<UUID, BufferedAction> mimicCorrelations, Set<UUID> rallyDeclaredOutcomes, Set<UUID> touchedEventIds) {
@@ -433,8 +431,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     /**
      * Every still-live (not {@code NULLIFY}-cancelled) {@code RALLY} entry's declared outcome — a set membership
      * check, not a per-declaration multiplier stack, so two Activists declaring the same outcome still boost a
-     * matching transfer only once (design.md "Rally declarations are durably buffered per era..."). Only ever
-     * non-empty for round 1: {@code CardPlayedAndResolutionKafkaConsumer} buffers a {@code RALLY} declaration into
+     * matching transfer only once. Only ever non-empty for round 1: {@code CardPlayedAndResolutionKafkaConsumer}
+     * buffers a {@code RALLY} declaration into
      * round 1's own buffer unconditionally, so it can never appear in any other round's {@code sorted} list.
      */
     private static Set<UUID> resolveRallyDeclaredOutcomes(List<BufferedAction> sorted, Set<UUID> cancelled) {
@@ -446,10 +444,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
     /**
      * {@code SUPPRESS} is never Rally-boosted — it has no destination outcome of its own, only a target that
-     * decreases, and the corresponding increase is an indirect redistribution the GDD explicitly excludes
-     * (design.md "Rally's multiplier ... SUPPRESS is never Rally-boosted"). {@code COLLIDE} has no configured
-     * magnitude to boost. A {@code PUSH}/{@code SWING} landing on a declared outcome applies at the configured
-     * Rally multiplier of its otherwise-determined magnitude.
+     * decreases, and the corresponding increase is an indirect redistribution the game rules explicitly exclude
+     * it. {@code COLLIDE} has no configured magnitude to boost. A {@code PUSH}/{@code SWING} landing on a declared
+     * outcome applies at the configured Rally multiplier of its otherwise-determined magnitude.
      */
     private int rallyAdjustedMagnitude(
             Set<UUID> rallyDeclaredOutcomes, ShiftKind kind, UUID destinationOutcomeId, int magnitude) {
@@ -462,8 +459,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     /**
-     * Applies and persists one direct transfer against an already-loaded {@link FutureEvent} (design.md "Rally/
-     * Momentum eligibility is a shared 'direct transfer' concept") — shared by the ordinary remaining-cards tier
+     * Applies and persists one direct transfer against an already-loaded {@link FutureEvent}. Shared by both the
+     * ordinary remaining-cards tier
      * ({@link #applyShifter}) and {@link #applyMimicTier}, so both go through identical floor/ceiling/
      * redistribution and sealed-outcome handling.
      */

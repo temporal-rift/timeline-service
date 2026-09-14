@@ -207,7 +207,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                 .ifPresent(envelope -> {
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), ActivistDeclarationRecordedPayload.class);
-                    // Handled in this same consumer group, not a standalone one (design.md
+                    // Handled in this same consumer group, not a standalone one (the governing design
                     // "ActivistDeclarationRecorded is consumed by the existing
                     // CardPlayedAndResolutionKafkaConsumer, not a new class"): a lagging separate group could
                     // let this era's Round 1 ActionRoundClosed replay run before a RALLY declaration is

@@ -7,7 +7,7 @@ import java.util.UUID;
 /**
  * Driven port for the player roster {@code EraStarted} carries — the only source of a
  * game's players available to {@code timeline-service}, needed by {@code ParadoxResolutionSagaImpl} to know who
- * a resolution phase is waiting on (design.md Decision 3).
+ * a resolution phase is waiting on (the governing design Decision 3).
  */
 public interface EraPlayersPort {
 

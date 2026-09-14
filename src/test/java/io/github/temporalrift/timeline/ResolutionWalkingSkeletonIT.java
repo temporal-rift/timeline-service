@@ -25,7 +25,7 @@ import org.springframework.messaging.support.MessageBuilder;
  * hand-rolled body-envelope shape used elsewhere for {@code timeline.events} placeholders) onto
  * {@code game.events}, and asserts {@code OutcomeApplied} — preceded by {@code ProbabilityStateCalculated}
  * — lands on {@code timeline.events}. Also confirms the {@code eventType}
- * header round-trips end-to-end (design.md Decision 2).
+ * header round-trips end-to-end (the governing design Decision 2).
  */
 @TimelineServiceIntegrationTest
 class ResolutionWalkingSkeletonIT {
@@ -149,7 +149,7 @@ class ResolutionWalkingSkeletonIT {
         // ResolutionStarted follows with no synchronization in between: CardPlayedAndResolutionKafkaConsumer
         // handles all three event types on the same consumer group/partition, so Kafka's in-partition
         // ordering alone (not a test-only wait) guarantees the shift is applied before resolution runs
-        // (design.md Decision 1, timeline-mvp9-resolution-ordering-paradox-cards).
+        // (the governing design Decision 1, the round-action ordering design).
         publishCardPlayed(gameId, eraNumber, futureEventId, "PUSH", null, pushedOutcomeId);
         publishActionRoundClosed(gameId, eraNumber, 1);
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
@@ -493,7 +493,7 @@ class ResolutionWalkingSkeletonIT {
     }
 
     /**
-     * timeline-mvp9-resolution-ordering-paradox-cards: {@code CardPlayed}/{@code SpecialActionPlayed} are now
+     * the round-action ordering design: {@code CardPlayed}/{@code SpecialActionPlayed} are now
      * buffered, not applied immediately — a round's effects only take place once its {@code ActionRoundClosed}
      * triggers the priority-ordered replay.
      */

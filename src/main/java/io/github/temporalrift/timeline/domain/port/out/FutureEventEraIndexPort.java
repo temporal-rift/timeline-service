@@ -5,7 +5,7 @@ import java.util.UUID;
 
 /**
  * Write-side lookup so a {@code ResolutionStarted} (which carries only {@code gameId}/{@code eraNumber})
- * can find which {@code FutureEvent} aggregates to resolve — see design.md Decision 1.
+ * can find which {@code FutureEvent} aggregates to resolve — see the governing design Decision 1.
  */
 public interface FutureEventEraIndexPort {
 

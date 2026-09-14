@@ -40,7 +40,7 @@ import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
 /**
  * Business logic for the paradox-resolution saga: both the force-cascade (timer expiry) and player-submission
- * (all-submitted) close branches, sharing one {@link #tryClose} (design.md timeline-mvp8-paradox-completion
+ * (all-submitted) close branches, sharing one {@link #tryClose} (the governing design the paradox-completion design
  * Decision 2). Holds no direct dependency on timer scheduling: {@link ParadoxResolutionPhaseOpener} and
  * {@link ParadoxResolutionTimeoutProcessor} compose this class with {@link ParadoxResolutionTimerScheduler}, which
  * avoids a circular dependency (scheduler -> timeout processor -> this class).
@@ -160,8 +160,8 @@ class ParadoxResolutionSagaImpl {
 
     /**
      * Records a player's resolution-card submission; when it leaves no player still pending, closes the phase
-     * immediately by the same {@link #tryClose} the timer-expiry path uses (design.md Decision 2) — the returned
-     * phase from {@code markSubmitted} already holds the row lock for the remainder of this transaction, so no
+     * immediately by the same {@link #tryClose} the timer-expiry path uses. The returned phase from
+     * {@code markSubmitted} already holds the row lock for the remainder of this transaction, so no
      * second fetch is needed. {@code markSubmitted} returns a phase only when it actually recorded the
      * submission, so a duplicate or non-roster player never reaches the close trigger.
      */
@@ -177,7 +177,7 @@ class ParadoxResolutionSagaImpl {
      * publishing, marking {@code COMPLETED} — inside the transaction that holds {@code phase}'s row lock
      * (acquired by the caller). A phase not {@code WAITING} here is the loser of a race against the other close
      * trigger: it already lost the lock to whichever transaction closed the phase first, and on acquiring it now
-     * sees that committed, terminal status, so there is nothing left to do (design.md Decision 2).
+     * sees that committed, terminal status, so there is nothing left to do (the governing design Decision 2).
      */
     private void tryClose(ParadoxResolutionPhase phase, String closeReason) {
         if (phase.status() != ParadoxResolutionPhaseStatus.WAITING) {
@@ -263,7 +263,7 @@ class ParadoxResolutionSagaImpl {
      * card that clears one paradox but incidentally introduces a different one (e.g. a SUPPRESS that ties two
      * outcomes into a fresh {@code DEAD_HEAT}) still cascades the event; that new, untracked finding has no
      * {@code paradoxId} of its own and so gets no dedicated {@code ParadoxCascaded} fact this cycle
-     * (design.md Non-Goals), but the event itself never wrongly resolves out from under it.
+     * (the governing design Non-Goals), but the event itself never wrongly resolves out from under it.
      */
     private List<WeaverChain> loadActiveChains(UUID gameId) {
         var activeChains = new ArrayList<WeaverChain>();
@@ -290,7 +290,7 @@ class ParadoxResolutionSagaImpl {
 
         // STABILIZE(affectedEventId) suppresses paradox re-detection entirely for this event — every
         // originally pending finding resolves regardless of what fresh detection on the post-close state
-        // would otherwise find (GDD: "prevent a paradox from triggering", stronger than clearing only the
+        // would otherwise find (the rule prevents a paradox from triggering, stronger than clearing only the
         // originally-tracked finding). No fresh detection is even run in that case.
         boolean stabilized = phase.submissions().stream()
                 .anyMatch(s -> "STABILIZE".equals(s.cardType()) && affectedEventId.equals(s.targetEventId()));
@@ -354,7 +354,7 @@ class ParadoxResolutionSagaImpl {
 
     /**
      * Every distinct player who submitted {@code DETONATE} targeting {@code affectedEventId} this close —
-     * deduplicated (multiple {@code DETONATE}s on the same event collapse into one set, GDD: the effect does
+     * deduplicated (multiple {@code DETONATE}s on the same event collapse into one set because the effect does
      * not stack) and only meaningful when the event actually cascades; a {@code STABILIZE}-cleared event never
      * gets a {@code ParadoxCascaded} published for it at all, so this set is simply never read in that case.
      */

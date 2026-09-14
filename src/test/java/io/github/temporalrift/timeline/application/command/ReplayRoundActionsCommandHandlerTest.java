@@ -635,7 +635,7 @@ class ReplayRoundActionsCommandHandlerTest {
         given(rules.probabilityCeiling()).willReturn(90);
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).willReturn(List.of());
         // A RALLY entry should never reach round 2's buffer in production, but the replay handler still
-        // must not consult it defensively (design.md/spec: Round 1 only).
+        // must not consult it defensively (the round-action contract: Round 1 only).
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, 2))
                 .willReturn(List.of(
                         rally(UUID.randomUUID(), eventId, a, at(0)), cardPlayed("PUSH", eventId, null, a, at(1))));

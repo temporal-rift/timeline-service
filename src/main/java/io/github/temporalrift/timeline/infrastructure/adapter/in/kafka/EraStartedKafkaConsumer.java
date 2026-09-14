@@ -17,9 +17,9 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 /**
  * Consumes {@code EraStarted} from {@code game.events}. Establishes that the era exists before
- * {@code EventsDrawn} arrives (design.md Decision 5), and persists this era's {@code playerIds} — the only
+ * {@code EventsDrawn} arrives (the governing design Decision 5), and persists this era's {@code playerIds} — the only
  * player roster available to {@code timeline-service}, needed by {@code ParadoxResolutionSagaImpl} to populate a
- * resolution phase's pending-player set (timeline-mvp8-paradox-completion design.md Decision 3). The payload is
+ * resolution phase's pending-player set (the paradox-completion design the governing design Decision 3). The payload is
  * deserialized to enforce the current {@code carryOverEventIds} contract shape (rejecting the retired
  * {@code cascadedEventIds} shape) even though those values go unused this slice.
  */

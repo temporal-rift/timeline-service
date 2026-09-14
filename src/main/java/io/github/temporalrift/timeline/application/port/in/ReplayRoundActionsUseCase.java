@@ -9,7 +9,7 @@ import java.util.UUID;
  * complete round, so their effect does not depend on relative submission order. Replaces
  * {@code ApplyProbabilityShiftUseCase}, {@code PlayCardModifierUseCase}, {@code PlaySpecialActionUseCase}, and
  * {@code ResolvePendingCorruptUseCase}
- * (design.md Decision 7, timeline-mvp9-resolution-ordering-paradox-cards) — those applied each action
+ * (the governing design Decision 7, the round-action ordering design) — those applied each action
  * immediately on consumption; this instead reads the whole round back once its {@code ActionRoundClosed}
  * arrives and applies it in one pass.
  */

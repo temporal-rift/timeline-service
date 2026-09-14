@@ -33,12 +33,11 @@ import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
  * {@code outcomeId} tie-break, no faction-special logic beyond the card-modifier effects
  * (AMPLIFY/NULLIFY/REDIRECT/STALL) already reflected in each {@code FutureEvent}'s current state. An event whose
  * final state trips {@link ParadoxDetector} is excluded from this era's {@code OutcomeApplied}/terminal-resolution
- * set instead (design.md) — its resolution is deferred until {@code ParadoxResolutionSaga} clears it (force-cascade
- * only this slice). Emits one era-level {@code ProbabilityStateCalculated} before any {@code OutcomeApplied}
- * (design.md requirement: emission order). When any paradox is detected this cycle, {@code EraResolutionCompleted}
- * is not published here — {@link OpenParadoxResolutionPhaseUseCase} opens a resolution phase instead, and the
- * barrier is published once that phase's paradoxes all reach a terminal state (timeline-mvp7-paradox-resolution-saga
- * design.md).
+ * set instead — its resolution is deferred until {@code ParadoxResolutionSaga} clears it (force-cascade only this
+ * slice). Emits one era-level {@code ProbabilityStateCalculated} before any {@code OutcomeApplied}. When any
+ * paradox is detected this cycle, {@code EraResolutionCompleted} is not published here —
+ * {@link OpenParadoxResolutionPhaseUseCase} opens a resolution phase instead, and the barrier is published once
+ * that phase's paradoxes all reach a terminal state.
  */
 @Service
 class ResolveEraCommandHandler implements ResolveEraUseCase {
@@ -166,7 +165,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
         if (!accumulator.pendingParadoxes().isEmpty()) {
             // Deferred: the barrier now waits for ParadoxResolutionSaga to force-cascade every paradox
             // detected this cycle before EraResolutionCompleted can be published (resolution-walking-skeleton
-            // MODIFIED requirement, timeline-mvp7-paradox-resolution-saga). Opened before ParadoxDetected is
+            // MODIFIED requirement, the paradox-resolution design). Opened before ParadoxDetected is
             // published, and its authoritative pendingParadoxes (not our own freshly-generated ids) are what
             // gets announced: if a phase already existed for this era (a duplicate/redelivered resolution
             // attempt), our ids belong to nothing the saga will ever cascade — only the existing phase's ids

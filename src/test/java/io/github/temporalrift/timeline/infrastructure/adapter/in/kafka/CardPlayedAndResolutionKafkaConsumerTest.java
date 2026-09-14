@@ -362,7 +362,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 .willReturn(true);
 
         // A single consumer instance processing records sequentially, one KafkaListener invocation at a
-        // time — this is what actually prevents the cross-consumer-group race (design.md revision):
+        // time — this is what actually prevents the cross-consumer-group race (the governing design revision):
         // there is no second thread/group that could observe pre-buffer state.
         consumer.handle(KafkaTestMessages.withHeaders(
                 cardPlayed(targetEventId, CardType.PUSH, null, targetOutcomeId),
