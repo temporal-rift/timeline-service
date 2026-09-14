@@ -8,7 +8,7 @@
   <!--
       Per-(round, FutureEvent) record of the last probability shift applied, with a pre-shift snapshot
       for exact undo — read by REDIRECT (per-event) and by NULLIFY when round_last_card points at an
-      EVENT_EFFECT (design.md Decision 1). A FutureEvent always has exactly 3 outcomes (GDD invariant),
+      EVENT_EFFECT (the governing design Decision 1). A FutureEvent always has exactly 3 outcomes (domain invariant),
       so the snapshot is stored as 3 flat columns rather than a JSON blob.
   -->
   <changeSet id="003-create-round-event-last-shift" author="timeline-service">

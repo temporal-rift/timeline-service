@@ -7,7 +7,7 @@
 
   <!--
       Round-scoped buffer of CORRUPT specials awaiting their round's ActionRoundClosed, since the correlated
-      card isn't knowable at submission time (design.md Decision 4). Multiple rows per round are expected —
+      card isn't knowable at submission time (the governing design Decision 4). Multiple rows per round are expected —
       not unique per (game, era, round) the way the other roundeffect tables are.
   -->
   <changeSet id="004-create-round-pending-corrupt" author="timeline-service">

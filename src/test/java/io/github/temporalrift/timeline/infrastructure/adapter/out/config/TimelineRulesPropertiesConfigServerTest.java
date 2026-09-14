@@ -26,7 +26,7 @@ import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 /**
  * Exercises spring.config.import=configserver:... end to end against an in-process HTTP stub serving the
  * Config Server's real /{application}/{profile} response shape, rather than a shared Docker image from the
- * infrastructure repo (see design.md Decision 3 of the timeline-config-client change).
+ * infrastructure repo (see the governing design Decision 3 of the the configuration-client design change).
  */
 class TimelineRulesPropertiesConfigServerTest {
 

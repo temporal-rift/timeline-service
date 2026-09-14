@@ -150,7 +150,7 @@
         </dependency>
         <!-- Producing generated timeline-event Message events uses spring-messaging's Message/MessageBuilder,
              consumed by OutboxEventListener; no Spring Cloud Stream binder or Modulith externalization is
-             wired here (see pom.xml comment above / design.md Decision 4). -->
+             wired here (see pom.xml comment above / the governing design Decision 4). -->
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-messaging</artifactId>

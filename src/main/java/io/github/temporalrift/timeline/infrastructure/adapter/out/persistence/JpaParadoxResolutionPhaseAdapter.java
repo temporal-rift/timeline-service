@@ -90,7 +90,7 @@ class JpaParadoxResolutionPhaseAdapter implements ParadoxResolutionPhaseReposito
         return entity;
     }
 
-    /** {@code null} — not {@code "[]"} — for a phase whose era roster is not known yet (design.md Decision 1). */
+    /** {@code null} — not {@code "[]"} — for a phase whose era roster is not known yet. */
     private String pendingPlayerIdsColumn(ParadoxResolutionPhase phase) {
         return phase.rosterKnown() ? objectMapper.writeValueAsString(phase.pendingPlayerIds()) : null;
     }

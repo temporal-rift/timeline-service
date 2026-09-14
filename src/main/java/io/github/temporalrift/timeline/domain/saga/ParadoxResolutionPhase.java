@@ -11,8 +11,8 @@ import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
 
 /**
- * Persisted state for one era's paradox-resolution phase (design.md
- * timeline-mvp7-paradox-resolution-saga Decision 1, timeline-mvp8-paradox-completion Decision 2): one row per
+ * Persisted state for one era's paradox-resolution phase (the governing design
+ * the paradox-resolution design Decision 1, the paradox-completion design Decision 2): one row per
  * {@code (gameId, eraNumber)}, covering every paradox detected in that era's resolution cycle behind a single
  * shared timer. {@code resolvedTerminalResolutions} carries the {@code OUTCOME_APPLIED}/{@code STALLED} entries
  * the resolution cycle already produced before any paradox was found, so the close transaction can merge them
@@ -190,7 +190,7 @@ public record ParadoxResolutionPhase(
      * One paradox still open in this phase, carrying the {@code revealIndex} its affected event was drawn at and
      * its originally detected {@code type} plus {@code affectedOutcomeIds} — needed at close time to tell whether
      * re-detection on the affected event still reports this same finding (persists) or not (resolved),
-     * timeline-mvp8-paradox-completion Decision 2. {@code affectedOutcomeIds} disambiguates two findings of the
+     * the paradox-completion design Decision 2. {@code affectedOutcomeIds} disambiguates two findings of the
      * same {@code type} on one event (e.g. two independently annihilated outcomes each tripping
      * {@code IMPOSSIBLE_ERASURE}) — matching on {@code type} alone would treat clearing either one as clearing
      * both.
@@ -205,9 +205,9 @@ public record ParadoxResolutionPhase(
 
     /**
      * One player's recorded resolution-card submission, not yet applied to its target {@code FutureEvent}
-     * (design.md Decision 2/4) — {@code cardType} is one of the wire {@code ParadoxResolutionCardPlayed}
+     * (the governing design Decision 2/4) — {@code cardType} is one of the wire {@code ParadoxResolutionCardPlayed}
      * payload's values (only {@code PUSH}/{@code SUPPRESS}/{@code SWING} are applied; anything else is a no-op at
-     * close, timeline-mvp8-paradox-completion Non-Goals). {@code grade} is the submitted card's own grade
+     * close, the paradox-completion design Non-Goals). {@code grade} is the submitted card's own grade
      * (graded-magnitude-resolution capability), consulted only for {@code PUSH}/{@code SUPPRESS}.
      */
     public record Submission(

@@ -7,12 +7,12 @@ import java.util.UUID;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 
 /**
- * Driven port for the round-scoped action buffer (design.md Decision 1): every {@code CardPlayed}/
+ * Driven port for the round-scoped action buffer (the governing design Decision 1): every {@code CardPlayed}/
  * {@code SpecialActionPlayed} consumed during a round is recorded here without applying its effect. At
  * {@code ActionRoundClosed}, the whole round is read back once and replayed in priority-tier order in a single
  * in-process pass — the buffer is never updated after being written, and every "last card"/"pending" concept the
- * old per-message-dispatch model needed a durable port for (design.md Decision 7) is now a value computed once
- * over this list, local to that one replay call.
+ * old per-message-dispatch model needed a durable port for is now a value computed once over this list, local to
+ * that one replay call.
  */
 public interface RoundActionBufferPort {
 

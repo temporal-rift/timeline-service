@@ -21,7 +21,7 @@ import org.springframework.messaging.support.MessageBuilder;
 
 /**
  * End-to-end proof of {@code ParadoxResolutionSaga}'s force-cascade branch
- * (timeline-mvp7-paradox-resolution-saga): a detected paradox opens a resolution phase whose timer
+ * (the paradox-resolution design): a detected paradox opens a resolution phase whose timer
  * (2s in {@code application-test.yml}) expires with no submissions, force-cascading it into a
  * {@code ParadoxCascaded} and a single, deferred {@code EraResolutionCompleted} in reveal order.
  */
@@ -256,7 +256,7 @@ class ParadoxResolutionForceCascadeIT {
     }
 
     /**
-     * timeline-mvp9-resolution-ordering-paradox-cards: {@code CardPlayed}/{@code SpecialActionPlayed} are now
+     * the round-action ordering design: {@code CardPlayed}/{@code SpecialActionPlayed} are now
      * buffered, not applied immediately — a round's effects only take place once its {@code ActionRoundClosed}
      * triggers the priority-ordered replay.
      */

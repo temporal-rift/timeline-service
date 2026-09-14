@@ -25,7 +25,7 @@
 
     <!--
         Round-scoped card-modifier coordination state (AMPLIFY/NULLIFY/REDIRECT). Superseded by
-        round_action_buffer below (design.md Decision 7, timeline-mvp9-resolution-ordering-paradox-cards) —
+        round_action_buffer below (the governing design Decision 7, the round-action ordering design) —
         left in place, unwritten, rather than dropped; see that change's Migration Plan.
     -->
     <include file="db/changelog/roundeffect/001-create-round-last-card.xml"/>

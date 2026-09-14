@@ -18,7 +18,7 @@ import tools.jackson.databind.ObjectMapper;
  * triggered it ({@code phase = BEFORE_COMMIT}).
  *
  * <p>{@code timeline-service} has no Spring Modulith event-publication registry to do this for it — see
- * design.md Decision 4. {@link OutboxRelay} is the separate process that actually publishes to Kafka.
+ * the governing design Decision 4. {@link OutboxRelay} is the separate process that actually publishes to Kafka.
  *
  * <p>Every generated producer method stamps {@code spring.cloud.stream.sendto.destination} on the
  * message before publishing (mirroring game-service's {@code KafkaExternalizationConfig}); its presence

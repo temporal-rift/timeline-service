@@ -6,11 +6,11 @@
             https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
 
   <!--
-      Round-scoped buffer of not-yet-applied CardPlayed/SpecialActionPlayed actions (design.md Decision 1,
-      timeline-mvp9-resolution-ordering-paradox-cards). Written once per consumed message, read back once at
+      Round-scoped buffer of not-yet-applied CardPlayed/SpecialActionPlayed actions (the governing design Decision 1,
+      the round-action ordering design). Written once per consumed message, read back once at
       ActionRoundClosed and replayed in priority-tier order in a single pass — never updated in place. Replaces
       round_last_card/round_amplify_pending/round_event_last_shift/round_pending_corrupt/round_card_by_player
-      (design.md Decision 7), which are left in place unwritten rather than dropped here.
+      (the governing design Decision 7), which are left in place unwritten rather than dropped here.
   -->
   <changeSet id="006-create-round-action-buffer" author="timeline-service">
     <createTable tableName="round_action_buffer">

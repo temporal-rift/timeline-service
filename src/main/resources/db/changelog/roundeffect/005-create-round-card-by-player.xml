@@ -7,8 +7,8 @@
 
   <!--
       Per-(round, player) record of the shifter card that player played, with a pre-shift snapshot for
-      exact restore-then-reapply — read by CORRUPT's correlation on ActionRoundClosed (design.md
-      Decision 4). A FutureEvent always has exactly 3 outcomes (GDD invariant), so the snapshot is stored
+      exact restore-then-reapply — read by CORRUPT's correlation on ActionRoundClosed (the governing design
+      Decision 4). A FutureEvent always has exactly 3 outcomes (domain invariant), so the snapshot is stored
       as 3 flat columns rather than a JSON blob, mirroring round_event_last_shift.
   -->
   <changeSet id="005-create-round-card-by-player" author="timeline-service">
