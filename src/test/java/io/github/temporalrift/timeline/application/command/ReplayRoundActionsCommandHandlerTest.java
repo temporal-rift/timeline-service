@@ -23,7 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
-import io.github.temporalrift.timeline.domain.event.BandedProbabilityPublished;
+import io.github.temporalrift.timeline.domain.event.AdjustedBandsPublished;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
@@ -958,7 +958,7 @@ class ReplayRoundActionsCommandHandlerTest {
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
         then(publisher).should().publish(captor.capture());
-        var payload = (BandedProbabilityPublished) captor.getValue().payload();
+        var payload = (AdjustedBandsPublished) captor.getValue().payload();
         assertThat(payload.gameId()).isEqualTo(GAME_ID);
         assertThat(payload.eraNumber()).isEqualTo(ERA_NUMBER);
         assertThat(payload.eventStates()).hasSize(1);
@@ -996,9 +996,9 @@ class ReplayRoundActionsCommandHandlerTest {
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
         then(publisher).should().publish(captor.capture());
-        var payload = (BandedProbabilityPublished) captor.getValue().payload();
+        var payload = (AdjustedBandsPublished) captor.getValue().payload();
         assertThat(payload.eventStates())
-                .extracting(BandedProbabilityPublished.EventState::eventId)
+                .extracting(AdjustedBandsPublished.EventState::eventId)
                 .containsExactly(activeEventId);
     }
 
@@ -1217,7 +1217,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 .probability();
     }
 
-    private static ProbabilityBand bandOf(BandedProbabilityPublished.EventState eventState, UUID outcomeId) {
+    private static ProbabilityBand bandOf(AdjustedBandsPublished.EventState eventState, UUID outcomeId) {
         return eventState.outcomes().stream()
                 .filter(o -> o.outcomeId().equals(outcomeId))
                 .findFirst()
