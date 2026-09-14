@@ -137,13 +137,13 @@ class GameEventsTestPublisher {
         publish(gameId, "CardPlayed", payload);
     }
 
-    void paradoxResolutionCardPlayed(
+    UUID paradoxResolutionCardPlayed(
             UUID gameId, int eraNumber, UUID playerId, String cardType, UUID targetEventId, UUID targetOutcomeId) {
-        paradoxResolutionCardPlayed(gameId, eraNumber, playerId, cardType, "II", targetEventId, targetOutcomeId);
+        return paradoxResolutionCardPlayed(gameId, eraNumber, playerId, cardType, "II", targetEventId, targetOutcomeId);
     }
 
     /** Overload allowing a scenario to exercise a non-baseline grade (graded-magnitude-resolution capability). */
-    void paradoxResolutionCardPlayed(
+    UUID paradoxResolutionCardPlayed(
             UUID gameId,
             int eraNumber,
             UUID playerId,
@@ -160,11 +160,13 @@ class GameEventsTestPublisher {
         payload.put("grade", grade);
         payload.put("targetEventId", targetEventId);
         payload.put("targetOutcomeId", targetOutcomeId);
-        publish(gameId, "ParadoxResolutionCardPlayed", payload);
+        var eventId = UUID.randomUUID();
+        publish(gameId, "ParadoxResolutionCardPlayed", payload, eventId);
+        return eventId;
     }
 
     /**
-     * timeline-mvp9-resolution-ordering-paradox-cards: {@code CardPlayed}/{@code SpecialActionPlayed} are
+     * the round-action ordering design: {@code CardPlayed}/{@code SpecialActionPlayed} are
      * buffered, not applied immediately — a round's effects only take place once its {@code ActionRoundClosed}
      * triggers the priority-ordered replay.
      */
