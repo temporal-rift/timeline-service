@@ -6,12 +6,13 @@ import java.util.UUID;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityBand;
 
 /**
- * The coarse public probability state revealed once Action Round 2 closes: every active
- * {@code FutureEvent}'s outcomes banded LOW/MEDIUM/HIGH from cumulative Round 1+2 state. Not event-sourced.
+ * The authoritative public probability state published once Action Round 2's priority-ordered replay completes:
+ * every active {@code FutureEvent}'s outcomes banded LOW/MEDIUM/HIGH from the fully-applied replayed state.
+ * Supersedes the game-owned {@code BandedProbabilityPublished} preview for the same game and era. Not event-sourced.
  */
-public record BandedProbabilityPublished(UUID gameId, int eraNumber, List<EventState> eventStates) {
+public record AdjustedBandsPublished(UUID gameId, int eraNumber, List<EventState> eventStates) {
 
-    public BandedProbabilityPublished {
+    public AdjustedBandsPublished {
         eventStates = List.copyOf(eventStates);
     }
 

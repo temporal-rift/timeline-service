@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
-import io.github.temporalrift.timeline.domain.event.BandedProbabilityPublished;
+import io.github.temporalrift.timeline.domain.event.AdjustedBandsPublished;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
@@ -251,8 +251,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     /**
-     * Banded-probability-publication capability: after Round 2 closes, band every active
-     * (non-stalled, non-resolved) {@code FutureEvent}'s outcomes from cumulative Round 1+2 state.
+     * Band-correction capability: after Round 2's priority-ordered replay completes, band every active
+     * (non-stalled, non-resolved) {@code FutureEvent}'s outcomes from the fully-applied replayed state, superseding
+     * the game-owned preview for the same game and era.
      */
     private void publishBandedProbability(UUID gameId, int eraNumber) {
         var eventStates = eraIndex.findByGameIdAndEraNumber(gameId, eraNumber).stream()
@@ -265,17 +266,17 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 ERA_AGGREGATE_TYPE,
                 gameId,
                 TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                new BandedProbabilityPublished(gameId, eraNumber, eventStates),
+                new AdjustedBandsPublished(gameId, eraNumber, eventStates),
                 clock));
     }
 
-    private BandedProbabilityPublished.EventState toBandedEventState(FutureEvent futureEvent) {
+    private AdjustedBandsPublished.EventState toBandedEventState(FutureEvent futureEvent) {
         var outcomes = futureEvent.outcomes().stream()
-                .map(o -> new BandedProbabilityPublished.OutcomeState(
+                .map(o -> new AdjustedBandsPublished.OutcomeState(
                         o.outcomeId(),
                         ProbabilityBand.of(o.probability(), bandRules.bandLowMax(), bandRules.bandMediumMax())))
                 .toList();
-        return new BandedProbabilityPublished.EventState(futureEvent.id(), outcomes);
+        return new AdjustedBandsPublished.EventState(futureEvent.id(), outcomes);
     }
 
     private static Map<UUID, BufferedAction> indexActionsByPlayer(List<BufferedAction> sorted) {

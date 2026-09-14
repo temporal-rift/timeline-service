@@ -31,7 +31,7 @@ class ScanProbabilityRevealsIT {
 
     private static final String GAME_EVENTS_TOPIC = "game.events";
     private static final String PROBABILITY_STATE_REVEALED = "ProbabilityStateRevealed";
-    private static final String BANDED_PROBABILITY_PUBLISHED = "BandedProbabilityPublished";
+    private static final String ADJUSTED_BANDS_PUBLISHED = "AdjustedBandsPublished";
 
     @Autowired
     KafkaTemplate<Object, Object> kafkaTemplate;
@@ -90,11 +90,10 @@ class ScanProbabilityRevealsIT {
         // PROBABILITY_STATE_REVEALED off the same round close, so it needs its own await rather than
         // assuming it already landed.
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(
-                        () -> assertThat(collector.eventTypesFor(gameId)).contains(BANDED_PROBABILITY_PUBLISHED));
+                .untilAsserted(() -> assertThat(collector.eventTypesFor(gameId)).contains(ADJUSTED_BANDS_PUBLISHED));
 
         var bandedPayload = collector.messagesFor(gameId).stream()
-                .filter(m -> BANDED_PROBABILITY_PUBLISHED.equals(m.eventType()))
+                .filter(m -> ADJUSTED_BANDS_PUBLISHED.equals(m.eventType()))
                 .map(TimelineEventsTestCollector.CollectedMessage::payload)
                 .findFirst()
                 .orElseThrow();
