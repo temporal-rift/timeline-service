@@ -16,12 +16,8 @@ import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 /**
- * Consumes {@code EraStarted} from {@code game.events}. Establishes that the era exists before
- * {@code EventsDrawn} arrives (the governing design Decision 5), and persists this era's {@code playerIds} — the only
- * player roster available to {@code timeline-service}, needed by {@code ParadoxResolutionSagaImpl} to populate a
- * resolution phase's pending-player set (the paradox-completion design the governing design Decision 3). The payload is
- * deserialized to enforce the current {@code carryOverEventIds} contract shape (rejecting the retired
- * {@code cascadedEventIds} shape) even though those values go unused this slice.
+ * Consumes {@code EraStarted} from {@code game.events}, creating the era before {@code EventsDrawn} arrives and
+ * persisting the player roster that lets a resolution phase determine when all players have submitted.
  */
 @Component
 class EraStartedKafkaConsumer {

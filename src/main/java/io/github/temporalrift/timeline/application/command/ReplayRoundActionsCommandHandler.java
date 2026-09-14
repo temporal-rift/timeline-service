@@ -442,10 +442,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     /**
-     * {@code SUPPRESS} is never Rally-boosted — it has no destination outcome of its own, only a target that
-     * decreases, and the corresponding increase is an indirect redistribution the game rules explicitly exclude
-     * it. {@code COLLIDE} has no configured magnitude to boost. A {@code PUSH}/{@code SWING} landing on a declared
-     * outcome applies at the configured Rally multiplier of its otherwise-determined magnitude.
+     * {@code SUPPRESS} is never Rally-boosted: it has no destination outcome, and Rally does not boost its indirect
+     * redistribution. {@code COLLIDE} has no configured magnitude to boost. A {@code PUSH}/{@code SWING} on a
+     * declared outcome applies the configured Rally multiplier to its otherwise-determined magnitude.
      */
     private int rallyAdjustedMagnitude(
             Set<UUID> rallyDeclaredOutcomes, ShiftKind kind, UUID destinationOutcomeId, int magnitude) {

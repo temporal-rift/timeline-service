@@ -39,11 +39,8 @@ import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
 /**
- * Business logic for the paradox-resolution saga: both the force-cascade (timer expiry) and player-submission
- * (all-submitted) close branches, sharing one {@link #tryClose} (the governing design the paradox-completion design
- * Decision 2). Holds no direct dependency on timer scheduling: {@link ParadoxResolutionPhaseOpener} and
- * {@link ParadoxResolutionTimeoutProcessor} compose this class with {@link ParadoxResolutionTimerScheduler}, which
- * avoids a circular dependency (scheduler -> timeout processor -> this class).
+ * Coordinates timer-expiry and all-submitted closes through {@link #tryClose}; the persisted phase status makes the
+ * losing race participant a no-op. Timer scheduling is composed outside this class to avoid a dependency cycle.
  */
 @Component
 class ParadoxResolutionSagaImpl {

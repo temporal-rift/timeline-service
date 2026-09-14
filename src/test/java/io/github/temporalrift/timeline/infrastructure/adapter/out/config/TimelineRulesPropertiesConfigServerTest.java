@@ -24,9 +24,8 @@ import org.springframework.context.annotation.Configuration;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 
 /**
- * Exercises spring.config.import=configserver:... end to end against an in-process HTTP stub serving the
- * Config Server's real /{application}/{profile} response shape, rather than a shared Docker image from the
- * infrastructure repo (see the governing design Decision 3 of the the configuration-client design change).
+ * Exercises {@code spring.config.import=configserver:...} end to end against the Config Server response shape.
+ * The in-process HTTP stub keeps the test independent of external infrastructure.
  */
 class TimelineRulesPropertiesConfigServerTest {
 

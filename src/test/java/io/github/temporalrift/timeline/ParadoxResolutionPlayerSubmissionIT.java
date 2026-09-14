@@ -2,6 +2,7 @@ package io.github.temporalrift.timeline;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.mockingDetails;
 
 import java.time.Duration;
 import java.util.List;
@@ -12,12 +13,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
- * End-to-end proof of {@code ParadoxResolutionSaga}'s player-submission branch
- * (the paradox-completion design): players submitting a resolution card, the all-submitted close racing the
- * 2s test timer (application-test.yml), and a multi-paradox event where one paradox clears while another
- * (a permanent {@code SEAL_BREACH}) does not.
+ * Exercises player submission and timer-expiry races end to end. The timeout-processor spy uses a dedicated
+ * context so the test can observe the scheduled no-op after an all-submitted close.
  */
 @TimelineServiceIntegrationTest
 class ParadoxResolutionPlayerSubmissionIT {
@@ -39,6 +39,9 @@ class ParadoxResolutionPlayerSubmissionIT {
 
     @Autowired
     JdbcTemplate jdbcTemplate;
+
+    @MockitoSpyBean(name = "paradoxResolutionTimeoutProcessor")
+    Object paradoxResolutionTimeoutProcessor;
 
     @BeforeEach
     void clearCollector() {
@@ -81,6 +84,7 @@ class ParadoxResolutionPlayerSubmissionIT {
                         .contains(PARADOX_RESOLVED, OUTCOME_APPLIED, ERA_RESOLUTION_COMPLETED));
 
         awaitPhaseTimerExpired(gameId, eraNumber);
+        awaitTimerExpiryAttempt(gameId, eraNumber);
         assertTerminalEventCountsRemainStable(gameId, 1, 0);
     }
 
@@ -222,6 +226,19 @@ class ParadoxResolutionPlayerSubmissionIT {
                                 gameId,
                                 eraNumber))
                         .isTrue());
+    }
+
+    private void awaitTimerExpiryAttempt(UUID gameId, int eraNumber) {
+        var sagaId = jdbcTemplate.queryForObject(
+                "SELECT saga_id FROM paradox_resolution_phase WHERE game_id = ? AND era_number = ?",
+                UUID.class,
+                gameId,
+                eraNumber);
+        await().atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(mockingDetails(paradoxResolutionTimeoutProcessor)
+                                .getInvocations())
+                        .anyMatch(invocation -> invocation.getMethod().getName().equals("handleTimerExpiry")
+                                && sagaId.equals(invocation.getArgument(0))));
     }
 
     private void awaitEventProcessed(UUID eventId, String consumer) {
