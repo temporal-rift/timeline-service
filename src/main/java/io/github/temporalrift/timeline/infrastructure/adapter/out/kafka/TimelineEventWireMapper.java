@@ -3,9 +3,9 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.kafka;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
-import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.BandedProbabilityPublishedEventBandState;
-import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.BandedProbabilityPublishedOutcomeBandState;
-import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.BandedProbabilityPublishedPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.AdjustedBandsPublishedEventBandState;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.AdjustedBandsPublishedOutcomeBandState;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.AdjustedBandsPublishedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ChainBrokenPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ChainCompletedChainLink;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ChainCompletedPayload;
@@ -30,7 +30,7 @@ import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.P
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ResolutionFailedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ResolutionWarningPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ThreadRejectedPayload;
-import io.github.temporalrift.timeline.domain.event.BandedProbabilityPublished;
+import io.github.temporalrift.timeline.domain.event.AdjustedBandsPublished;
 import io.github.temporalrift.timeline.domain.event.ChainBrokenEvent;
 import io.github.temporalrift.timeline.domain.event.ChainCompletedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAddedEvent;
@@ -84,11 +84,11 @@ interface TimelineEventWireMapper {
 
     ParadoxResolvedPayload toWire(ParadoxResolved event);
 
-    BandedProbabilityPublishedPayload toWire(BandedProbabilityPublished event);
+    AdjustedBandsPublishedPayload toWire(AdjustedBandsPublished event);
 
-    BandedProbabilityPublishedEventBandState toWire(BandedProbabilityPublished.EventState eventState);
+    AdjustedBandsPublishedEventBandState toWire(AdjustedBandsPublished.EventState eventState);
 
-    BandedProbabilityPublishedOutcomeBandState toWire(BandedProbabilityPublished.OutcomeState outcomeState);
+    AdjustedBandsPublishedOutcomeBandState toWire(AdjustedBandsPublished.OutcomeState outcomeState);
 
     CorruptInversionConfirmedPayload toWire(CorruptInversionConfirmed event);
 
