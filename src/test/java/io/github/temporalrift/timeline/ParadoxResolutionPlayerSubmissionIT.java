@@ -15,7 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * End-to-end proof of {@code ParadoxResolutionSaga}'s player-submission branch
- * (timeline-mvp8-paradox-completion): players submitting a resolution card, the all-submitted close racing the
+ * (the paradox-completion design): players submitting a resolution card, the all-submitted close racing the
  * 2s test timer (application-test.yml), and a multi-paradox event where one paradox clears while another
  * (a permanent {@code SEAL_BREACH}) does not.
  */
@@ -28,6 +28,8 @@ class ParadoxResolutionPlayerSubmissionIT {
     private static final String PARADOX_CASCADED = "ParadoxCascaded";
     private static final String OUTCOME_APPLIED = "OutcomeApplied";
     private static final String ERA_RESOLUTION_COMPLETED = "EraResolutionCompleted";
+    private static final String PARADOX_CARD_CONSUMER = "futureevent.paradox-resolution-card-played";
+    private static final Duration NO_DUPLICATE_WINDOW = Duration.ofSeconds(3);
 
     @Autowired
     GameEventsTestPublisher publisher;
@@ -44,7 +46,7 @@ class ParadoxResolutionPlayerSubmissionIT {
     }
 
     @Test
-    void allPlayersSubmitClearingCards_resolvesBeforeTimerAndNeverDuplicates() throws InterruptedException {
+    void allPlayersSubmitClearingCards_resolvesBeforeTimerAndNeverDuplicates() {
         var gameId = UUID.randomUUID();
         var eraNumber = 1;
         var paradoxedEventId = UUID.randomUUID();
@@ -78,20 +80,12 @@ class ParadoxResolutionPlayerSubmissionIT {
                 .untilAsserted(() -> assertThat(eventTypesOf(messagesFor(gameId)))
                         .contains(PARADOX_RESOLVED, OUTCOME_APPLIED, ERA_RESOLUTION_COMPLETED));
 
-        // Wait well past the 2s timer to prove the timer-expiry sweep, finding the phase already COMPLETED,
-        // produces no duplicate facts.
-        Thread.sleep(3000);
-        var messages = messagesFor(gameId);
-        assertThat(messages.stream().filter(m -> PARADOX_RESOLVED.equals(m.eventType())))
-                .hasSize(1);
-        assertThat(messages.stream().filter(m -> ERA_RESOLUTION_COMPLETED.equals(m.eventType())))
-                .hasSize(1);
-        assertThat(messages.stream().filter(m -> PARADOX_CASCADED.equals(m.eventType())))
-                .isEmpty();
+        awaitPhaseTimerExpired(gameId, eraNumber);
+        assertTerminalEventCountsRemainStable(gameId, 1, 0);
     }
 
     @Test
-    void lateSubmissionAfterTimerAlreadyClosedThePhase_hasNoEffect() throws InterruptedException {
+    void lateSubmissionAfterTimerAlreadyClosedThePhase_hasNoEffect() {
         var gameId = UUID.randomUUID();
         var eraNumber = 1;
         var paradoxedEventId = UUID.randomUUID();
@@ -123,17 +117,10 @@ class ParadoxResolutionPlayerSubmissionIT {
                         .contains(PARADOX_CASCADED, ERA_RESOLUTION_COMPLETED));
 
         // The last player's submission arrives after the phase already closed via timer expiry.
-        publisher.paradoxResolutionCardPlayed(
+        var lateSubmissionEventId = publisher.paradoxResolutionCardPlayed(
                 gameId, eraNumber, players.get(2), "PUSH", paradoxedEventId, annihilatedOutcomeId);
-        Thread.sleep(2000);
-
-        var messages = messagesFor(gameId);
-        assertThat(messages.stream().filter(m -> PARADOX_CASCADED.equals(m.eventType())))
-                .hasSize(1);
-        assertThat(messages.stream().filter(m -> ERA_RESOLUTION_COMPLETED.equals(m.eventType())))
-                .hasSize(1);
-        assertThat(messages.stream().filter(m -> PARADOX_RESOLVED.equals(m.eventType())))
-                .isEmpty();
+        awaitEventProcessed(lateSubmissionEventId, PARADOX_CARD_CONSUMER);
+        assertTerminalEventCountsRemainStable(gameId, 0, 1);
     }
 
     @Test
@@ -224,6 +211,42 @@ class ParadoxResolutionPlayerSubmissionIT {
                                 gameId,
                                 eraNumber))
                         .isEqualTo(expectedPlayerCount));
+    }
+
+    private void awaitPhaseTimerExpired(UUID gameId, int eraNumber) {
+        await().atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
+                                "SELECT timer_expires_at <= CURRENT_TIMESTAMP FROM paradox_resolution_phase "
+                                        + "WHERE game_id = ? AND era_number = ?",
+                                Boolean.class,
+                                gameId,
+                                eraNumber))
+                        .isTrue());
+    }
+
+    private void awaitEventProcessed(UUID eventId, String consumer) {
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
+                                "SELECT COUNT(*) FROM processed_events WHERE event_id = ? AND consumer = ?",
+                                Integer.class,
+                                eventId,
+                                consumer))
+                        .isEqualTo(1));
+    }
+
+    private void assertTerminalEventCountsRemainStable(
+            UUID gameId, int expectedResolvedCount, int expectedCascadedCount) {
+        await().during(NO_DUPLICATE_WINDOW)
+                .atMost(NO_DUPLICATE_WINDOW.plusSeconds(2))
+                .untilAsserted(() -> {
+                    var messages = messagesFor(gameId);
+                    assertThat(messages.stream().filter(m -> PARADOX_RESOLVED.equals(m.eventType())))
+                            .hasSize(expectedResolvedCount);
+                    assertThat(messages.stream().filter(m -> PARADOX_CASCADED.equals(m.eventType())))
+                            .hasSize(expectedCascadedCount);
+                    assertThat(messages.stream().filter(m -> ERA_RESOLUTION_COMPLETED.equals(m.eventType())))
+                            .hasSize(1);
+                });
     }
 
     private List<TimelineEventsTestCollector.CollectedMessage> messagesFor(UUID gameId) {
