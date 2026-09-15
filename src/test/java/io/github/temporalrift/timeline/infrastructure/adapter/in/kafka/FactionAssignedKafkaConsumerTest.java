@@ -36,6 +36,9 @@ class FactionAssignedKafkaConsumerTest {
     ProcessedEventPort processedEvents;
 
     @Mock
+    GameEventSkipMetrics skipMetrics;
+
+    @Mock
     GameMembershipPort memberships;
 
     @Spy

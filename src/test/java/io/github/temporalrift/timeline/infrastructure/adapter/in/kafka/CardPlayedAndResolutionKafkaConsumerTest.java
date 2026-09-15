@@ -79,6 +79,9 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     ProcessedEventPort processedEvents;
 
     @Mock
+    GameEventSkipMetrics skipMetrics;
+
+    @Mock
     RoundActionBufferPort buffer;
 
     @Mock

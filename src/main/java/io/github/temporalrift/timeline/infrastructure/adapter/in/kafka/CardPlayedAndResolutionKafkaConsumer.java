@@ -115,6 +115,7 @@ class CardPlayedAndResolutionKafkaConsumer {
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final ScanEntitlementPort scanEntitlements;
     private final ObjectMapper objectMapper;
+    private final GameEventSkipMetrics skipMetrics;
 
     CardPlayedAndResolutionKafkaConsumer(
             ProcessedEventPort processedEvents,
@@ -125,7 +126,8 @@ class CardPlayedAndResolutionKafkaConsumer {
             ApplyMomentumBonusUseCase applyMomentumBonus,
             WeaverChainSagaUseCase weaverChainSaga,
             ScanEntitlementPort scanEntitlements,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            GameEventSkipMetrics skipMetrics) {
         this.processedEvents = processedEvents;
         this.buffer = buffer;
         this.replayRoundActions = replayRoundActions;
@@ -135,29 +137,31 @@ class CardPlayedAndResolutionKafkaConsumer {
         this.weaverChainSaga = weaverChainSaga;
         this.scanEntitlements = scanEntitlements;
         this.objectMapper = objectMapper;
+        this.skipMetrics = skipMetrics;
     }
 
     @KafkaListener(topics = "game.events", groupId = GROUP_ID)
     @Transactional(propagation = REQUIRES_NEW)
     public void handle(Message<Object> message) {
-        GameEventIngestion.accept(message, CARD_PLAYED_SPEC, processedEvents).ifPresent(envelope -> {
-            var payload = GameEventPayloads.read(objectMapper, message.getPayload(), CardPlayedPayload.class);
-            if (payload.cardType() == null || !KNOWN_CARD_TYPES.contains(payload.cardType())) {
-                return;
-            }
-            var grade = toGrade(payload.grade());
-            if (GRADE_BEARING_CARD_TYPES.contains(payload.cardType()) && grade == null) {
-                // Unrecognized/missing grade on a grade-bearing type — safely skip only this card, not every
-                // other known cardType, which never consults grade at all (graded-magnitude-resolution).
-                return;
-            }
-            buffer.save(
-                    payload.gameId(),
-                    payload.eraNumber(),
-                    payload.roundNumber(),
-                    toBufferedAction(payload, grade, envelope));
-        });
-        GameEventIngestion.accept(message, SPECIAL_ACTION_PLAYED_SPEC, processedEvents)
+        GameEventIngestion.accept(message, CARD_PLAYED_SPEC, processedEvents, skipMetrics)
+                .ifPresent(envelope -> {
+                    var payload = GameEventPayloads.read(objectMapper, message.getPayload(), CardPlayedPayload.class);
+                    if (payload.cardType() == null || !KNOWN_CARD_TYPES.contains(payload.cardType())) {
+                        return;
+                    }
+                    var grade = toGrade(payload.grade());
+                    if (GRADE_BEARING_CARD_TYPES.contains(payload.cardType()) && grade == null) {
+                        // Unrecognized/missing grade on a grade-bearing type — safely skip only this card, not every
+                        // other known cardType, which never consults grade at all (graded-magnitude-resolution).
+                        return;
+                    }
+                    buffer.save(
+                            payload.gameId(),
+                            payload.eraNumber(),
+                            payload.roundNumber(),
+                            toBufferedAction(payload, grade, envelope));
+                });
+        GameEventIngestion.accept(message, SPECIAL_ACTION_PLAYED_SPEC, processedEvents, skipMetrics)
                 .ifPresent(envelope -> {
                     // Player-targeting specials (CORRUPT, UNRAVEL, ...) carry no event target, which
                     // the generated payload type wrongly requires — read the lenient shape instead.
@@ -172,19 +176,19 @@ class CardPlayedAndResolutionKafkaConsumer {
                                 toBufferedAction(payload, envelope));
                     }
                 });
-        GameEventIngestion.accept(message, ACTION_ROUND_CLOSED_SPEC, processedEvents)
+        GameEventIngestion.accept(message, ACTION_ROUND_CLOSED_SPEC, processedEvents, skipMetrics)
                 .ifPresent(envelope -> {
                     var payload =
                             GameEventPayloads.read(objectMapper, message.getPayload(), ActionRoundClosedPayload.class);
                     replayRoundActions.replay(payload.gameId(), payload.eraNumber(), payload.roundNumber());
                 });
-        GameEventIngestion.accept(message, RESOLUTION_STARTED_SPEC, processedEvents)
+        GameEventIngestion.accept(message, RESOLUTION_STARTED_SPEC, processedEvents, skipMetrics)
                 .ifPresent(envelope -> {
                     var payload =
                             GameEventPayloads.read(objectMapper, message.getPayload(), ResolutionStartedPayload.class);
                     resolveEra.resolve(payload.gameId(), payload.eraNumber());
                 });
-        GameEventIngestion.accept(message, PARADOX_RESOLUTION_CARD_PLAYED_SPEC, processedEvents)
+        GameEventIngestion.accept(message, PARADOX_RESOLUTION_CARD_PLAYED_SPEC, processedEvents, skipMetrics)
                 .ifPresent(envelope -> {
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), ParadoxResolutionCardPlayedPayload.class);
@@ -203,7 +207,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                             payload.targetEventId(),
                             payload.targetOutcomeId());
                 });
-        GameEventIngestion.accept(message, ACTIVIST_DECLARATION_RECORDED_SPEC, processedEvents)
+        GameEventIngestion.accept(message, ACTIVIST_DECLARATION_RECORDED_SPEC, processedEvents, skipMetrics)
                 .ifPresent(envelope -> {
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), ActivistDeclarationRecordedPayload.class);
@@ -224,26 +228,28 @@ class CardPlayedAndResolutionKafkaConsumer {
                         buffer.save(payload.gameId(), payload.eraNumber(), 1, toBufferedAction(payload, envelope));
                     }
                 });
-        GameEventIngestion.accept(message, ERA_ENDED_SPEC, processedEvents).ifPresent(envelope -> {
-            var payload = GameEventPayloads.read(objectMapper, message.getPayload(), EraEndedPayload.class);
-            // Runs in this same consumer group so it can never overtake the round replay that created this
-            // game/era's entitlements. Idempotent: harmless on redelivery.
-            scanEntitlements.deleteByGameAndEra(payload.gameId(), payload.eraNumber());
-        });
-        GameEventIngestion.accept(message, GAME_ENDED_SPEC, processedEvents).ifPresent(envelope -> {
-            var payload = GameEventPayloads.read(objectMapper, message.getPayload(), GameEndedPayload.class);
-            // A final game can end without a following EraEnded, so this removes whatever the last era left
-            // behind too. Idempotent: harmless on redelivery.
-            scanEntitlements.deleteByGame(payload.gameId());
-        });
-        GameEventIngestion.accept(message, WEAVER_SAGA_SPECIAL_SPEC, processedEvents)
+        GameEventIngestion.accept(message, ERA_ENDED_SPEC, processedEvents, skipMetrics)
+                .ifPresent(envelope -> {
+                    var payload = GameEventPayloads.read(objectMapper, message.getPayload(), EraEndedPayload.class);
+                    // Runs in this same consumer group so it can never overtake the round replay that created this
+                    // game/era's entitlements. Idempotent: harmless on redelivery.
+                    scanEntitlements.deleteByGameAndEra(payload.gameId(), payload.eraNumber());
+                });
+        GameEventIngestion.accept(message, GAME_ENDED_SPEC, processedEvents, skipMetrics)
+                .ifPresent(envelope -> {
+                    var payload = GameEventPayloads.read(objectMapper, message.getPayload(), GameEndedPayload.class);
+                    // A final game can end without a following EraEnded, so this removes whatever the last era left
+                    // behind too. Idempotent: harmless on redelivery.
+                    scanEntitlements.deleteByGame(payload.gameId());
+                });
+        GameEventIngestion.accept(message, WEAVER_SAGA_SPECIAL_SPEC, processedEvents, skipMetrics)
                 .ifPresent(envelope -> {
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), SpecialActionPlayedInbound.class);
                     payload.requireEnvelope();
                     handleWeaverSpecial(payload);
                 });
-        GameEventIngestion.accept(message, WEAVER_SAGA_GAME_ENDED_SPEC, processedEvents)
+        GameEventIngestion.accept(message, WEAVER_SAGA_GAME_ENDED_SPEC, processedEvents, skipMetrics)
                 .ifPresent(envelope -> {
                     var payload = GameEventPayloads.read(objectMapper, message.getPayload(), GameEndedPayload.class);
                     weaverChainSaga.endGame(payload.gameId());

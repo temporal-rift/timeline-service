@@ -9,14 +9,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ContextConfiguration;
 
 import io.github.temporalrift.timeline.TestcontainersConfiguration;
+import io.github.temporalrift.timeline.TimelineServiceApplication;
 import io.github.temporalrift.timeline.domain.membership.GameMembership;
 import io.github.temporalrift.timeline.domain.membership.MemberFaction;
 import io.github.temporalrift.timeline.domain.port.out.GameMembershipPort;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@ContextConfiguration(classes = TimelineServiceApplication.class)
 @Import({TestcontainersConfiguration.class, JpaGameMembershipAdapter.class})
 class JpaGameMembershipAdapterTest {
 

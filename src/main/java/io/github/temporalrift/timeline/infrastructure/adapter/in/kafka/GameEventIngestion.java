@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.in.kafka;
 
 import java.util.Optional;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +19,47 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 final class GameEventIngestion {
 
     private static final Logger log = LoggerFactory.getLogger(GameEventIngestion.class);
+    private static final Set<String> KNOWN_GAME_EVENT_TYPES = Set.of(
+            "LobbyCreated",
+            "PlayerJoinedLobby",
+            "PlayerLeftLobby",
+            "HostTransferred",
+            "LobbyClosed",
+            "FactionsDrawn",
+            "FactionAssigned",
+            "GameStarted",
+            "GameStartFailed",
+            "GameStartCancelled",
+            "PlayerDisconnected",
+            "PlayerAbandoned",
+            "EraStarted",
+            "EraEnded",
+            "EraFailed",
+            "GameEndedAbnormally",
+            "GameEnded",
+            "TimelineCollapsed",
+            "TimelineStabilized",
+            "WinConditionMet",
+            "FactionRevealed",
+            "EventsDrawn",
+            "HandDealt",
+            "HandSelected",
+            "ResolutionStarted",
+            "ActionRoundStarted",
+            "CardPlayed",
+            "ParadoxResolutionCardPlayed",
+            "SpecialActionPlayed",
+            "PlayerJammed",
+            "InfluenceTraced",
+            "HandCardIntercepted",
+            "ActionRoundTimerExpired",
+            "PlayerSkipped",
+            "ActionRoundClosed",
+            "RoundSummaryPublished",
+            "BandedProbabilityPublished",
+            "ActivistDeclarationRecorded",
+            "ExposeSignatureRevealed",
+            "ExposeBehaviorChanged");
 
     private GameEventIngestion() {}
 
@@ -26,9 +68,11 @@ final class GameEventIngestion {
      *     supported version, and was newly claimed for {@code spec}'s consumer; empty if the caller
      *     should do nothing further (the reason, if any, is already logged here).
      */
-    static Optional<GameEventEnvelope> accept(Message<Object> message, Spec spec, ProcessedEventPort processedEvents) {
+    static Optional<GameEventEnvelope> accept(
+            Message<Object> message, Spec spec, ProcessedEventPort processedEvents, GameEventSkipMetrics skipMetrics) {
         var envelope = GameEventEnvelope.from(message);
         if (!matches(envelope, spec)) {
+            recordUnknownType(envelope, spec, skipMetrics);
             return Optional.empty();
         }
         if (envelope.eventId() == null) {
@@ -36,6 +80,7 @@ final class GameEventIngestion {
             return Optional.empty();
         }
         if (envelope.version() == null || envelope.version() != spec.supportedVersion()) {
+            skipMetrics.recordUnsupportedVersion(spec.consumer());
             log.warn(
                     "Unsupported {} envelope version {} for event {} — skipping",
                     spec.eventName(),
@@ -54,5 +99,17 @@ final class GameEventIngestion {
         return spec.eventName().equals(envelope.eventType());
     }
 
-    record Spec(String eventName, String consumer, int supportedVersion) {}
+    private static void recordUnknownType(GameEventEnvelope envelope, Spec spec, GameEventSkipMetrics skipMetrics) {
+        if (spec.observesUnknownTypes() && !KNOWN_GAME_EVENT_TYPES.contains(envelope.eventType())) {
+            log.warn("Unsupported game event type {} — skipping", envelope.eventType());
+            skipMetrics.recordUnknownType();
+        }
+    }
+
+    record Spec(String eventName, String consumer, int supportedVersion, boolean observesUnknownTypes) {
+
+        Spec(String eventName, String consumer, int supportedVersion) {
+            this(eventName, consumer, supportedVersion, false);
+        }
+    }
 }

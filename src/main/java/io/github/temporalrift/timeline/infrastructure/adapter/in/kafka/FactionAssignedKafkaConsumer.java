@@ -25,23 +25,29 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 class FactionAssignedKafkaConsumer {
 
     private static final String CONSUMER = "membership.faction-assigned";
-    private static final GameEventIngestion.Spec SPEC = new GameEventIngestion.Spec("FactionAssigned", CONSUMER, 1);
+    private static final GameEventIngestion.Spec SPEC =
+            new GameEventIngestion.Spec("FactionAssigned", CONSUMER, 1, true);
 
     private final ProcessedEventPort processedEvents;
     private final GameMembershipPort memberships;
     private final ObjectMapper objectMapper;
+    private final GameEventSkipMetrics skipMetrics;
 
     FactionAssignedKafkaConsumer(
-            ProcessedEventPort processedEvents, GameMembershipPort memberships, ObjectMapper objectMapper) {
+            ProcessedEventPort processedEvents,
+            GameMembershipPort memberships,
+            ObjectMapper objectMapper,
+            GameEventSkipMetrics skipMetrics) {
         this.processedEvents = processedEvents;
         this.memberships = memberships;
         this.objectMapper = objectMapper;
+        this.skipMetrics = skipMetrics;
     }
 
     @KafkaListener(topics = "game.events", groupId = "timeline-service." + CONSUMER)
     @Transactional(propagation = REQUIRES_NEW)
     public void handle(Message<Object> message) {
-        GameEventIngestion.accept(message, SPEC, processedEvents).ifPresent(envelope -> {
+        GameEventIngestion.accept(message, SPEC, processedEvents, skipMetrics).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), FactionAssignedPayload.class);
             Objects.requireNonNull(payload.gameId(), "gameId");
             Objects.requireNonNull(payload.playerId(), "playerId");

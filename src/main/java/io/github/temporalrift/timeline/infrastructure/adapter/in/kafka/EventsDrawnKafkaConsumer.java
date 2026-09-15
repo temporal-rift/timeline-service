@@ -33,22 +33,25 @@ class EventsDrawnKafkaConsumer {
     private final FutureEventRepository futureEvents;
     private final FutureEventEraIndexPort eraIndex;
     private final ObjectMapper objectMapper;
+    private final GameEventSkipMetrics skipMetrics;
 
     EventsDrawnKafkaConsumer(
             ProcessedEventPort processedEvents,
             FutureEventRepository futureEvents,
             FutureEventEraIndexPort eraIndex,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            GameEventSkipMetrics skipMetrics) {
         this.processedEvents = processedEvents;
         this.futureEvents = futureEvents;
         this.eraIndex = eraIndex;
         this.objectMapper = objectMapper;
+        this.skipMetrics = skipMetrics;
     }
 
     @KafkaListener(topics = "game.events", groupId = "timeline-service." + CONSUMER)
     @Transactional(propagation = REQUIRES_NEW)
     public void handle(Message<Object> message) {
-        GameEventIngestion.accept(message, SPEC, processedEvents).ifPresent(envelope -> {
+        GameEventIngestion.accept(message, SPEC, processedEvents, skipMetrics).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), EventsDrawnPayload.class);
             var alreadyIndexed = eraIndex.findByGameIdAndEraNumber(payload.gameId(), payload.eraNumber()).stream()
                     .map(IndexedEventId::eventId)

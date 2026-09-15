@@ -44,6 +44,10 @@ record GameEventEnvelope(
     }
 
     private static Integer asInteger(String value) {
-        return value == null ? null : Integer.valueOf(value);
+        try {
+            return value == null ? null : Integer.valueOf(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 }

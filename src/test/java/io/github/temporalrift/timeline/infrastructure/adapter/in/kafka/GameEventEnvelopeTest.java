@@ -54,4 +54,14 @@ class GameEventEnvelopeTest {
         assertThat(envelope.version()).isNull();
         assertThat(envelope.eventType()).isNull();
     }
+
+    @Test
+    @DisplayName("unparseable versions are unsupported rather than fatal")
+    void from_unparseableVersion_returnsNullVersion() {
+        var message = MessageBuilder.withPayload(new Object())
+                .setHeader("version", "not-an-int")
+                .build();
+
+        assertThat(GameEventEnvelope.from(message).version()).isNull();
+    }
 }
