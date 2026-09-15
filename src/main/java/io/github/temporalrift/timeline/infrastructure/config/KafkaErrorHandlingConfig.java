@@ -11,14 +11,15 @@ import org.springframework.util.backoff.FixedBackOff;
 @Configuration
 class KafkaErrorHandlingConfig {
 
-    static final String DEAD_LETTER_TOPIC = "game.dlq";
     private static final long RETRY_INTERVAL_MS = 1_000L;
     private static final long MAX_RETRIES = 2L;
 
     @Bean
     DeadLetterPublishingRecoverer deadLetterPublishingRecoverer(KafkaOperations<Object, Object> kafkaOperations) {
         return new DeadLetterPublishingRecoverer(
-                kafkaOperations, (consumerRecord, exception) -> new TopicPartition(DEAD_LETTER_TOPIC, -1));
+                kafkaOperations,
+                (consumerRecord, exception) ->
+                        new TopicPartition(consumerRecord.topic() + ".dlq", consumerRecord.partition()));
     }
 
     @Bean
