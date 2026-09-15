@@ -100,7 +100,9 @@ final class GameEventIngestion {
     }
 
     private static void recordUnknownType(GameEventEnvelope envelope, Spec spec, GameEventSkipMetrics skipMetrics) {
-        if (spec.observesUnknownTypes() && !KNOWN_GAME_EVENT_TYPES.contains(envelope.eventType())) {
+        if (spec.observesUnknownTypes()
+                && envelope.eventType() != null
+                && !KNOWN_GAME_EVENT_TYPES.contains(envelope.eventType())) {
             log.warn("Unsupported game event type {} — skipping", envelope.eventType());
             skipMetrics.recordUnknownType();
         }

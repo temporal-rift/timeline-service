@@ -10,18 +10,15 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ContextConfiguration;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 import io.github.temporalrift.timeline.TestcontainersConfiguration;
-import io.github.temporalrift.timeline.TimelineServiceApplication;
 import io.github.temporalrift.timeline.domain.port.out.AggregateSnapshotPort;
 import io.github.temporalrift.timeline.domain.port.out.EventStorePort;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@ContextConfiguration(classes = TimelineServiceApplication.class)
 @Import({
     TestcontainersConfiguration.class,
     JpaAggregateSnapshotAdapterTest.TestConfig.class,
