@@ -81,13 +81,13 @@ class GameEventsDeadLetterIT {
     private static ConsumerRecord<Object, Object> parkedRecord(Consumer<Object, Object> consumer, UUID eventId) {
         var records = consumer.poll(Duration.ofMillis(500));
         return StreamSupport.stream(records.spliterator(), false)
-                .filter(record -> eventId.toString().equals(headerValue(record, "eventId")))
+                .filter(consumerRecord -> eventId.toString().equals(headerValue(consumerRecord, "eventId")))
                 .findFirst()
                 .orElse(null);
     }
 
-    private static String headerValue(ConsumerRecord<?, ?> record, String name) {
-        var header = record.headers().lastHeader(name);
+    private static String headerValue(ConsumerRecord<?, ?> consumerRecord, String name) {
+        var header = consumerRecord.headers().lastHeader(name);
         return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
     }
 }

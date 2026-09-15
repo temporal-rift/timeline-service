@@ -13,17 +13,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ContextConfiguration;
 
 import io.github.temporalrift.timeline.TestcontainersConfiguration;
-import io.github.temporalrift.timeline.TimelineServiceApplication;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaState;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaStatus;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@ContextConfiguration(classes = TimelineServiceApplication.class)
 @Import({TestcontainersConfiguration.class, JpaWeaverChainSagaAdapter.class})
 class JpaWeaverChainSagaAdapterTest {
 
