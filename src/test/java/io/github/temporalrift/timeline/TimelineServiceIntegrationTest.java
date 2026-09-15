@@ -8,6 +8,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -23,5 +24,6 @@ import org.springframework.test.context.ActiveProfiles;
 @Inherited
 @SpringBootTest
 @ActiveProfiles("test")
+@AutoConfigureMockMvc
 @Import({TestcontainersConfiguration.class, TimelineEventsTestCollector.class, GameEventsTestPublisher.class})
 public @interface TimelineServiceIntegrationTest {}

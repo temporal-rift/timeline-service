@@ -19,7 +19,7 @@ public class SecurityConfig {
             // Stateless bearer API: no cookie or session rides cross-site, so CSRF is inapplicable.
             return http.csrf(AbstractHttpConfigurer::disable) // NOSONAR S4502
                     .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                    .authorizeHttpRequests(auth -> auth.requestMatchers("/actuator/health/**")
+                    .authorizeHttpRequests(auth -> auth.requestMatchers("/actuator/health/**", "/actuator/prometheus")
                             .permitAll()
                             .anyRequest()
                             .authenticated())

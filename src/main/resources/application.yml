@@ -54,6 +54,17 @@ spring:
       observation-enabled: true
 
 management:
+  endpoints:
+    web:
+      exposure:
+        # Prometheus scrape target for the infra observability stack; health stays public as before.
+        include: health,prometheus
+  # Spring Boot 4 backs off the metrics-export auto-configurations unless export is explicitly
+  # enabled; without this the Prometheus registry bean (and its scrape endpoint) is never created.
+  prometheus:
+    metrics:
+      export:
+        enabled: true
   tracing:
     sampling:
       probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
