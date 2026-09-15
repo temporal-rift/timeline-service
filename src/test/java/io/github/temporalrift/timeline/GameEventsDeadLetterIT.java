@@ -25,8 +25,8 @@ import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 @TimelineServiceIntegrationTest
 class GameEventsDeadLetterIT {
 
-    private static final String DEAD_LETTER_TOPIC = "game.dlq";
     private static final String GAME_EVENTS_TOPIC = "game.events";
+    private static final String DEAD_LETTER_TOPIC = GAME_EVENTS_TOPIC + ".dlq";
 
     @Autowired
     KafkaTemplate<Object, Object> kafkaTemplate;
@@ -55,6 +55,7 @@ class GameEventsDeadLetterIT {
                     .until(() -> parkedRecord(deadLetterConsumer, poisonEventId), Objects::nonNull);
 
             assertThat(parked.key()).isEqualTo(gameId.toString());
+            assertThat(parked.partition()).isZero();
             assertThat(headerValue(parked, "eventId")).isEqualTo(poisonEventId.toString());
             assertThat(headerValue(parked, "eventType")).isEqualTo("EraStarted");
             assertThat(headerValue(parked, KafkaHeaders.DLT_EXCEPTION_MESSAGE)).isNotBlank();
