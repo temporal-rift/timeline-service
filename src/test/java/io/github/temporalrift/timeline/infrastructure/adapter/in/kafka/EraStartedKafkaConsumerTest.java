@@ -34,6 +34,9 @@ class EraStartedKafkaConsumerTest {
     ProcessedEventPort processedEvents;
 
     @Mock
+    GameEventSkipMetrics skipMetrics;
+
+    @Mock
     EraPlayersPort eraPlayers;
 
     @Spy

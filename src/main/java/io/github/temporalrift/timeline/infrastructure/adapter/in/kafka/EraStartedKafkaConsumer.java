@@ -28,17 +28,23 @@ class EraStartedKafkaConsumer {
     private final ProcessedEventPort processedEvents;
     private final EraPlayersPort eraPlayers;
     private final ObjectMapper objectMapper;
+    private final GameEventSkipMetrics skipMetrics;
 
-    EraStartedKafkaConsumer(ProcessedEventPort processedEvents, EraPlayersPort eraPlayers, ObjectMapper objectMapper) {
+    EraStartedKafkaConsumer(
+            ProcessedEventPort processedEvents,
+            EraPlayersPort eraPlayers,
+            ObjectMapper objectMapper,
+            GameEventSkipMetrics skipMetrics) {
         this.processedEvents = processedEvents;
         this.eraPlayers = eraPlayers;
         this.objectMapper = objectMapper;
+        this.skipMetrics = skipMetrics;
     }
 
     @KafkaListener(topics = "game.events", groupId = "timeline-service." + CONSUMER)
     @Transactional(propagation = REQUIRES_NEW)
     public void handle(Message<Object> message) {
-        GameEventIngestion.accept(message, SPEC, processedEvents).ifPresent(envelope -> {
+        GameEventIngestion.accept(message, SPEC, processedEvents, skipMetrics).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), EraStartedPayload.class);
             var playerIds = payload.playerIds() == null ? List.<UUID>of() : payload.playerIds();
             eraPlayers.save(payload.gameId(), payload.eraNumber(), playerIds);

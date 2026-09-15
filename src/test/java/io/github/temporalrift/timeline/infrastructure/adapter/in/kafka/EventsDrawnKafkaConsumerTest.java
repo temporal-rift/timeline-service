@@ -42,6 +42,9 @@ class EventsDrawnKafkaConsumerTest {
     ProcessedEventPort processedEvents;
 
     @Mock
+    GameEventSkipMetrics skipMetrics;
+
+    @Mock
     FutureEventRepository futureEvents;
 
     @Mock
