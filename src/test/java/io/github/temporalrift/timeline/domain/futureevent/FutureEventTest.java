@@ -449,6 +449,20 @@ class FutureEventTest {
     }
 
     @Test
+    void applyShift_collide_twoOutcomeEvent_equalizesPairWithoutThird() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 60);
+        var b = new Outcome(UUID.randomUUID(), "b", 40);
+        var event = drafted(id, a, b);
+
+        event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(50);
+        assertThat(sum(event)).isEqualTo(100);
+    }
+
+    @Test
     void applyShift_collide_oneOutcomeSealed_setsSealBreachWithoutChangingProbability() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
