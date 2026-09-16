@@ -913,6 +913,26 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
+    void replay_annihilateTargetingAnAlreadyResolvedEvent_skipsItInsteadOfCrashingTheRound() {
+        // game-service does not restrict ANNIHILATE's target to the current era, so a client can legitimately
+        // name a past, already-resolved event; FutureEvent.annihilateOutcome throws for one. Regression for a
+        // round that used to crash entirely instead of just skipping the one stale action.
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var futureEvent = drafted(
+                eventId, outcome(outcomeId, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
+        futureEvent.resolve(GAME_ID, ERA_NUMBER);
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialAction("ANNIHILATE", eventId, outcomeId, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).append(any(), any());
+        then(weaverChainSaga).should(never()).annihilateOutcome(any(), anyInt(), any(), any());
+    }
+
+    @Test
     void replay_annihilate_notifiesWeaverChainSaga() {
         var eventId = UUID.randomUUID();
         var target = UUID.randomUUID();

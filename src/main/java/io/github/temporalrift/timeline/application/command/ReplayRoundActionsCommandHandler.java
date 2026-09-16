@@ -363,11 +363,20 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     /**
      * A buffered action's target must reference an id this service actually drew ({@code FutureEventDrafted}
      * recorded) — {@code findById} throws otherwise. Rather than let that abort the whole round's transaction,
-     * skip only the action that named the unresolvable id and keep replaying the rest of the round.
+     * skip only the action that named the unresolvable id and keep replaying the rest of the round. Every caller
+     * of this method goes on to mutate the returned aggregate (seal/annihilate/shift/stall), each of which throws
+     * {@code FutureEventAlreadyResolvedException} for a resolved event — an already-resolved target is skipped
+     * here the same way, rather than letting a stale or redelivered round replay (e.g. a duplicated
+     * {@code ActionRoundClosed} arriving after that era's own resolution) crash the whole transaction.
      */
     private Optional<FutureEvent> tryFindEvent(UUID eventId) {
         try {
-            return Optional.of(futureEvents.findById(eventId));
+            var futureEvent = futureEvents.findById(eventId);
+            if (futureEvent.resolved()) {
+                log.warn("Buffered action targets already-resolved FutureEvent {} — skipping its effect", eventId);
+                return Optional.empty();
+            }
+            return Optional.of(futureEvent);
         } catch (FutureEventNotFoundException _) {
             log.warn("Buffered action targets unknown FutureEvent {} — skipping its effect", eventId);
             return Optional.empty();
