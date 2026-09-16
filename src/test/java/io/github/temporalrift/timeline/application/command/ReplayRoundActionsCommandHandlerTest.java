@@ -715,6 +715,46 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
+    void replay_collide_oddPair_equalizesExactlyMovingRemainderToThird() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 31), outcome(c, 19));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(cardPlayed("COLLIDE", eventId, a, b, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(40);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(40);
+        assertThat(probabilityOf(futureEvent, c)).isEqualTo(20);
+    }
+
+    @Test
+    void replay_collide_lowerOddPair_tiesWithoutChangingHighest() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 25), outcome(b, 26), outcome(c, 49));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(cardPlayed("COLLIDE", eventId, a, b, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(25);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(25);
+        assertThat(probabilityOf(futureEvent, c)).isEqualTo(50);
+    }
+
+    @Test
     void replay_redirectRetargetsNamedPlayersShiftRegardlessOfSubmissionOrder() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
