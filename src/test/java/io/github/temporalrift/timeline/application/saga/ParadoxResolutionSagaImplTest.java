@@ -891,6 +891,7 @@ class ParadoxResolutionSagaImplTest {
                 chainId,
                 List.of(
                         new WeaverChainStarted(chainId, UUID.randomUUID(), GAME_ID),
-                        new ChainLinkAdded(chainId, eventId, outcomeId, ERA_NUMBER)));
+                        new ChainLinkAdded(
+                                chainId, eventId, outcomeId, ERA_NUMBER, UUID.randomUUID(), UUID.randomUUID())));
     }
 }

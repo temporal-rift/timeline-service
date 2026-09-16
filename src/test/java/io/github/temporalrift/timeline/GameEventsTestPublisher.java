@@ -54,6 +54,34 @@ class GameEventsTestPublisher {
             int probabilityB,
             UUID outcomeIdC,
             int probabilityC) {
+        threeOutcomeEventDrawn(
+                gameId,
+                eraNumber,
+                eventId,
+                "FRESH",
+                outcomeIdA,
+                probabilityA,
+                outcomeIdB,
+                probabilityB,
+                outcomeIdC,
+                probabilityC);
+    }
+
+    /**
+     * Overload allowing a scenario to exercise a redraw that the receiving side already has indexed for this era
+     * (a carried-over event — {@code CASCADED} or {@code STALLED}), rather than always {@code FRESH}.
+     */
+    void threeOutcomeEventDrawn(
+            UUID gameId,
+            int eraNumber,
+            UUID eventId,
+            String carryOverState,
+            UUID outcomeIdA,
+            int probabilityA,
+            UUID outcomeIdB,
+            int probabilityB,
+            UUID outcomeIdC,
+            int probabilityC) {
         publish(
                 gameId,
                 "EventsDrawn",
@@ -69,7 +97,7 @@ class GameEventsTestPublisher {
                                 "title",
                                 "Test Future Event",
                                 "carryOverState",
-                                "FRESH",
+                                carryOverState,
                                 "outcomes",
                                 List.of(
                                         outcome(outcomeIdA, "a", probabilityA),

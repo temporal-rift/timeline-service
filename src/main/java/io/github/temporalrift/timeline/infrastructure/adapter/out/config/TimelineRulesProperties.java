@@ -23,7 +23,8 @@ public record TimelineRulesProperties(
         int bandLowMax,
         int bandMediumMax,
         int momentumBonus,
-        double rallyMultiplier)
+        double rallyMultiplier,
+        int threadShift)
         implements ProbabilityRulesPort, ProbabilityBandRulesPort {
 
     public TimelineRulesProperties {
@@ -63,6 +64,9 @@ public record TimelineRulesProperties(
         }
         if (momentumBonus <= 0) {
             throw new IllegalArgumentException("game.rules.probability.momentum-bonus must be positive");
+        }
+        if (threadShift <= 0) {
+            throw new IllegalArgumentException("game.rules.probability.thread-shift must be positive");
         }
         if (!Double.isFinite(rallyMultiplier) || rallyMultiplier <= 1.0) {
             throw new IllegalArgumentException(
@@ -132,6 +136,11 @@ public record TimelineRulesProperties(
     @Override
     public int momentumBonus() {
         return momentumBonus;
+    }
+
+    @Override
+    public int threadShift() {
+        return threadShift;
     }
 
     @Override

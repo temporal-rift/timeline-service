@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
+import io.github.temporalrift.timeline.domain.event.EraStateCleared;
 import io.github.temporalrift.timeline.domain.event.EventStalled;
 import io.github.temporalrift.timeline.domain.event.EventUnstalled;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
@@ -48,7 +49,8 @@ public final class FutureEvent {
                             || event instanceof EventUnstalled
                             || event instanceof OutcomeSealed
                             || event instanceof OutcomeAnnihilated
-                            || event instanceof SealBreachRecorded)
+                            || event instanceof SealBreachRecorded
+                            || event instanceof EraStateCleared)
                     && (state == null || state.resolved())) {
                 throw new IllegalStateException("Event replayed outside the drafted and unresolved state for " + id);
             }
@@ -63,6 +65,7 @@ public final class FutureEvent {
                 case OutcomeAnnihilated e ->
                     new FutureEvent(id, e.outcomes(), false, state.stalled(), state.sealBreach());
                 case SealBreachRecorded e -> new FutureEvent(id, state.outcomes(), false, state.stalled(), true);
+                case EraStateCleared e -> new FutureEvent(id, e.outcomes(), false, state.stalled(), false);
                 default -> throw new IllegalArgumentException("Unknown FutureEvent domain event: " + event.getClass());
             };
         }
@@ -300,6 +303,24 @@ public final class FutureEvent {
                 .toList();
         var event = new OutcomeSealed(id, updated);
         this.outcomes = updated;
+        return event;
+    }
+
+    /**
+     * Clears this event's per-era state — every outcome's sealed/annihilated flag and the seal-breach flag —
+     * when it carries into a new era (era-scoped-event-state capability). Identity, outcome set, and
+     * probabilities are preserved; only the flags a new era must not inherit are cleared.
+     */
+    public EraStateCleared clearEraState() {
+        if (resolved) {
+            throw new FutureEventAlreadyResolvedException(id);
+        }
+        var cleared = outcomes.stream()
+                .map(o -> new Outcome(o.outcomeId(), o.description(), o.probability(), false, false))
+                .toList();
+        var event = new EraStateCleared(id, cleared);
+        this.outcomes = cleared;
+        this.sealBreach = false;
         return event;
     }
 

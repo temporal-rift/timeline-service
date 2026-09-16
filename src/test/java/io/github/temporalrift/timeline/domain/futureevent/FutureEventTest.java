@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import io.github.temporalrift.timeline.domain.event.EraStateCleared;
 import io.github.temporalrift.timeline.domain.event.EventStalled;
 import io.github.temporalrift.timeline.domain.event.EventUnstalled;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
@@ -943,6 +944,100 @@ class FutureEventTest {
                 .isTrue();
         assertThat(event.sealBreach()).isTrue();
         assertThat(event.resolved()).isFalse();
+    }
+
+    @Test
+    void clearEraState_clearsSealAndAnnihilationAndBreach() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(a.outcomeId());
+        event.annihilateOutcome(b.outcomeId());
+        event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 5, 0, 90); // sets sealBreach
+
+        var fact = event.clearEraState();
+
+        assertThat(event.outcomes().stream().noneMatch(Outcome::sealed)).isTrue();
+        assertThat(event.outcomes().stream().noneMatch(Outcome::annihilated)).isTrue();
+        assertThat(event.sealBreach()).isFalse();
+        assertThat(fact.eventId()).isEqualTo(id);
+        assertThat(fact.outcomes()).allSatisfy(o -> {
+            assertThat(o.sealed()).isFalse();
+            assertThat(o.annihilated()).isFalse();
+        });
+    }
+
+    @Test
+    void clearEraState_preservesIdentityOutcomeSetAndProbabilities() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(a.outcomeId());
+
+        event.clearEraState();
+
+        assertThat(event.id()).isEqualTo(id);
+        assertThat(event.outcomes())
+                .extracting(Outcome::outcomeId)
+                .containsExactlyInAnyOrder(a.outcomeId(), b.outcomeId(), c.outcomeId());
+        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(30);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(20);
+    }
+
+    @Test
+    void clearEraState_noPerEraStateSet_isANoOp() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 100);
+        var event = drafted(id, a);
+
+        event.clearEraState();
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(100);
+        assertThat(event.sealBreach()).isFalse();
+    }
+
+    @Test
+    void clearEraState_alreadyResolved_throws() {
+        var id = UUID.randomUUID();
+        var outcome = new Outcome(UUID.randomUUID(), "only", 100);
+        var event = drafted(id, outcome);
+        event.resolve(GAME_ID, ERA_NUMBER);
+
+        assertThatThrownBy(event::clearEraState).isInstanceOf(FutureEventAlreadyResolvedException.class);
+    }
+
+    @Test
+    void replay_reproducesClearedStateAfterEraStateCleared() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 50);
+        var drafted = new FutureEventDrafted(id, List.of(a, b));
+        var sealed = new OutcomeSealed(id, List.of(new Outcome(a.outcomeId(), "a", 50, true, false), b));
+        var breach = new SealBreachRecorded(id);
+        var cleared = new EraStateCleared(id, List.of(a, b));
+
+        var event = FutureEvent.replay(id, List.of(drafted, sealed, breach, cleared));
+
+        assertThat(event.outcomes().stream().noneMatch(Outcome::sealed)).isTrue();
+        assertThat(event.sealBreach()).isFalse();
+        assertThat(event.resolved()).isFalse();
+    }
+
+    @Test
+    void replay_eraStateClearedAfterOutcomeApplied_throwsIllegalState() {
+        var id = UUID.randomUUID();
+        var outcome = new Outcome(UUID.randomUUID(), "only", 100);
+        var drafted = new FutureEventDrafted(id, List.of(outcome));
+        var applied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, outcome.outcomeId(), List.of(outcome));
+        var cleared = new EraStateCleared(id, List.of(outcome));
+        List<Object> history = List.of(drafted, applied, cleared);
+
+        assertThatThrownBy(() -> FutureEvent.replay(id, history)).isInstanceOf(IllegalStateException.class);
     }
 
     private static int byId(FutureEvent event, UUID outcomeId) {

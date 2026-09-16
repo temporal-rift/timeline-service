@@ -4,7 +4,7 @@ import java.util.UUID;
 
 /**
  * Driving port: replay a closed round's buffered {@code CardPlayed}/{@code SpecialActionPlayed} actions in
- * strict priority-tier order ({@code NULLIFY -> SEAL -> ANNIHILATE -> CORRUPT
+ * strict priority-tier order ({@code NULLIFY -> SEAL -> ANNIHILATE -> CASCADE -> CORRUPT
  * -> MIMIC -> AMPLIFY -> remaining cards by submission timestamp}). Player-targeted modifiers correlate from the
  * complete round, so their effect does not depend on relative submission order. Replaces
  * {@code ApplyProbabilityShiftUseCase}, {@code PlayCardModifierUseCase}, {@code PlaySpecialActionUseCase}, and

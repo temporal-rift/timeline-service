@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 interface EraPlayersJpaRepository extends JpaRepository<EraPlayersEntity, UUID> {
 
     Optional<EraPlayersEntity> findByGameIdAndEraNumber(UUID gameId, int eraNumber);
+
+    Optional<EraPlayersEntity> findFirstByGameIdOrderByEraNumberDesc(UUID gameId);
 }

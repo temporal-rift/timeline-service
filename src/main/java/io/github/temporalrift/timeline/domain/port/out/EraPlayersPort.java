@@ -20,4 +20,12 @@ public interface EraPlayersPort {
      *     orders it against the group that opens resolution phases)
      */
     Optional<List<UUID>> find(UUID gameId, int eraNumber);
+
+    /**
+     * The highest era number an {@code EraStarted} has been recorded for — the only "current era" signal
+     * available to timeline-service, which does not itself own era progression.
+     *
+     * @return {@link Optional#empty()} when no era has started for this game yet
+     */
+    Optional<Integer> findLatestEraNumber(UUID gameId);
 }

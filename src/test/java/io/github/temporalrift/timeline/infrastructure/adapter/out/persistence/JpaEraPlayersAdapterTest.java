@@ -74,4 +74,29 @@ class JpaEraPlayersAdapterTest {
         assertThat(eraPlayers.find(gameId, 1)).contains(List.of(era1PlayerId));
         assertThat(eraPlayers.find(gameId, 2)).contains(List.of(era2PlayerId));
     }
+
+    @Test
+    void findLatestEraNumber_multipleErasSaved_returnsTheHighest() {
+        var gameId = UUID.randomUUID();
+        eraPlayers.save(gameId, 1, List.of());
+        eraPlayers.save(gameId, 3, List.of());
+        eraPlayers.save(gameId, 2, List.of());
+
+        assertThat(eraPlayers.findLatestEraNumber(gameId)).contains(3);
+    }
+
+    @Test
+    void findLatestEraNumber_noEraStarted_returnsEmptyOptional() {
+        assertThat(eraPlayers.findLatestEraNumber(UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    void findLatestEraNumber_doesNotConsiderAnotherGame() {
+        var gameId1 = UUID.randomUUID();
+        var gameId2 = UUID.randomUUID();
+        eraPlayers.save(gameId1, 1, List.of());
+        eraPlayers.save(gameId2, 5, List.of());
+
+        assertThat(eraPlayers.findLatestEraNumber(gameId1)).contains(1);
+    }
 }

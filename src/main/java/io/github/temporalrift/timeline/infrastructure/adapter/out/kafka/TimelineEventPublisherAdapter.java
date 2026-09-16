@@ -12,10 +12,14 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 
 import io.github.temporalrift.timeline.domain.event.AdjustedBandsPublished;
+import io.github.temporalrift.timeline.domain.event.CascadeCarriedForwardEvent;
 import io.github.temporalrift.timeline.domain.event.ChainBrokenEvent;
 import io.github.temporalrift.timeline.domain.event.ChainCompletedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAddedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidatedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainProtectionArmedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainProtectionConsumedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainReAnchoredEvent;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
@@ -27,6 +31,7 @@ import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
+import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.ThreadRejectedEvent;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
@@ -73,6 +78,11 @@ class TimelineEventPublisherAdapter implements TimelineEventPublisher {
             case ChainBrokenEvent e -> publish("ChainBroken", mapper.toWire(e), event);
             case ChainLinkInvalidatedEvent e -> publish("ChainLinkInvalidated", mapper.toWire(e), event);
             case ThreadRejectedEvent e -> publish("ThreadRejected", mapper.toWire(e), event);
+            case SpecialRejectedEvent e -> publish("SpecialRejected", mapper.toWire(e), event);
+            case ChainProtectionArmedEvent e -> publish("ChainProtectionArmed", mapper.toWire(e), event);
+            case ChainProtectionConsumedEvent e -> publish("ChainProtectionConsumed", mapper.toWire(e), event);
+            case ChainReAnchoredEvent e -> publish("ChainReAnchored", mapper.toWire(e), event);
+            case CascadeCarriedForwardEvent e -> publish("CascadeCarriedForward", mapper.toWire(e), event);
             case ResolutionFailed e -> publish("ResolutionFailed", mapper.toWire(e), event);
             case ResolutionWarning e -> publish("ResolutionWarning", mapper.toWire(e), event);
             default ->

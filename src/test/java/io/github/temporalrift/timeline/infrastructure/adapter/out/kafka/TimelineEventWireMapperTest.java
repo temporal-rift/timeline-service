@@ -7,12 +7,17 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import io.github.temporalrift.timeline.domain.event.CascadeCarriedForwardEvent;
 import io.github.temporalrift.timeline.domain.event.ChainBrokenEvent;
 import io.github.temporalrift.timeline.domain.event.ChainCompletedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAddedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidatedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainProtectionArmedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainProtectionConsumedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainReAnchoredEvent;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
+import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.event.ThreadRejectedEvent;
 
@@ -76,17 +81,29 @@ class TimelineEventWireMapperTest {
         var gameId = UUID.randomUUID();
         var chainId = UUID.randomUUID();
         var playerId = UUID.randomUUID();
+        var sourceEventId = UUID.randomUUID();
+        var sourceOutcomeId = UUID.randomUUID();
         var linkedEventId = UUID.randomUUID();
         var linkedOutcomeId = UUID.randomUUID();
         var previousLinkEventId = UUID.randomUUID();
         var event = new ChainLinkAddedEvent(
-                gameId, chainId, playerId, linkedEventId, linkedOutcomeId, 2, previousLinkEventId);
+                gameId,
+                chainId,
+                playerId,
+                sourceEventId,
+                sourceOutcomeId,
+                linkedEventId,
+                linkedOutcomeId,
+                2,
+                previousLinkEventId);
 
         var wire = mapper.toWire(event);
 
         assertThat(wire.gameId()).isEqualTo(gameId);
         assertThat(wire.chainId()).isEqualTo(chainId);
         assertThat(wire.playerId()).isEqualTo(playerId);
+        assertThat(wire.sourceEventId()).isEqualTo(sourceEventId);
+        assertThat(wire.sourceOutcomeId()).isEqualTo(sourceOutcomeId);
         assertThat(wire.linkedEventId()).isEqualTo(linkedEventId);
         assertThat(wire.linkedOutcomeId()).isEqualTo(linkedOutcomeId);
         assertThat(wire.chainLength()).isEqualTo(2);
@@ -163,10 +180,20 @@ class TimelineEventWireMapperTest {
         var gameId = UUID.randomUUID();
         var chainId = UUID.randomUUID();
         var playerId = UUID.randomUUID();
+        var sourceEventId = UUID.randomUUID();
+        var sourceOutcomeId = UUID.randomUUID();
         var referencedEventId = UUID.randomUUID();
         var referencedOutcomeId = UUID.randomUUID();
         var event = new ThreadRejectedEvent(
-                gameId, 2, chainId, playerId, referencedEventId, referencedOutcomeId, "OUTCOME_DID_NOT_RESOLVE");
+                gameId,
+                2,
+                chainId,
+                playerId,
+                sourceEventId,
+                sourceOutcomeId,
+                referencedEventId,
+                referencedOutcomeId,
+                "OUTCOME_DID_NOT_RESOLVE");
 
         var wire = mapper.toWire(event);
 
@@ -174,8 +201,107 @@ class TimelineEventWireMapperTest {
         assertThat(wire.eraNumber()).isEqualTo(2);
         assertThat(wire.chainId()).isEqualTo(chainId);
         assertThat(wire.playerId()).isEqualTo(playerId);
+        assertThat(wire.sourceEventId()).isEqualTo(sourceEventId);
+        assertThat(wire.sourceOutcomeId()).isEqualTo(sourceOutcomeId);
         assertThat(wire.referencedEventId()).isEqualTo(referencedEventId);
         assertThat(wire.referencedOutcomeId()).isEqualTo(referencedOutcomeId);
         assertThat(wire.reason()).isEqualTo("OUTCOME_DID_NOT_RESOLVE");
+    }
+
+    @Test
+    void toWire_specialRejected_mapsEveryField() {
+        var gameId = UUID.randomUUID();
+        var chainId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var event = new SpecialRejectedEvent(
+                gameId, 2, playerId, "TAPESTRY", chainId, targetEventId, targetOutcomeId, "CHAIN_TOO_SHORT");
+
+        var wire = mapper.toWire(event);
+
+        assertThat(wire.gameId()).isEqualTo(gameId);
+        assertThat(wire.eraNumber()).isEqualTo(2);
+        assertThat(wire.playerId()).isEqualTo(playerId);
+        assertThat(wire.specialAction().name()).isEqualTo("TAPESTRY");
+        assertThat(wire.chainId()).isEqualTo(chainId);
+        assertThat(wire.targetEventId()).isEqualTo(targetEventId);
+        assertThat(wire.targetOutcomeId()).isEqualTo(targetOutcomeId);
+        assertThat(wire.reason()).isEqualTo("CHAIN_TOO_SHORT");
+    }
+
+    @Test
+    void toWire_chainProtectionArmed_mapsEveryField() {
+        var gameId = UUID.randomUUID();
+        var chainId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var event = new ChainProtectionArmedEvent(gameId, 2, chainId, playerId);
+
+        var wire = mapper.toWire(event);
+
+        assertThat(wire.gameId()).isEqualTo(gameId);
+        assertThat(wire.eraNumber()).isEqualTo(2);
+        assertThat(wire.chainId()).isEqualTo(chainId);
+        assertThat(wire.playerId()).isEqualTo(playerId);
+    }
+
+    @Test
+    void toWire_chainProtectionConsumed_mapsEveryField() {
+        var gameId = UUID.randomUUID();
+        var chainId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var protectedEventId = UUID.randomUUID();
+        var protectedOutcomeId = UUID.randomUUID();
+        var event =
+                new ChainProtectionConsumedEvent(gameId, 2, chainId, playerId, protectedEventId, protectedOutcomeId);
+
+        var wire = mapper.toWire(event);
+
+        assertThat(wire.gameId()).isEqualTo(gameId);
+        assertThat(wire.eraNumber()).isEqualTo(2);
+        assertThat(wire.chainId()).isEqualTo(chainId);
+        assertThat(wire.playerId()).isEqualTo(playerId);
+        assertThat(wire.protectedEventId()).isEqualTo(protectedEventId);
+        assertThat(wire.protectedOutcomeId()).isEqualTo(protectedOutcomeId);
+    }
+
+    @Test
+    void toWire_chainReAnchored_mapsEveryField() {
+        var gameId = UUID.randomUUID();
+        var chainId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var discardedEventId = UUID.randomUUID();
+        var discardedOutcomeId = UUID.randomUUID();
+        var linkedEventId = UUID.randomUUID();
+        var linkedOutcomeId = UUID.randomUUID();
+        var event = new ChainReAnchoredEvent(
+                gameId, 2, chainId, playerId, discardedEventId, discardedOutcomeId, linkedEventId, linkedOutcomeId, 2);
+
+        var wire = mapper.toWire(event);
+
+        assertThat(wire.gameId()).isEqualTo(gameId);
+        assertThat(wire.eraNumber()).isEqualTo(2);
+        assertThat(wire.chainId()).isEqualTo(chainId);
+        assertThat(wire.playerId()).isEqualTo(playerId);
+        assertThat(wire.discardedEventId()).isEqualTo(discardedEventId);
+        assertThat(wire.discardedOutcomeId()).isEqualTo(discardedOutcomeId);
+        assertThat(wire.linkedEventId()).isEqualTo(linkedEventId);
+        assertThat(wire.linkedOutcomeId()).isEqualTo(linkedOutcomeId);
+        assertThat(wire.chainLength()).isEqualTo(2);
+    }
+
+    @Test
+    void toWire_cascadeCarriedForward_mapsEveryField() {
+        var gameId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var event = new CascadeCarriedForwardEvent(gameId, 3, targetEventId, targetOutcomeId);
+
+        var wire = mapper.toWire(event);
+
+        assertThat(wire.gameId()).isEqualTo(gameId);
+        assertThat(wire.eraNumber()).isEqualTo(3);
+        assertThat(wire.targetEventId()).isEqualTo(targetEventId);
+        assertThat(wire.targetOutcomeId()).isEqualTo(targetOutcomeId);
     }
 }

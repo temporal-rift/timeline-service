@@ -1,5 +1,6 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.in.kafka;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -9,13 +10,17 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -26,11 +31,21 @@ import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.Ca
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EventsDrawnFutureEvent;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EventsDrawnOutcome;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EventsDrawnPayload;
+import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
+import io.github.temporalrift.timeline.domain.event.CascadeCarriedForwardEvent;
+import io.github.temporalrift.timeline.domain.event.EraStateCleared;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
+import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
+import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
+import io.github.temporalrift.timeline.domain.futureevent.Outcome;
+import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
+import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort.CascadeCarryForward;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
+import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
+import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
 @ExtendWith(MockitoExtension.class)
 class EventsDrawnKafkaConsumerTest {
@@ -50,11 +65,35 @@ class EventsDrawnKafkaConsumerTest {
     @Mock
     FutureEventEraIndexPort eraIndex;
 
+    @Mock
+    CascadeCarryForwardPort cascadeCarryForward;
+
+    @Mock
+    TimelineEventPublisher publisher;
+
+    @Mock
+    WeaverChainSagaUseCase weaverChainSaga;
+
     @Spy
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
 
-    @InjectMocks
-    EventsDrawnKafkaConsumer consumer;
+    private final Clock clock = Clock.fixed(Instant.parse("2026-08-09T00:00:00Z"), ZoneOffset.UTC);
+
+    private EventsDrawnKafkaConsumer consumer;
+
+    @BeforeEach
+    void setUp() {
+        consumer = new EventsDrawnKafkaConsumer(
+                processedEvents,
+                futureEvents,
+                eraIndex,
+                cascadeCarryForward,
+                publisher,
+                weaverChainSaga,
+                objectMapper,
+                skipMetrics,
+                clock);
+    }
 
     @Test
     @DisplayName("matching event type — drafts one FutureEvent and one index row per drawn event")
@@ -98,7 +137,8 @@ class EventsDrawnKafkaConsumerTest {
     }
 
     @Test
-    @DisplayName("event already indexed for this era (STALL carry-over) — not re-drafted or re-indexed")
+    @DisplayName("event already indexed for this era (STALL carry-over) — not re-drafted or re-indexed, "
+            + "but its per-era state is cleared")
     void handle_eventAlreadyCarriedOverThisEra_skipsDraftingThatEvent() {
         var eventId = UUID.randomUUID();
         var gameId = UUID.randomUUID();
@@ -106,9 +146,13 @@ class EventsDrawnKafkaConsumerTest {
         var carriedOverEventId = UUID.randomUUID();
         var freshEventId = UUID.randomUUID();
         var stalledEventId = UUID.randomUUID();
+        var carriedOutcome = new Outcome(UUID.randomUUID(), "a", 100, true, false);
+        var carried = FutureEvent.replay(
+                carriedOverEventId, List.of(new FutureEventDrafted(carriedOverEventId, List.of(carriedOutcome))));
         given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
         given(eraIndex.findByGameIdAndEraNumber(gameId, eraNumber))
                 .willReturn(List.of(new IndexedEventId(carriedOverEventId, 0)));
+        given(futureEvents.findById(carriedOverEventId)).willReturn(carried);
         var payload = new EventsDrawnPayload(
                 gameId,
                 eraNumber,
@@ -131,12 +175,82 @@ class EventsDrawnKafkaConsumerTest {
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
 
-        then(futureEvents).should(never()).append(eq(carriedOverEventId), any());
+        then(futureEvents).should(never()).append(eq(carriedOverEventId), any(FutureEventDrafted.class));
+        then(futureEvents).should().append(eq(carriedOverEventId), any(EraStateCleared.class));
         then(eraIndex).should(never()).add(eq(carriedOverEventId), any(), anyInt(), anyInt());
         then(futureEvents).should().append(eq(freshEventId), any(FutureEventDrafted.class));
         then(eraIndex).should().add(freshEventId, gameId, eraNumber, 1);
         then(futureEvents).should().append(eq(stalledEventId), any(FutureEventDrafted.class));
         then(eraIndex).should().add(stalledEventId, gameId, eraNumber, 2);
+    }
+
+    @Test
+    @DisplayName("confirmed CASCADE pending for this era, whose target carried in — erases the outcome and "
+            + "publishes CascadeCarriedForward")
+    void handle_confirmedCascadePendingForCarriedEvent_erasesOutcomeAndPublishes() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        var eraNumber = 2;
+        var carriedOverEventId = UUID.randomUUID();
+        var erasedOutcomeId = UUID.randomUUID();
+        var player = UUID.randomUUID();
+        var carried = FutureEvent.replay(
+                carriedOverEventId,
+                List.of(new FutureEventDrafted(carriedOverEventId, List.of(new Outcome(erasedOutcomeId, "a", 100)))));
+        given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
+        given(eraIndex.findByGameIdAndEraNumber(gameId, eraNumber))
+                .willReturn(List.of(new IndexedEventId(carriedOverEventId, 0)));
+        given(futureEvents.findById(carriedOverEventId)).willReturn(carried);
+        given(cascadeCarryForward.findByGameAndEra(gameId, eraNumber))
+                .willReturn(List.of(new CascadeCarryForward(player, carriedOverEventId, erasedOutcomeId)));
+        var payload = new EventsDrawnPayload(
+                gameId,
+                eraNumber,
+                List.of(new EventsDrawnFutureEvent(
+                        carriedOverEventId,
+                        "carried",
+                        List.of(new EventsDrawnOutcome(erasedOutcomeId, "a", 100)),
+                        CarryOverState.CASCADED)));
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
+
+        assertThat(carried.outcomes())
+                .filteredOn(o -> o.outcomeId().equals(erasedOutcomeId))
+                .allSatisfy(o -> assertThat(o.annihilated()).isTrue());
+        then(cascadeCarryForward).should().delete(gameId, eraNumber, carriedOverEventId, erasedOutcomeId);
+        then(weaverChainSaga).should().annihilateOutcome(gameId, eraNumber, carriedOverEventId, erasedOutcomeId);
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should().publish(captor.capture());
+        assertThat(captor.getValue().payload()).isInstanceOf(CascadeCarriedForwardEvent.class);
+    }
+
+    @Test
+    @DisplayName("CASCADE pending for an event that did not carry into this era — rejected and reported")
+    void handle_cascadePendingForEventNotCarriedIn_rejectedAndReported() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        var eraNumber = 2;
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var player = UUID.randomUUID();
+        given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
+        given(eraIndex.findByGameIdAndEraNumber(gameId, eraNumber)).willReturn(List.of());
+        given(cascadeCarryForward.findByGameAndEra(gameId, eraNumber))
+                .willReturn(List.of(new CascadeCarryForward(player, targetEventId, targetOutcomeId)));
+        var payload = new EventsDrawnPayload(gameId, eraNumber, List.of());
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
+
+        then(cascadeCarryForward).should().delete(gameId, eraNumber, targetEventId, targetOutcomeId);
+        then(futureEvents).should(never()).findById(targetEventId);
+        then(weaverChainSaga).should(never()).annihilateOutcome(any(), anyInt(), any(), any());
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should().publish(captor.capture());
+        var rejected = (SpecialRejectedEvent) captor.getValue().payload();
+        assertThat(rejected.specialAction()).isEqualTo("CASCADE");
+        assertThat(rejected.targetEventId()).isEqualTo(targetEventId);
+        assertThat(rejected.targetOutcomeId()).isEqualTo(targetOutcomeId);
+        assertThat(rejected.reason()).isEqualTo("CARRY_FORWARD_EVENT_NOT_ACTIVE");
     }
 
     @Test

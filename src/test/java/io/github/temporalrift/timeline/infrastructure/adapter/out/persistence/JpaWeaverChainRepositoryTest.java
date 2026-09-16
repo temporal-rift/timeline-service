@@ -82,7 +82,8 @@ class JpaWeaverChainRepositoryTest {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
         chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
-        chains.append(chainId, new ChainLinkAdded(chainId, eventId, outcomeId, 1));
+        chains.append(
+                chainId, new ChainLinkAdded(chainId, eventId, outcomeId, 1, UUID.randomUUID(), UUID.randomUUID()));
 
         var chain = chains.findById(chainId);
 
@@ -101,14 +102,18 @@ class JpaWeaverChainRepositoryTest {
         var firstEvent = UUID.randomUUID();
         var firstOutcome = UUID.randomUUID();
         chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
-        chains.append(chainId, new ChainLinkAdded(chainId, firstEvent, firstOutcome, 1));
+        chains.append(
+                chainId,
+                new ChainLinkAdded(chainId, firstEvent, firstOutcome, 1, UUID.randomUUID(), UUID.randomUUID()));
         var covered = chains.findById(chainId);
         snapshots.save(new AggregateSnapshot(
                 chainId, "WeaverChain", objectMapper.writeValueAsString(covered.snapshot()), 2, clock.instant()));
 
         var secondEvent = UUID.randomUUID();
         var secondOutcome = UUID.randomUUID();
-        chains.append(chainId, new ChainLinkAdded(chainId, secondEvent, secondOutcome, 2));
+        chains.append(
+                chainId,
+                new ChainLinkAdded(chainId, secondEvent, secondOutcome, 2, UUID.randomUUID(), UUID.randomUUID()));
 
         var chain = chains.findById(chainId);
 
@@ -147,12 +152,12 @@ class JpaWeaverChainRepositoryTest {
             var outcomeId = UUID.randomUUID();
             resolved.add(new ResolvedOutcome(eventId, outcomeId));
             if (era < 3) {
-                for (var fact : live.addLink(eventId, outcomeId, era, resolved)) {
+                for (var fact : live.addLink(eventId, outcomeId, era, resolved, UUID.randomUUID(), UUID.randomUUID())) {
                     chains.append(chainId, fact);
                 }
                 live = chains.findById(chainId);
             } else {
-                facts.addAll(live.addLink(eventId, outcomeId, era, resolved));
+                facts.addAll(live.addLink(eventId, outcomeId, era, resolved, UUID.randomUUID(), UUID.randomUUID()));
             }
         }
 

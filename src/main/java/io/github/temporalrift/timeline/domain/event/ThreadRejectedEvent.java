@@ -11,6 +11,8 @@ public record ThreadRejectedEvent(
         int eraNumber,
         UUID chainId,
         UUID playerId,
+        UUID sourceEventId,
+        UUID sourceOutcomeId,
         UUID referencedEventId,
         UUID referencedOutcomeId,
         String reason) {}

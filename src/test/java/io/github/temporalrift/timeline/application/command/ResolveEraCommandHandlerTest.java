@@ -32,11 +32,14 @@ import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
+import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
+import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
+import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort.CascadeCarryForward;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -62,6 +65,9 @@ class ResolveEraCommandHandlerTest {
     FutureEventRepository futureEvents;
 
     @Mock
+    CascadeCarryForwardPort cascadeCarryForward;
+
+    @Mock
     TimelineEventPublisher publisher;
 
     @Mock
@@ -80,7 +86,14 @@ class ResolveEraCommandHandlerTest {
     @BeforeEach
     void setUp() {
         handler = new ResolveEraCommandHandler(
-                eraIndex, futureEvents, publisher, openParadoxResolutionPhase, chainSagas, chains, clock);
+                eraIndex,
+                futureEvents,
+                cascadeCarryForward,
+                publisher,
+                openParadoxResolutionPhase,
+                chainSagas,
+                chains,
+                clock);
         given(chainSagas.findOpenByGame(any())).willReturn(List.of());
     }
 
@@ -125,6 +138,55 @@ class ResolveEraCommandHandlerTest {
                                 eventId1, 1, TerminalResolution.TerminalState.OUTCOME_APPLIED, outcomeId1),
                         new TerminalResolution(
                                 eventId2, 2, TerminalResolution.TerminalState.OUTCOME_APPLIED, outcomeId2));
+    }
+
+    @Test
+    void resolve_cascadeArmedAgainstErasedOutcome_confirmedIntoNextEra() {
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var otherOutcomeId = UUID.randomUUID();
+        var player = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId, List.of(new Outcome(outcomeId, "erased", 50), new Outcome(otherOutcomeId, "d", 50)))));
+        futureEvent.annihilateOutcome(outcomeId);
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).willReturn(List.of());
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(cascadeCarryForward.findByGameAndEra(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new CascadeCarryForward(player, eventId, outcomeId)));
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        then(cascadeCarryForward).should().confirm(GAME_ID, ERA_NUMBER, eventId, outcomeId, ERA_NUMBER + 1);
+        then(cascadeCarryForward).should(never()).delete(any(), anyInt(), any(), any());
+        then(publisher).should(never()).publish(any());
+    }
+
+    @Test
+    void resolve_cascadeArmedAgainstUnerasedOutcome_rejectedAndReported() {
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var player = UUID.randomUUID();
+        var futureEvent = draftedFutureEvent(eventId, outcomeId);
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).willReturn(List.of());
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(cascadeCarryForward.findByGameAndEra(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new CascadeCarryForward(player, eventId, outcomeId)));
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        then(cascadeCarryForward).should().delete(GAME_ID, ERA_NUMBER, eventId, outcomeId);
+        then(cascadeCarryForward).should(never()).confirm(any(), anyInt(), any(), any(), anyInt());
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should().publish(captor.capture());
+        var rejected = (SpecialRejectedEvent) captor.getValue().payload();
+        assertThat(rejected.specialAction()).isEqualTo("CASCADE");
+        assertThat(rejected.targetEventId()).isEqualTo(eventId);
+        assertThat(rejected.targetOutcomeId()).isEqualTo(outcomeId);
+        assertThat(rejected.reason()).isEqualTo("TARGET_NOT_ERASED");
     }
 
     @Test
@@ -575,7 +637,8 @@ class ResolveEraCommandHandlerTest {
                 chainId,
                 List.of(
                         new WeaverChainStarted(chainId, UUID.randomUUID(), GAME_ID),
-                        new ChainLinkAdded(chainId, eventId, outcomeId, ERA_NUMBER)));
+                        new ChainLinkAdded(
+                                chainId, eventId, outcomeId, ERA_NUMBER, UUID.randomUUID(), UUID.randomUUID())));
     }
 
     /**
