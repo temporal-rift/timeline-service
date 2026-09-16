@@ -7,6 +7,8 @@ public record ChainLinkAddedEvent(
         UUID gameId,
         UUID chainId,
         UUID playerId,
+        UUID sourceEventId,
+        UUID sourceOutcomeId,
         UUID linkedEventId,
         UUID linkedOutcomeId,
         int chainLength,

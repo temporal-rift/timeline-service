@@ -7,7 +7,7 @@ import java.util.UUID;
  * links and terminal facts without ever routing an opening fact into the applier.
  */
 public sealed interface ChainFact extends WeaverChainEvent
-        permits ChainLinkAdded, ChainCompleted, ChainBroken, ChainLinkInvalidated {
+        permits ChainLinkAdded, ChainCompleted, ChainBroken, ChainLinkInvalidated, ChainReAnchored {
 
     /** The chain this fact belongs to, checked against the stream owner on every replayed fact. */
     UUID chainId();

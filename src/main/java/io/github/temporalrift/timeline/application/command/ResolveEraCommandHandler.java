@@ -14,9 +14,12 @@ import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
+import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
+import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxDetector;
+import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -47,6 +50,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
 
     private final FutureEventEraIndexPort eraIndex;
     private final FutureEventRepository futureEvents;
+    private final CascadeCarryForwardPort cascadeCarryForward;
     private final TimelineEventPublisher publisher;
     private final OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase;
     private final WeaverChainSagaRepository chainSagas;
@@ -56,6 +60,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     ResolveEraCommandHandler(
             FutureEventEraIndexPort eraIndex,
             FutureEventRepository futureEvents,
+            CascadeCarryForwardPort cascadeCarryForward,
             TimelineEventPublisher publisher,
             OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase,
             WeaverChainSagaRepository chainSagas,
@@ -63,6 +68,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             Clock clock) {
         this.eraIndex = eraIndex;
         this.futureEvents = futureEvents;
+        this.cascadeCarryForward = cascadeCarryForward;
         this.publisher = publisher;
         this.openParadoxResolutionPhase = openParadoxResolutionPhase;
         this.chainSagas = chainSagas;
@@ -91,7 +97,49 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                 resolveEvent(gameId, eraNumber, indexedEventId, futureEvent, activeChains, accumulator);
             }
         }
+        confirmCascades(gameId, eraNumber);
         publishResolution(gameId, eraNumber, accumulator);
+    }
+
+    /**
+     * Confirms each CASCADE armed this era against final erasure state (eraser-cascade-erasure capability):
+     * an annihilated named outcome becomes a pending carry-forward for the next era; one that never erased is
+     * rejected and reported. Erasure state is already final here regardless of any paradox this era still has
+     * pending — ANNIHILATE is applied during round replay, before this method ever runs, and a paradox
+     * resolution submission never un-annihilates an outcome.
+     */
+    private void confirmCascades(UUID gameId, int eraNumber) {
+        for (var armed : cascadeCarryForward.findByGameAndEra(gameId, eraNumber)) {
+            if (isErased(armed.eventId(), armed.outcomeId())) {
+                cascadeCarryForward.confirm(gameId, eraNumber, armed.eventId(), armed.outcomeId(), eraNumber + 1);
+            } else {
+                cascadeCarryForward.delete(gameId, eraNumber, armed.eventId(), armed.outcomeId());
+                publisher.publish(TimelineEventEnvelope.create(
+                        armed.eventId(),
+                        FUTURE_EVENT_AGGREGATE_TYPE,
+                        gameId,
+                        TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                        new SpecialRejectedEvent(
+                                gameId,
+                                eraNumber,
+                                armed.playerId(),
+                                "CASCADE",
+                                null,
+                                armed.eventId(),
+                                armed.outcomeId(),
+                                "TARGET_NOT_ERASED"),
+                        clock));
+            }
+        }
+    }
+
+    private boolean isErased(UUID eventId, UUID outcomeId) {
+        try {
+            return futureEvents.findById(eventId).outcomes().stream()
+                    .anyMatch(o -> o.outcomeId().equals(outcomeId) && o.annihilated());
+        } catch (FutureEventNotFoundException _) {
+            return false;
+        }
     }
 
     private List<WeaverChain> loadActiveChains(UUID gameId) {

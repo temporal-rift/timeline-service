@@ -27,8 +27,14 @@ class WeaverChainInvalidationTest {
                 CHAIN_ID,
                 List.of(
                         new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
-                        new ChainLinkAdded(CHAIN_ID, eventId, outcomeId, 1),
-                        new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2)));
+                        new ChainLinkAdded(CHAIN_ID, eventId, outcomeId, 1, UUID.randomUUID(), UUID.randomUUID()),
+                        new ChainLinkAdded(
+                                CHAIN_ID,
+                                UUID.randomUUID(),
+                                UUID.randomUUID(),
+                                2,
+                                UUID.randomUUID(),
+                                UUID.randomUUID())));
 
         var invalidated = chain.invalidateLink(eventId, outcomeId);
 
@@ -43,7 +49,13 @@ class WeaverChainInvalidationTest {
                 CHAIN_ID,
                 List.of(
                         new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
-                        new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1)));
+                        new ChainLinkAdded(
+                                CHAIN_ID,
+                                UUID.randomUUID(),
+                                UUID.randomUUID(),
+                                1,
+                                UUID.randomUUID(),
+                                UUID.randomUUID())));
 
         var invalidated = chain.invalidateLink(UUID.randomUUID(), UUID.randomUUID());
 
@@ -57,9 +69,27 @@ class WeaverChainInvalidationTest {
                 CHAIN_ID,
                 List.of(
                         new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
-                        new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1),
-                        new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2),
-                        new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 3)));
+                        new ChainLinkAdded(
+                                CHAIN_ID,
+                                UUID.randomUUID(),
+                                UUID.randomUUID(),
+                                1,
+                                UUID.randomUUID(),
+                                UUID.randomUUID()),
+                        new ChainLinkAdded(
+                                CHAIN_ID,
+                                UUID.randomUUID(),
+                                UUID.randomUUID(),
+                                2,
+                                UUID.randomUUID(),
+                                UUID.randomUUID()),
+                        new ChainLinkAdded(
+                                CHAIN_ID,
+                                UUID.randomUUID(),
+                                UUID.randomUUID(),
+                                3,
+                                UUID.randomUUID(),
+                                UUID.randomUUID())));
         var linked = chain.links().get(0);
 
         assertThat(chain.invalidateLink(linked.eventId(), linked.outcomeId())).isEmpty();
@@ -71,8 +101,9 @@ class WeaverChainInvalidationTest {
         var outcomeId = UUID.randomUUID();
         var history = List.of(
                 new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
-                new ChainLinkAdded(CHAIN_ID, eventId, outcomeId, 1),
-                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2),
+                new ChainLinkAdded(CHAIN_ID, eventId, outcomeId, 1, UUID.randomUUID(), UUID.randomUUID()),
+                new ChainLinkAdded(
+                        CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2, UUID.randomUUID(), UUID.randomUUID()),
                 new ChainLinkInvalidated(CHAIN_ID, eventId, outcomeId));
 
         var chain = WeaverChain.replay(CHAIN_ID, history);
@@ -85,7 +116,8 @@ class WeaverChainInvalidationTest {
     void replay_invalidationOfUnknownLink_throwsIllegalState() {
         var history = List.of(
                 new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
-                new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1),
+                new ChainLinkAdded(
+                        CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 1, UUID.randomUUID(), UUID.randomUUID()),
                 new ChainLinkInvalidated(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID()));
 
         assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
@@ -101,15 +133,23 @@ class WeaverChainInvalidationTest {
                 CHAIN_ID,
                 List.of(
                         new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
-                        new ChainLinkAdded(CHAIN_ID, eventId, outcomeId, 1),
-                        new ChainLinkAdded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2)));
+                        new ChainLinkAdded(CHAIN_ID, eventId, outcomeId, 1, UUID.randomUUID(), UUID.randomUUID()),
+                        new ChainLinkAdded(
+                                CHAIN_ID,
+                                UUID.randomUUID(),
+                                UUID.randomUUID(),
+                                2,
+                                UUID.randomUUID(),
+                                UUID.randomUUID())));
         chain.invalidateLink(eventId, outcomeId);
 
         var facts = chain.addLink(
                 replacementEvent,
                 replacementOutcome,
                 3,
-                Set.of(new ResolvedOutcome(replacementEvent, replacementOutcome)));
+                Set.of(new ResolvedOutcome(replacementEvent, replacementOutcome)),
+                UUID.randomUUID(),
+                UUID.randomUUID());
 
         assertThat(facts).hasSize(1);
         assertThat(chain.length()).isEqualTo(2);

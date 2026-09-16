@@ -26,6 +26,9 @@ public interface ProbabilityRulesPort {
     /** One-time percentage-point bonus a Momentum declaration applies to its declared outcome. */
     int momentumBonus();
 
+    /** Percentage-point shift an accepted THREAD applies to its current-era source outcome. */
+    int threadShift();
+
     /** Multiplier Rally applies to a Round 1 direct transfer's magnitude toward its declared outcome. */
     double rallyMultiplier();
 }

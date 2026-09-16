@@ -12,6 +12,7 @@ import io.github.temporalrift.timeline.domain.event.ChainCompleted;
 import io.github.temporalrift.timeline.domain.event.ChainFact;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
 import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidated;
+import io.github.temporalrift.timeline.domain.event.ChainReAnchored;
 import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 
@@ -114,6 +115,12 @@ public final class WeaverChain {
                                 && link.outcomeId().equals(invalidated.outcomeId()))) {
             throw new IllegalStateException("Invalidated link was never appended for " + invalidated.eventId());
         }
+        if (event instanceof ChainReAnchored reAnchored
+                && links.stream()
+                        .noneMatch(link -> link.eventId().equals(reAnchored.discardedEventId())
+                                && link.outcomeId().equals(reAnchored.discardedOutcomeId()))) {
+            throw new IllegalStateException("Re-anchored link was never appended for " + reAnchored.discardedEventId());
+        }
         if (event instanceof ChainCompleted && links.size() != COMPLETION_LENGTH) {
             throw new IllegalStateException("ChainCompleted requires " + COMPLETION_LENGTH + " links");
         }
@@ -123,7 +130,8 @@ public final class WeaverChain {
     private void apply(ChainFact event) {
         switch (event) {
             case ChainLinkAdded e -> {
-                links.add(new ChainLink(e.eventId(), e.outcomeId(), e.eraNumber()));
+                links.add(new ChainLink(
+                        e.eventId(), e.outcomeId(), e.eraNumber(), e.sourceEventId(), e.sourceOutcomeId()));
                 if (links.size() >= COMPLETION_LENGTH) {
                     status = ChainStatus.COMPLETED;
                 }
@@ -133,18 +141,32 @@ public final class WeaverChain {
                         link.eventId().equals(e.eventId()) && link.outcomeId().equals(e.outcomeId()));
             case ChainCompleted _ -> status = ChainStatus.COMPLETED;
             case ChainBroken _ -> status = ChainStatus.BROKEN;
+            case ChainReAnchored e -> {
+                links.removeIf(link -> link.eventId().equals(e.discardedEventId())
+                        && link.outcomeId().equals(e.discardedOutcomeId()));
+                links.add(new ChainLink(
+                        e.eventId(), e.outcomeId(), e.eraNumber(), e.sourceEventId(), e.sourceOutcomeId()));
+            }
         }
     }
 
     /**
-     * Appends one validated causal link. Returns the stream facts to append in order — one {@link ChainLinkAdded},
-     * plus a {@link ChainCompleted} when the third link lands.
+     * Appends one validated causal link, anchored from a current-era {@code (sourceEventId, sourceOutcomeId)}.
+     * Returns the stream facts to append in order — one {@link ChainLinkAdded}, plus a {@link ChainCompleted}
+     * when the third link lands.
      */
     public List<WeaverChainEvent> addLink(
-            UUID eventId, UUID outcomeId, int eraNumber, Set<ResolvedOutcome> resolvedOutcomes) {
+            UUID eventId,
+            UUID outcomeId,
+            int eraNumber,
+            Set<ResolvedOutcome> resolvedOutcomes,
+            UUID sourceEventId,
+            UUID sourceOutcomeId) {
         Objects.requireNonNull(eventId, "eventId");
         Objects.requireNonNull(outcomeId, "outcomeId");
         Objects.requireNonNull(resolvedOutcomes, "resolvedOutcomes");
+        Objects.requireNonNull(sourceEventId, "sourceEventId");
+        Objects.requireNonNull(sourceOutcomeId, "sourceOutcomeId");
         if (status == ChainStatus.COMPLETED) {
             throw new WeaverChainCompletedException(chainId);
         }
@@ -160,13 +182,55 @@ public final class WeaverChain {
         if (links.stream().anyMatch(link -> link.eventId().equals(eventId))) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "event already linked");
         }
-        var linkAdded = new ChainLinkAdded(chainId, eventId, outcomeId, eraNumber);
-        links.add(new ChainLink(eventId, outcomeId, eraNumber));
+        var linkAdded = new ChainLinkAdded(chainId, eventId, outcomeId, eraNumber, sourceEventId, sourceOutcomeId);
+        links.add(new ChainLink(eventId, outcomeId, eraNumber, sourceEventId, sourceOutcomeId));
         if (links.size() == COMPLETION_LENGTH) {
             status = ChainStatus.COMPLETED;
             return List.of(linkAdded, new ChainCompleted(chainId));
         }
         return List.of(linkAdded);
+    }
+
+    /**
+     * Discards this chain's newest link and replaces it with a different resolved past outcome in one
+     * indivisible step ({@code REWEAVE}). Length and earlier links are unchanged; the replacement link
+     * retains the discarded link's current-era anchor source.
+     */
+    public ChainReAnchored reAnchor(
+            UUID eventId, UUID outcomeId, int eraNumber, Set<ResolvedOutcome> resolvedOutcomes) {
+        Objects.requireNonNull(eventId, "eventId");
+        Objects.requireNonNull(outcomeId, "outcomeId");
+        Objects.requireNonNull(resolvedOutcomes, "resolvedOutcomes");
+        if (links.isEmpty()) {
+            throw new InvalidChainLinkException(chainId, eventId, outcomeId, "chain has no links to re-anchor");
+        }
+        if (status == ChainStatus.COMPLETED) {
+            throw new WeaverChainCompletedException(chainId);
+        }
+        if (status == ChainStatus.BROKEN) {
+            throw new WeaverChainBrokenException(chainId);
+        }
+        if (!resolvedOutcomes.contains(new ResolvedOutcome(eventId, outcomeId))) {
+            throw new InvalidChainLinkException(chainId, eventId, outcomeId, "outcome did not resolve");
+        }
+        if (links.stream()
+                .anyMatch(link ->
+                        link.eventId().equals(eventId) && link.outcomeId().equals(outcomeId))) {
+            throw new InvalidChainLinkException(chainId, eventId, outcomeId, "outcome already linked");
+        }
+        var discarded = links.getLast();
+        var reAnchored = new ChainReAnchored(
+                chainId,
+                discarded.eventId(),
+                discarded.outcomeId(),
+                eventId,
+                outcomeId,
+                eraNumber,
+                discarded.sourceEventId(),
+                discarded.sourceOutcomeId());
+        links.removeLast();
+        links.add(new ChainLink(eventId, outcomeId, eraNumber, discarded.sourceEventId(), discarded.sourceOutcomeId()));
+        return reAnchored;
     }
 
     /** Marks this chain broken, preserving its links. */

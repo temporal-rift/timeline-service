@@ -25,9 +25,12 @@ class ChainsController implements ChainsApi {
     public ResponseEntity<ChainResponse> getChain(UUID gameId) {
         var result = getChainUseCase.get(gameId, CurrentPlayer.id());
         var links = result.links().stream()
-                .map(link -> new ChainLink(link.eventId(), link.outcomeId(), link.eraNumber()))
+                .map(link -> new ChainLink(link.eventId(), link.outcomeId(), link.eraNumber())
+                        .sourceEventId(link.sourceEventId())
+                        .sourceOutcomeId(link.sourceOutcomeId()))
                 .toList();
         return ResponseEntity.ok(new ChainResponse(
-                result.chainId(), ChainStatus.valueOf(result.status().name()), result.chainLength(), links));
+                        result.chainId(), ChainStatus.valueOf(result.status().name()), result.chainLength(), links)
+                .protectionArmed(result.protectionArmed()));
     }
 }

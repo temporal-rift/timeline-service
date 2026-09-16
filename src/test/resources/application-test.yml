@@ -27,6 +27,7 @@ game:
       ceiling: 90
       momentum-bonus: 10
       rally-multiplier: 1.5
+      thread-shift: 10
       band-low-max: 30
       band-medium-max: 60
 

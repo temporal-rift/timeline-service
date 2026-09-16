@@ -82,7 +82,8 @@ class JpaWeaverChainRepositorySnapshotTest {
 
         snapshotting.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
         assertThat(snapshots.saved).isEmpty();
-        snapshotting.append(chainId, new ChainLinkAdded(chainId, eventId, outcomeId, 1));
+        snapshotting.append(
+                chainId, new ChainLinkAdded(chainId, eventId, outcomeId, 1, UUID.randomUUID(), UUID.randomUUID()));
 
         assertThat(snapshots.saved).containsKey(chainId);
         var saved = snapshots.saved.get(chainId);
@@ -95,7 +96,9 @@ class JpaWeaverChainRepositorySnapshotTest {
         var chainId = UUID.randomUUID();
         var eventId = UUID.randomUUID();
         chains.append(chainId, new WeaverChainStarted(chainId, UUID.randomUUID(), UUID.randomUUID()));
-        chains.append(chainId, new ChainLinkAdded(chainId, eventId, UUID.randomUUID(), 1));
+        chains.append(
+                chainId,
+                new ChainLinkAdded(chainId, eventId, UUID.randomUUID(), 1, UUID.randomUUID(), UUID.randomUUID()));
         return chainId;
     }
 

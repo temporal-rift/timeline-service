@@ -19,5 +19,5 @@ public interface GetChainUseCase {
      */
     Result get(UUID gameId, UUID playerId);
 
-    record Result(UUID chainId, ChainStatus status, int chainLength, List<ChainLink> links) {}
+    record Result(UUID chainId, ChainStatus status, int chainLength, List<ChainLink> links, boolean protectionArmed) {}
 }

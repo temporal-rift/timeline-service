@@ -247,7 +247,7 @@ class ParadoxDetectorTest {
                 chainId,
                 List.of(
                         new WeaverChainStarted(chainId, UUID.randomUUID(), UUID.randomUUID()),
-                        new ChainLinkAdded(chainId, eventId, outcomeId, 1)));
+                        new ChainLinkAdded(chainId, eventId, outcomeId, 1, UUID.randomUUID(), UUID.randomUUID())));
     }
 
     private static WeaverChain brokenChainLinking(UUID eventId, UUID outcomeId) {
@@ -256,7 +256,7 @@ class ParadoxDetectorTest {
                 chainId,
                 List.of(
                         new WeaverChainStarted(chainId, UUID.randomUUID(), UUID.randomUUID()),
-                        new ChainLinkAdded(chainId, eventId, outcomeId, 1),
+                        new ChainLinkAdded(chainId, eventId, outcomeId, 1, UUID.randomUUID(), UUID.randomUUID()),
                         new ChainBroken(chainId, "UNRAVEL")));
     }
 

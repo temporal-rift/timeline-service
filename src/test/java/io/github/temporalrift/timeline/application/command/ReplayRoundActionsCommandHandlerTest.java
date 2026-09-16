@@ -34,6 +34,7 @@ import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityBand;
+import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -68,6 +69,9 @@ class ReplayRoundActionsCommandHandlerTest {
     ScanEntitlementPort scanEntitlements;
 
     @Mock
+    CascadeCarryForwardPort cascadeCarryForward;
+
+    @Mock
     ProbabilityRulesPort rules;
 
     @Mock
@@ -86,7 +90,16 @@ class ReplayRoundActionsCommandHandlerTest {
     @BeforeEach
     void setUp() {
         handler = new ReplayRoundActionsCommandHandler(
-                buffer, futureEvents, eraIndex, scanEntitlements, rules, bandRules, publisher, weaverChainSaga, clock);
+                buffer,
+                futureEvents,
+                eraIndex,
+                scanEntitlements,
+                cascadeCarryForward,
+                rules,
+                bandRules,
+                publisher,
+                weaverChainSaga,
+                clock);
     }
 
     @Test
@@ -929,6 +942,37 @@ class ReplayRoundActionsCommandHandlerTest {
 
         then(futureEvents).should(never()).findById(eventId);
         then(weaverChainSaga).should(never()).annihilateOutcome(any(), anyInt(), any(), any());
+    }
+
+    @Test
+    void replay_cascade_armsCarryForwardWithoutImmediatelyErasingTheOutcome() {
+        var eventId = UUID.randomUUID();
+        var target = UUID.randomUUID();
+        var player = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialActionBy(player, "CASCADE", eventId, target, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(cascadeCarryForward).should().arm(GAME_ID, ERA_NUMBER, player, eventId, target);
+        then(futureEvents).should(never()).findById(eventId);
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_nullifiedCascade_neverArmsCarryForward() {
+        var eventId = UUID.randomUUID();
+        var target = UUID.randomUUID();
+        var cascadingPlayer = UUID.randomUUID();
+        var nullifyingPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialActionBy(cascadingPlayer, "CASCADE", eventId, target, at(1)),
+                        playerTargetedCard(nullifyingPlayer, "NULLIFY", cascadingPlayer, null, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(cascadeCarryForward).should(never()).arm(any(), anyInt(), any(), any(), any());
     }
 
     @Test

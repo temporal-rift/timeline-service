@@ -44,4 +44,7 @@
     <!-- Durable per-(game, era, player, event) SCAN reveal entitlements -->
     <include file="db/changelog/scanentitlement/001-create-scan-entitlement.xml"/>
 
+    <!-- Durable per-(game, era, event, outcome) CASCADE carry-forward rows -->
+    <include file="db/changelog/cascadecarryforward/001-create-cascade-carry-forward.xml"/>
+
 </databaseChangeLog>

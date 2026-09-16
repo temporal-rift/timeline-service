@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Durable per-(game, era, event, outcome) CASCADE carry-forward row. era_number starts as the era an
+      intent survived NULLIFY cancellation in; era resolution moves it to era_number + 1 once confirmed
+      erased, or deletes it if never erased. The next era's draw applies and deletes the row.
+  -->
+  <changeSet id="001-create-cascade-carry-forward" author="timeline-service">
+    <createTable tableName="cascade_carry_forward">
+      <column name="id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="game_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="era_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="player_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="event_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="outcome_id" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+
+    <createIndex tableName="cascade_carry_forward" indexName="ux_cascade_carry_forward_game_era_event_outcome"
+                 unique="true">
+      <column name="game_id"/>
+      <column name="era_number"/>
+      <column name="event_id"/>
+      <column name="outcome_id"/>
+    </createIndex>
+
+    <createIndex tableName="cascade_carry_forward" indexName="ix_cascade_carry_forward_game_era">
+      <column name="game_id"/>
+      <column name="era_number"/>
+    </createIndex>
+  </changeSet>
+
+</databaseChangeLog>

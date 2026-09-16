@@ -23,6 +23,7 @@ import io.github.temporalrift.timeline.domain.membership.GameMembership;
 import io.github.temporalrift.timeline.domain.membership.MemberFaction;
 import io.github.temporalrift.timeline.domain.membership.NotGameParticipantException;
 import io.github.temporalrift.timeline.domain.membership.NotWeaverException;
+import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.GameMembershipPort;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
@@ -44,6 +45,9 @@ class GetChainQueryHandlerTest {
     @Mock
     WeaverChainRepository chains;
 
+    @Mock
+    EraPlayersPort eraPlayers;
+
     @InjectMocks
     GetChainQueryHandler handler;
 
@@ -55,6 +59,8 @@ class GetChainQueryHandlerTest {
         var chainId = UUID.randomUUID();
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
+        var sourceEventId = UUID.randomUUID();
+        var sourceOutcomeId = UUID.randomUUID();
         givenMembership(gameId, playerId, MemberFaction.WEAVERS);
         given(sagas.findAllByGameAndPlayer(gameId, playerId)).willReturn(List.of(openSaga(chainId, gameId, playerId)));
         given(chains.findById(chainId))
@@ -62,7 +68,7 @@ class GetChainQueryHandlerTest {
                         chainId,
                         List.of(
                                 new WeaverChainStarted(chainId, playerId, gameId),
-                                new ChainLinkAdded(chainId, eventId, outcomeId, 1))));
+                                new ChainLinkAdded(chainId, eventId, outcomeId, 1, sourceEventId, sourceOutcomeId))));
 
         GetChainUseCase.Result result = handler.get(gameId, playerId);
 
@@ -72,6 +78,59 @@ class GetChainQueryHandlerTest {
         assertThat(result.links().getFirst().eventId()).isEqualTo(eventId);
         assertThat(result.links().getFirst().outcomeId()).isEqualTo(outcomeId);
         assertThat(result.links().getFirst().eraNumber()).isEqualTo(1);
+        assertThat(result.links().getFirst().sourceEventId()).isEqualTo(sourceEventId);
+        assertThat(result.links().getFirst().sourceOutcomeId()).isEqualTo(sourceOutcomeId);
+    }
+
+    @Test
+    @DisplayName("protection armed for the current era — reported as armed")
+    void get_protectionArmedForCurrentEra_reportsArmed() {
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var chainId = UUID.randomUUID();
+        givenMembership(gameId, playerId, MemberFaction.WEAVERS);
+        given(sagas.findAllByGameAndPlayer(gameId, playerId))
+                .willReturn(List.of(
+                        new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 2)));
+        given(chains.findById(chainId))
+                .willReturn(WeaverChain.replay(chainId, List.of(new WeaverChainStarted(chainId, playerId, gameId))));
+        given(eraPlayers.findLatestEraNumber(gameId)).willReturn(Optional.of(2));
+
+        assertThat(handler.get(gameId, playerId).protectionArmed()).isTrue();
+    }
+
+    @Test
+    @DisplayName("protection armed for a since-passed era — reported as not armed")
+    void get_protectionArmedForAPastEra_reportsNotArmed() {
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var chainId = UUID.randomUUID();
+        givenMembership(gameId, playerId, MemberFaction.WEAVERS);
+        given(sagas.findAllByGameAndPlayer(gameId, playerId))
+                .willReturn(List.of(
+                        new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 1)));
+        given(chains.findById(chainId))
+                .willReturn(WeaverChain.replay(chainId, List.of(new WeaverChainStarted(chainId, playerId, gameId))));
+        given(eraPlayers.findLatestEraNumber(gameId)).willReturn(Optional.of(2));
+
+        assertThat(handler.get(gameId, playerId).protectionArmed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("no era started yet for this game — reported as not armed")
+    void get_noEraStartedYet_reportsNotArmed() {
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var chainId = UUID.randomUUID();
+        givenMembership(gameId, playerId, MemberFaction.WEAVERS);
+        given(sagas.findAllByGameAndPlayer(gameId, playerId))
+                .willReturn(List.of(
+                        new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 1)));
+        given(chains.findById(chainId))
+                .willReturn(WeaverChain.replay(chainId, List.of(new WeaverChainStarted(chainId, playerId, gameId))));
+        given(eraPlayers.findLatestEraNumber(gameId)).willReturn(Optional.empty());
+
+        assertThat(handler.get(gameId, playerId).protectionArmed()).isFalse();
     }
 
     @Test

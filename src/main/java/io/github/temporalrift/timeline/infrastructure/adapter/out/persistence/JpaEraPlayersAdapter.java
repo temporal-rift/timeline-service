@@ -33,4 +33,9 @@ class JpaEraPlayersAdapter implements EraPlayersPort {
                 .findByGameIdAndEraNumber(gameId, eraNumber)
                 .map(entity -> List.of(objectMapper.readValue(entity.getPlayerIds(), UUID[].class)));
     }
+
+    @Override
+    public Optional<Integer> findLatestEraNumber(UUID gameId) {
+        return jpaRepository.findFirstByGameIdOrderByEraNumberDesc(gameId).map(EraPlayersEntity::getEraNumber);
+    }
 }

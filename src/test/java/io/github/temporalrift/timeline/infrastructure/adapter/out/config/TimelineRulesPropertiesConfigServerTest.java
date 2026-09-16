@@ -95,7 +95,8 @@ class TimelineRulesPropertiesConfigServerTest {
                 "--game.rules.probability.floor=0",
                 "--game.rules.probability.ceiling=90",
                 "--game.rules.probability.momentum-bonus=10",
-                "--game.rules.probability.rally-multiplier=1.5"));
+                "--game.rules.probability.rally-multiplier=1.5",
+                "--game.rules.probability.thread-shift=10"));
         for (var override : localOverrides) {
             args.add("--" + override);
         }

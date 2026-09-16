@@ -5,6 +5,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Repository;
 import tools.jackson.databind.ObjectMapper;
 
+import io.github.temporalrift.timeline.domain.event.EraStateCleared;
 import io.github.temporalrift.timeline.domain.event.EventStalled;
 import io.github.temporalrift.timeline.domain.event.EventUnstalled;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
@@ -56,6 +57,7 @@ class JpaFutureEventRepository implements FutureEventRepository {
             case "OutcomeSealed" -> objectMapper.readValue(stored.payload(), OutcomeSealed.class);
             case "OutcomeAnnihilated" -> objectMapper.readValue(stored.payload(), OutcomeAnnihilated.class);
             case "SealBreachRecorded" -> objectMapper.readValue(stored.payload(), SealBreachRecorded.class);
+            case "EraStateCleared" -> objectMapper.readValue(stored.payload(), EraStateCleared.class);
             default -> throw new IllegalStateException("Unknown FutureEvent event type: " + stored.eventType());
         };
     }

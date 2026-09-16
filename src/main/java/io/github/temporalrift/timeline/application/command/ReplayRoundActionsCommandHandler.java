@@ -34,6 +34,7 @@ import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundExc
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityBand;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
+import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityBandRulesPort;
@@ -47,7 +48,7 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
 /**
  * Replays one round's buffered actions in strict priority-tier order: {@code NULLIFY -> SEAL -> ANNIHILATE ->
- * CORRUPT -> MIMIC -> AMPLIFY ->
+ * CASCADE -> CORRUPT -> MIMIC -> AMPLIFY ->
  * remaining cards by submission timestamp}, all in one in-process pass. Folds in what
  * {@code ApplyProbabilityShiftUseCase},
  * {@code PlayCardModifierUseCase}, {@code PlaySpecialActionUseCase}, and {@code ResolvePendingCorruptUseCase}
@@ -92,6 +93,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private final FutureEventRepository futureEvents;
     private final FutureEventEraIndexPort eraIndex;
     private final ScanEntitlementPort scanEntitlements;
+    private final CascadeCarryForwardPort cascadeCarryForward;
     private final ProbabilityRulesPort rules;
     private final ProbabilityBandRulesPort bandRules;
     private final TimelineEventPublisher publisher;
@@ -103,6 +105,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             FutureEventRepository futureEvents,
             FutureEventEraIndexPort eraIndex,
             ScanEntitlementPort scanEntitlements,
+            CascadeCarryForwardPort cascadeCarryForward,
             ProbabilityRulesPort rules,
             ProbabilityBandRulesPort bandRules,
             TimelineEventPublisher publisher,
@@ -112,6 +115,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         this.futureEvents = futureEvents;
         this.eraIndex = eraIndex;
         this.scanEntitlements = scanEntitlements;
+        this.cascadeCarryForward = cascadeCarryForward;
         this.rules = rules;
         this.bandRules = bandRules;
         this.publisher = publisher;
@@ -146,6 +150,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
         applyTier(sorted, cancelled, a -> isSpecial(a, "SEAL"), this::applySeal);
         applyAnnihilateTier(gameId, eraNumber, sorted, cancelled);
+        applyCascadeTier(gameId, eraNumber, sorted, cancelled);
 
         var corruptTargets = resolveCorruptTargets(sorted, cancelled);
         var amplifyMultipliers = resolveAmplifyMultipliers(sorted, selectedActionByPlayer, cancelled);
@@ -335,6 +340,23 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                     weaverChainSaga.annihilateOutcome(gameId, eraNumber, a.targetEventId(), a.targetOutcomeId());
                 }
             });
+        }
+    }
+
+    /**
+     * Records each still-live CASCADE as an armed carry-forward intent for this era (eraser-cascade-erasure
+     * capability). No immediate {@code FutureEvent} effect: whether the named outcome is actually erased can
+     * only be known once this era's erasures are all applied, so confirmation happens at era resolution
+     * instead of here — this only needs to survive same-round NULLIFY cancellation.
+     */
+    private void applyCascadeTier(UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
+        for (var a : sorted) {
+            if (!isSpecial(a, "CASCADE") || cancelled.contains(a.envelopeEventId())) {
+                continue;
+            }
+            if (a.targetEventId() != null && a.targetOutcomeId() != null) {
+                cascadeCarryForward.arm(gameId, eraNumber, a.playerId(), a.targetEventId(), a.targetOutcomeId());
+            }
         }
     }
 
@@ -722,7 +744,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 || isSpecial(a, "ANNIHILATE")
                 || isSpecial(a, "CORRUPT")
                 || isSpecial(a, SPECIAL_ACTION_MIMIC)
-                || isSpecial(a, "RALLY");
+                || isSpecial(a, "RALLY")
+                || isSpecial(a, "CASCADE");
     }
 
     private enum ShiftKind {

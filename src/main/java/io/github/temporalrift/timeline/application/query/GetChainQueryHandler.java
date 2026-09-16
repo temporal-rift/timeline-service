@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import io.github.temporalrift.timeline.application.port.in.GetChainUseCase;
 import io.github.temporalrift.timeline.domain.membership.NotGameParticipantException;
 import io.github.temporalrift.timeline.domain.membership.NotWeaverException;
+import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.GameMembershipPort;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
@@ -29,12 +30,17 @@ class GetChainQueryHandler implements GetChainUseCase {
     private final GameMembershipPort memberships;
     private final WeaverChainSagaRepository sagas;
     private final WeaverChainRepository chains;
+    private final EraPlayersPort eraPlayers;
 
     GetChainQueryHandler(
-            GameMembershipPort memberships, WeaverChainSagaRepository sagas, WeaverChainRepository chains) {
+            GameMembershipPort memberships,
+            WeaverChainSagaRepository sagas,
+            WeaverChainRepository chains,
+            EraPlayersPort eraPlayers) {
         this.memberships = memberships;
         this.sagas = sagas;
         this.chains = chains;
+        this.eraPlayers = eraPlayers;
     }
 
     @Override
@@ -44,8 +50,25 @@ class GetChainQueryHandler implements GetChainUseCase {
         if (!membership.faction().isWeaver()) {
             throw new NotWeaverException();
         }
-        var chain = selectChain(gameId, playerId);
-        return new Result(chain.chainId(), chain.status(), chain.length(), chain.links());
+        var loaded = selectChain(gameId, playerId);
+        var chain = loaded.chain();
+        return new Result(
+                chain.chainId(), chain.status(), chain.length(), chain.links(), isProtectionCurrentlyArmed(loaded));
+    }
+
+    /**
+     * Protection is scoped to the era it was armed in, the same check the saga applies when invalidating a
+     * linked outcome — an unconsumed TAPESTRY from an earlier era must not read as active protection now. There
+     * is no "current era" concept anywhere else in timeline-service to compare against; the highest era
+     * {@code EraStarted} has recorded for this game is the only signal available, and its absence (no era
+     * started yet) means there is no current era for the armed flag to apply to.
+     */
+    private boolean isProtectionCurrentlyArmed(LoadedChain loaded) {
+        return eraPlayers
+                .findLatestEraNumber(loaded.chain().gameId())
+                .map(latestEra -> loaded.saga().tapestryProtected()
+                        && latestEra.equals(loaded.saga().tapestryUsedEra()))
+                .orElse(false);
     }
 
     /**
@@ -53,7 +76,7 @@ class GetChainQueryHandler implements GetChainUseCase {
      * exist for one player: the open one wins, then the longest, then the smallest id. Sagas whose
      * stream holds no events are skipped.
      */
-    private WeaverChain selectChain(UUID gameId, UUID playerId) {
+    private LoadedChain selectChain(UUID gameId, UUID playerId) {
         var loaded = new ArrayList<LoadedChain>();
         for (var saga : sagas.findAllByGameAndPlayer(gameId, playerId)) {
             try {
@@ -69,7 +92,7 @@ class GetChainQueryHandler implements GetChainUseCase {
                         (LoadedChain candidate) -> candidate.saga().status() == WeaverChainSagaStatus.OPEN ? 0 : 1)
                 .thenComparing((LoadedChain candidate) -> candidate.chain().length(), Comparator.reverseOrder())
                 .thenComparing(candidate -> candidate.chain().chainId()));
-        return loaded.getFirst().chain();
+        return loaded.getFirst();
     }
 
     private record LoadedChain(WeaverChainSagaState saga, WeaverChain chain) {}

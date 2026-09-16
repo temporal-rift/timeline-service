@@ -45,6 +45,7 @@ import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolution
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
+import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.ActionKind;
@@ -101,6 +102,9 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
     @Mock
     ScanEntitlementPort scanEntitlements;
+
+    @Mock
+    CascadeCarryForwardPort cascadeCarryForward;
 
     @Spy
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
@@ -464,7 +468,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     @DisplayName("unsupported specialAction — claimed but buffers nothing")
     void handle_unsupportedSpecialAction_buffersNothing() {
         var eventId = UUID.randomUUID();
-        var payload = specialActionPlayed(SpecialAction.CASCADE, UUID.randomUUID(), UUID.randomUUID(), null);
+        var payload = specialActionPlayed(SpecialAction.FORESIGHT, UUID.randomUUID(), UUID.randomUUID(), null);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
@@ -744,6 +748,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
         then(scanEntitlements).should().deleteByGame(gameId);
         then(scanEntitlements).should(never()).deleteByGameAndEra(any(), anyInt());
+        then(cascadeCarryForward).should().deleteByGame(gameId);
     }
 
     @Test
@@ -756,15 +761,19 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 new GameEndedPayload(UUID.randomUUID(), "COLLAPSE", List.of()), eventId, GAME_ENDED_EVENT_TYPE, 1));
 
         then(scanEntitlements).should(never()).deleteByGame(any());
+        then(cascadeCarryForward).should(never()).deleteByGame(any());
     }
 
     @Test
     @DisplayName("THREAD — routed to the Weaver chain saga, never buffered for replay")
     void handle_thread_delegatesToWeaverChainSaga() {
         var eventId = UUID.randomUUID();
+        var sourceEventId = UUID.randomUUID();
+        var sourceOutcomeId = UUID.randomUUID();
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
-        var payload = specialActionPlayed(SpecialAction.THREAD, targetEventId, targetOutcomeId, null);
+        var payload = specialActionPlayed(
+                SpecialAction.THREAD, sourceEventId, sourceOutcomeId, targetEventId, targetOutcomeId, null);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
         given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
 
@@ -772,7 +781,14 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
         then(weaverChainSaga)
                 .should()
-                .playThread(payload.gameId(), ERA_NUMBER, payload.playerId(), targetEventId, targetOutcomeId);
+                .playThread(
+                        payload.gameId(),
+                        ERA_NUMBER,
+                        payload.playerId(),
+                        sourceEventId,
+                        sourceOutcomeId,
+                        targetEventId,
+                        targetOutcomeId);
         then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
     }
 
@@ -791,17 +807,34 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     }
 
     @Test
-    @DisplayName("UNRAVEL — routed to the Weaver chain saga, never buffered for replay")
-    void handle_unravel_delegatesToWeaverChainSaga() {
+    @DisplayName("REWEAVE — routed to the Weaver chain saga, never buffered for replay")
+    void handle_reweave_delegatesToWeaverChainSaga() {
         var eventId = UUID.randomUUID();
-        var targetPlayerId = UUID.randomUUID();
-        var payload = specialActionPlayed(SpecialAction.UNRAVEL, null, null, targetPlayerId);
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var payload = specialActionPlayed(SpecialAction.REWEAVE, targetEventId, targetOutcomeId, null);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
         given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
 
-        then(weaverChainSaga).should().playUnravel(payload.gameId(), ERA_NUMBER, payload.playerId(), targetPlayerId);
+        then(weaverChainSaga)
+                .should()
+                .playReweave(payload.gameId(), ERA_NUMBER, payload.playerId(), targetEventId, targetOutcomeId);
+        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("UNRAVEL — retired, same-slice no-op at this consumer (never published by game-service)")
+    void handle_unravel_isSameSliceNoOp() {
+        var eventId = UUID.randomUUID();
+        var payload = specialActionPlayed(SpecialAction.UNRAVEL, null, null, UUID.randomUUID());
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        then(weaverChainSaga).shouldHaveNoInteractions();
         then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
     }
 
@@ -849,31 +882,6 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     }
 
     @Test
-    @DisplayName("UNRAVEL with null event targets — delegates to the Weaver chain saga")
-    void handle_unravelWithNullEventTargets_delegatesToWeaverChainSaga() {
-        var eventId = UUID.randomUUID();
-        var gameId = UUID.randomUUID();
-        var playerId = UUID.randomUUID();
-        var targetPlayerId = UUID.randomUUID();
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("gameId", gameId);
-        payload.put("eraNumber", ERA_NUMBER);
-        payload.put("roundNumber", ROUND_NUMBER);
-        payload.put("playerId", playerId);
-        payload.put("faction", "WEAVERS");
-        payload.put("specialAction", "UNRAVEL");
-        payload.put("targetEventId", null);
-        payload.put("targetOutcomeId", null);
-        payload.put("targetPlayerId", targetPlayerId);
-        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
-        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
-
-        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
-
-        then(weaverChainSaga).should().playUnravel(gameId, ERA_NUMBER, playerId, targetPlayerId);
-    }
-
-    @Test
     @DisplayName("special missing identity coordinates — fails loud without buffering or saga effects")
     void handle_specialMissingGameId_throwsWithoutSideEffects() {
         var eventId = UUID.randomUUID();
@@ -904,6 +912,16 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
     private static SpecialActionPlayedPayload specialActionPlayed(
             SpecialAction specialAction, UUID targetEventId, UUID targetOutcomeId, UUID targetPlayerId) {
+        return specialActionPlayed(specialAction, null, null, targetEventId, targetOutcomeId, targetPlayerId);
+    }
+
+    private static SpecialActionPlayedPayload specialActionPlayed(
+            SpecialAction specialAction,
+            UUID sourceEventId,
+            UUID sourceOutcomeId,
+            UUID targetEventId,
+            UUID targetOutcomeId,
+            UUID targetPlayerId) {
         return new SpecialActionPlayedPayload(
                 UUID.randomUUID(),
                 ERA_NUMBER,
@@ -911,6 +929,8 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 UUID.randomUUID(),
                 null,
                 specialAction,
+                sourceEventId,
+                sourceOutcomeId,
                 targetEventId,
                 targetOutcomeId,
                 targetPlayerId);
