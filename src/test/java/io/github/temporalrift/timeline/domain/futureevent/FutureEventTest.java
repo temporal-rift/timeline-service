@@ -286,7 +286,7 @@ class FutureEventTest {
     }
 
     @Test
-    void applyShift_collide_oddCombinedTotal_splitsFloorCeilingOfHalf() {
+    void applyShift_collide_oddCombinedTotal_equalizesExactlyMovingRemainderToThird() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 51);
         var b = new Outcome(UUID.randomUUID(), "b", 30);
@@ -296,8 +296,138 @@ class FutureEventTest {
         event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
 
         assertThat(byId(event, a.outcomeId())).isEqualTo(40);
-        assertThat(byId(event, b.outcomeId())).isEqualTo(41);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(40);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(20);
         assertThat(sum(event)).isEqualTo(100);
+    }
+
+    @Test
+    void applyShift_collide_oddLeadingPair_producesDeadHeatEligibleTie() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 31);
+        var c = new Outcome(UUID.randomUUID(), "c", 19);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(40);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(40);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(20);
+        assertThat(sum(event)).isEqualTo(100);
+        var paradoxes = ParadoxDetector.detect(event.outcomes(), event.sealBreach());
+        assertThat(paradoxes).singleElement().satisfies(paradox -> {
+            assertThat(paradox.type()).isEqualTo(ParadoxType.DEAD_HEAT);
+            assertThat(paradox.affectedOutcomeIds()).containsExactlyInAnyOrder(a.outcomeId(), b.outcomeId());
+        });
+    }
+
+    @Test
+    void applyShift_collide_lowerOddPair_tiesWithoutDeadHeat() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 25);
+        var b = new Outcome(UUID.randomUUID(), "b", 26);
+        var c = new Outcome(UUID.randomUUID(), "c", 49);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(25);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(25);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(50);
+        assertThat(sum(event)).isEqualTo(100);
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach())).isEmpty();
+    }
+
+    @Test
+    void applyShift_collide_reversedSelectionOrder_isDeterministic() {
+        var firstId = UUID.randomUUID();
+        var secondId = UUID.randomUUID();
+        var thirdId = UUID.randomUUID();
+        var forward = drafted(
+                UUID.randomUUID(),
+                new Outcome(firstId, "a", 50),
+                new Outcome(secondId, "b", 31),
+                new Outcome(thirdId, "c", 19));
+        var reversed = drafted(
+                UUID.randomUUID(),
+                new Outcome(firstId, "a", 50),
+                new Outcome(secondId, "b", 31),
+                new Outcome(thirdId, "c", 19));
+
+        forward.applyShift(new ProbabilityShift.Collide(firstId, secondId), 0, 0, 90);
+        reversed.applyShift(new ProbabilityShift.Collide(secondId, firstId), 0, 0, 90);
+
+        assertThat(byId(reversed, firstId)).isEqualTo(byId(forward, firstId));
+        assertThat(byId(reversed, secondId)).isEqualTo(byId(forward, secondId));
+        assertThat(byId(reversed, thirdId)).isEqualTo(byId(forward, thirdId));
+        assertThat(sum(reversed)).isEqualTo(100);
+    }
+
+    @Test
+    void applyShift_collide_sealedThirdWithRemainder_setsSealBreachWithoutChangingProbability() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 31);
+        var c = new Outcome(UUID.randomUUID(), "c", 19);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(c.outcomeId());
+
+        var result = event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(result).isInstanceOf(SealBreachRecorded.class);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(31);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(19);
+        assertThat(event.sealBreach()).isTrue();
+    }
+
+    @Test
+    void applyShift_collide_sealedThirdWithoutRemainder_stillEqualizes() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(c.outcomeId());
+
+        var result = event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(result).isInstanceOf(ProbabilityShifted.class);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(40);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(40);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(20);
+        assertThat(event.sealBreach()).isFalse();
+    }
+
+    @Test
+    void applyShift_collide_boundOverflow_preservesTotalAndBoundsDeterministically() {
+        var firstId = UUID.randomUUID();
+        var secondId = UUID.randomUUID();
+        var thirdId = UUID.randomUUID();
+        var forward = drafted(
+                UUID.randomUUID(),
+                new Outcome(firstId, "a", 25),
+                new Outcome(secondId, "b", 24),
+                new Outcome(thirdId, "c", 51));
+        var reversed = drafted(
+                UUID.randomUUID(),
+                new Outcome(firstId, "a", 25),
+                new Outcome(secondId, "b", 24),
+                new Outcome(thirdId, "c", 51));
+
+        forward.applyShift(new ProbabilityShift.Collide(firstId, secondId), 0, 0, 51);
+        reversed.applyShift(new ProbabilityShift.Collide(secondId, firstId), 0, 0, 51);
+
+        assertThat(byId(forward, thirdId)).isEqualTo(51);
+        assertThat(byId(forward, firstId) + byId(forward, secondId)).isEqualTo(49);
+        assertThat(sum(forward)).isEqualTo(100);
+        for (var outcome : forward.outcomes()) {
+            assertThat(outcome.probability()).isBetween(0, 51);
+        }
+        assertThat(byId(reversed, firstId)).isEqualTo(byId(forward, firstId));
+        assertThat(byId(reversed, secondId)).isEqualTo(byId(forward, secondId));
+        assertThat(byId(reversed, thirdId)).isEqualTo(byId(forward, thirdId));
     }
 
     @Test
@@ -310,7 +440,9 @@ class FutureEventTest {
 
         event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
 
-        assertThat(byId(event, a.outcomeId()) + byId(event, b.outcomeId())).isEqualTo(95);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(47);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(47);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(6);
         assertThat(byId(event, a.outcomeId())).isLessThanOrEqualTo(90);
         assertThat(byId(event, b.outcomeId())).isLessThanOrEqualTo(90);
         assertThat(sum(event)).isEqualTo(100);

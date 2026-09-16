@@ -221,10 +221,10 @@ public final class FutureEvent {
     }
 
     /**
-     * Forces the two named outcomes to their combined-total midpoint (an odd combined total splits as
-     * {@code floor}/{@code ceiling} of half, e.g. 51 -> 25/26), clamped to the configured floor/ceiling while
-     * preserving their combined total exactly — the third outcome is untouched, so the 100 total is preserved
-     * automatically (COLLIDE).
+     * Sets both named outcomes to the integer floor of their combined midpoint and moves any one-point remainder
+     * to the third outcome, preserving the 100 total within floor/ceiling; a sealed selection or a remainder owed
+     * to a sealed third records a breach instead, and a bound-overflow edge keeps total and bounds via a
+     * deterministic outcome-id-ordered fallback without guaranteeing equality.
      */
     private Object collideOrBreach(UUID outcomeAId, UUID outcomeBId, int floor, int ceiling) {
         if (Objects.equals(outcomeAId, outcomeBId)) {
@@ -235,10 +235,48 @@ public final class FutureEvent {
         if (a.sealed() || b.sealed()) {
             return recordSealBreach();
         }
+        var thirds = outcomes.stream()
+                .filter(o -> !o.outcomeId().equals(outcomeAId) && !o.outcomeId().equals(outcomeBId))
+                .toList();
+        if (thirds.size() != 1) {
+            int combinedFallback = a.probability() + b.probability();
+            int halfFallback = combinedFallback / 2;
+            var rebalancedFallback =
+                    clampPairPreservingSum(halfFallback, combinedFallback - halfFallback, floor, ceiling);
+            var fallbackOutcomes =
+                    replaceProbabilities(Map.of(outcomeAId, rebalancedFallback[0], outcomeBId, rebalancedFallback[1]));
+            var fallbackEvent = new ProbabilityShifted(id, fallbackOutcomes);
+            this.outcomes = fallbackOutcomes;
+            return fallbackEvent;
+        }
+        var third = thirds.getFirst();
         int combined = a.probability() + b.probability();
-        int half = combined / 2;
-        var rebalanced = clampPairPreservingSum(half, combined - half, floor, ceiling);
-        var shiftedOutcomes = replaceProbabilities(Map.of(outcomeAId, rebalanced[0], outcomeBId, rebalanced[1]));
+        int mid = combined / 2;
+        int remainder = combined % 2;
+        if (remainder == 1 && third.sealed()) {
+            return recordSealBreach();
+        }
+        int thirdIdeal = third.probability() + remainder;
+        boolean pairFeasible = mid >= floor && mid <= ceiling;
+        boolean thirdFeasible = thirdIdeal >= floor && thirdIdeal <= ceiling;
+        if (pairFeasible && thirdFeasible) {
+            var rebalanced = clampPairPreservingSum(mid, mid, floor, ceiling);
+            var shiftedOutcomes = replaceProbabilities(
+                    Map.of(outcomeAId, rebalanced[0], outcomeBId, rebalanced[1], third.outcomeId(), thirdIdeal));
+            var event = new ProbabilityShifted(id, shiftedOutcomes);
+            this.outcomes = shiftedOutcomes;
+            return event;
+        }
+        int clampedThird = clamp(thirdIdeal, floor, ceiling);
+        int pairSum = 100 - clampedThird;
+        var ordered = outcomeAId.compareTo(outcomeBId) <= 0
+                ? new UUID[] {outcomeAId, outcomeBId}
+                : new UUID[] {outcomeBId, outcomeAId};
+        int firstIdeal = (pairSum + 1) / 2;
+        int secondIdeal = pairSum - firstIdeal;
+        var rebalanced = clampPairPreservingSum(firstIdeal, secondIdeal, floor, ceiling);
+        var shiftedOutcomes = replaceProbabilities(
+                Map.of(ordered[0], rebalanced[0], ordered[1], rebalanced[1], third.outcomeId(), clampedThird));
         var event = new ProbabilityShifted(id, shiftedOutcomes);
         this.outcomes = shiftedOutcomes;
         return event;
