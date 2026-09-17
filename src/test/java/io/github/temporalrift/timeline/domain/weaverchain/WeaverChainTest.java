@@ -139,7 +139,7 @@ class WeaverChainTest {
                 new ChainLinkAdded(
                         CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 3, UUID.randomUUID(), UUID.randomUUID()),
                 new ChainCompleted(CHAIN_ID),
-                new ChainBroken(CHAIN_ID, "UNRAVEL"));
+                new ChainBroken(CHAIN_ID, "ANNIHILATE"));
 
         assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
     }
@@ -173,7 +173,7 @@ class WeaverChainTest {
         var history = List.of(
                 new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
                 new ChainLinkAdded(CHAIN_ID, eventId, outcomeId, 1, UUID.randomUUID(), UUID.randomUUID()),
-                new ChainBroken(CHAIN_ID, "UNRAVEL"),
+                new ChainBroken(CHAIN_ID, "ANNIHILATE"),
                 new ChainLinkAdded(
                         CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2, UUID.randomUUID(), UUID.randomUUID()));
 
@@ -329,9 +329,9 @@ class WeaverChainTest {
         chain.addLink(
                 eventId, outcomeId, 1, Set.of(new ResolvedOutcome(eventId, outcomeId)), sourceEventId, sourceOutcomeId);
 
-        var broken = chain.breakChain("UNRAVEL");
+        var broken = chain.breakChain("ANNIHILATE");
 
-        assertThat(broken).isEqualTo(new ChainBroken(CHAIN_ID, "UNRAVEL"));
+        assertThat(broken).isEqualTo(new ChainBroken(CHAIN_ID, "ANNIHILATE"));
         assertThat(chain.status()).isEqualTo(ChainStatus.BROKEN);
         assertThat(chain.links()).containsExactly(new ChainLink(eventId, outcomeId, 1, sourceEventId, sourceOutcomeId));
     }
@@ -339,7 +339,7 @@ class WeaverChainTest {
     @Test
     void addLink_afterBroken_throws() {
         var chain = started();
-        chain.breakChain("UNRAVEL");
+        chain.breakChain("ANNIHILATE");
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
         var resolved = Set.<ResolvedOutcome>of();
@@ -354,15 +354,15 @@ class WeaverChainTest {
     void breakChain_completedChain_throws() {
         var chain = completedChain();
 
-        assertThatThrownBy(() -> chain.breakChain("UNRAVEL")).isInstanceOf(WeaverChainCompletedException.class);
+        assertThatThrownBy(() -> chain.breakChain("ANNIHILATE")).isInstanceOf(WeaverChainCompletedException.class);
     }
 
     @Test
     void breakChain_brokenChain_throws() {
         var chain = started();
-        chain.breakChain("UNRAVEL");
+        chain.breakChain("ANNIHILATE");
 
-        assertThatThrownBy(() -> chain.breakChain("UNRAVEL")).isInstanceOf(WeaverChainBrokenException.class);
+        assertThatThrownBy(() -> chain.breakChain("ANNIHILATE")).isInstanceOf(WeaverChainBrokenException.class);
     }
 
     @Test

@@ -48,7 +48,7 @@ import io.github.temporalrift.timeline.domain.port.out.ScanEntitlementPort;
  * one be overtaken by a faster one — reachable in practice (consumer rebalance, GC pause, retry), not just
  * theoretical — silently losing or misordering an effect.
  *
- * <p>The Weaver chain saga's {@code THREAD}/{@code TAPESTRY}/{@code UNRAVEL} plays and {@code GameEnded}
+ * <p>The Weaver chain saga's {@code THREAD}/{@code TAPESTRY}/{@code REWEAVE} plays and {@code GameEnded}
  * termination join this same group for the same reason: a THREAD must validate against durably resolved
  * outcomes, never overtake the resolution that records them, and a game-end must not close chains ahead of
  * the last round's replay.
@@ -303,8 +303,8 @@ class CardPlayedAndResolutionKafkaConsumer {
                         payload.targetEventId(),
                         payload.targetOutcomeId());
             default -> {
-                // SEAL/ANNIHILATE/CORRUPT/MIMIC replay through the round buffer; UNRAVEL is retired and
-                // never published; every other special stays a same-slice no-op at this consumer.
+                // SEAL/ANNIHILATE/CORRUPT/MIMIC replay through the round buffer; every other special stays
+                // a same-slice no-op at this consumer.
             }
         }
     }
