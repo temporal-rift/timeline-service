@@ -5,7 +5,8 @@ import java.util.UUID;
 /**
  * Durable orchestration state for one Weaver player's chain — the saga stays open across era boundaries
  * until it completes, breaks, or the game ends. Link truth lives in the {@code WeaverChain} aggregate
- * stream; this record holds only orchestration flags (TAPESTRY arming and per-era usage).
+ * stream; this record holds only orchestration flags (TAPESTRY arming and per-era usage for both TAPESTRY
+ * and REWEAVE).
  */
 public record WeaverChainSagaState(
         UUID chainId,
@@ -13,4 +14,5 @@ public record WeaverChainSagaState(
         UUID playerId,
         WeaverChainSagaStatus status,
         boolean tapestryProtected,
-        Integer tapestryUsedEra) {}
+        Integer tapestryUsedEra,
+        Integer reweaveUsedEra) {}

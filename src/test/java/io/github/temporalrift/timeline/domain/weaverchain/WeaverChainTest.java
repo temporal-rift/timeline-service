@@ -101,8 +101,10 @@ class WeaverChainTest {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
         var resolved = Set.of(new ResolvedOutcome(eventId, outcomeId));
+        var sourceEventId = UUID.randomUUID();
+        var sourceOutcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> zombie.addLink(eventId, outcomeId, 4, resolved, UUID.randomUUID(), UUID.randomUUID()))
+        assertThatThrownBy(() -> zombie.addLink(eventId, outcomeId, 4, resolved, sourceEventId, sourceOutcomeId))
                 .isInstanceOf(WeaverChainCompletedException.class);
         assertThat(zombie.length()).isEqualTo(3);
     }
@@ -201,8 +203,10 @@ class WeaverChainTest {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
         var resolved = Set.<ResolvedOutcome>of();
+        var sourceEventId = UUID.randomUUID();
+        var sourceOutcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 1, resolved, UUID.randomUUID(), UUID.randomUUID()))
+        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 1, resolved, sourceEventId, sourceOutcomeId))
                 .isInstanceOf(InvalidChainLinkException.class);
         assertThat(chain.length()).isZero();
         assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
@@ -214,8 +218,10 @@ class WeaverChainTest {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
         var resolved = Set.of(new ResolvedOutcome(eventId, UUID.randomUUID()));
+        var sourceEventId = UUID.randomUUID();
+        var sourceOutcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 1, resolved, UUID.randomUUID(), UUID.randomUUID()))
+        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 1, resolved, sourceEventId, sourceOutcomeId))
                 .isInstanceOf(InvalidChainLinkException.class);
         assertThat(chain.length()).isZero();
     }
@@ -235,8 +241,10 @@ class WeaverChainTest {
 
         var duplicateOutcomeId = UUID.randomUUID();
         var resolved = Set.of(new ResolvedOutcome(eventId, duplicateOutcomeId));
-        assertThatThrownBy(() ->
-                        chain.addLink(eventId, duplicateOutcomeId, 2, resolved, UUID.randomUUID(), UUID.randomUUID()))
+        var sourceEventId = UUID.randomUUID();
+        var sourceOutcomeId = UUID.randomUUID();
+        assertThatThrownBy(
+                        () -> chain.addLink(eventId, duplicateOutcomeId, 2, resolved, sourceEventId, sourceOutcomeId))
                 .isInstanceOf(InvalidChainLinkException.class);
         assertThat(chain.length()).isEqualTo(1);
     }
@@ -272,9 +280,43 @@ class WeaverChainTest {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
         var resolved = Set.<ResolvedOutcome>of();
+        var sourceEventId = UUID.randomUUID();
+        var sourceOutcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 4, resolved, UUID.randomUUID(), UUID.randomUUID()))
+        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 4, resolved, sourceEventId, sourceOutcomeId))
                 .isInstanceOf(WeaverChainCompletedException.class);
+    }
+
+    @Test
+    void reAnchor_targetEventAlreadyLinkedWithADifferentOutcome_rejected() {
+        var chain = started();
+        var linkedEventId = UUID.randomUUID();
+        var linkedOutcomeId = UUID.randomUUID();
+        var secondEventId = UUID.randomUUID();
+        var secondOutcomeId = UUID.randomUUID();
+        chain.addLink(
+                linkedEventId,
+                linkedOutcomeId,
+                1,
+                Set.of(new ResolvedOutcome(linkedEventId, linkedOutcomeId)),
+                UUID.randomUUID(),
+                UUID.randomUUID());
+        chain.addLink(
+                secondEventId,
+                secondOutcomeId,
+                2,
+                Set.of(new ResolvedOutcome(secondEventId, secondOutcomeId)),
+                UUID.randomUUID(),
+                UUID.randomUUID());
+        // An event resolves to exactly one outcome in practice, so a caller can never legitimately claim a
+        // second outcome as resolved for an already-linked event — this artificially asserts one anyway, to
+        // prove the aggregate itself rejects it rather than relying solely on the saga's own pre-check.
+        var differentOutcomeId = UUID.randomUUID();
+        var claimedResolved = Set.of(new ResolvedOutcome(linkedEventId, differentOutcomeId));
+
+        assertThatThrownBy(() -> chain.reAnchor(linkedEventId, differentOutcomeId, 3, claimedResolved))
+                .isInstanceOf(InvalidChainLinkException.class);
+        assertThat(chain.length()).isEqualTo(2);
     }
 
     @Test
@@ -301,8 +343,10 @@ class WeaverChainTest {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
         var resolved = Set.<ResolvedOutcome>of();
+        var sourceEventId = UUID.randomUUID();
+        var sourceOutcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 2, resolved, UUID.randomUUID(), UUID.randomUUID()))
+        assertThatThrownBy(() -> chain.addLink(eventId, outcomeId, 2, resolved, sourceEventId, sourceOutcomeId))
                 .isInstanceOf(WeaverChainBrokenException.class);
     }
 

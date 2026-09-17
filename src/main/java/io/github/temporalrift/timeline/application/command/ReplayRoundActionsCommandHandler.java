@@ -28,6 +28,7 @@ import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
+import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
@@ -347,7 +348,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * Records each still-live CASCADE as an armed carry-forward intent for this era (eraser-cascade-erasure
      * capability). No immediate {@code FutureEvent} effect: whether the named outcome is actually erased can
      * only be known once this era's erasures are all applied, so confirmation happens at era resolution
-     * instead of here — this only needs to survive same-round NULLIFY cancellation.
+     * instead of here — this only needs to survive same-round NULLIFY cancellation. A CASCADE missing its
+     * target coordinate is rejected immediately instead of silently arming nothing.
      */
     private void applyCascadeTier(UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
         for (var a : sorted) {
@@ -356,7 +358,23 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             }
             if (a.targetEventId() != null && a.targetOutcomeId() != null) {
                 cascadeCarryForward.arm(gameId, eraNumber, a.playerId(), a.targetEventId(), a.targetOutcomeId());
+                continue;
             }
+            publisher.publish(TimelineEventEnvelope.create(
+                    a.playerId(),
+                    FUTURE_EVENT_AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new SpecialRejectedEvent(
+                            gameId,
+                            eraNumber,
+                            a.playerId(),
+                            "CASCADE",
+                            null,
+                            a.targetEventId(),
+                            a.targetOutcomeId(),
+                            "MISSING_COORDINATE"),
+                    clock));
         }
     }
 

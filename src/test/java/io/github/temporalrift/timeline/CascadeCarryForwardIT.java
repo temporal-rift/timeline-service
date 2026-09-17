@@ -63,7 +63,7 @@ class CascadeCarryForwardIT {
                 .findFirst()
                 .orElseThrow()
                 .payload();
-        assertThat(applied.get("eraNumber")).isEqualTo(2);
+        assertThat(applied).containsEntry("eraNumber", 2);
         assertThat(applied.get("targetEventId")).hasToString(eventId.toString());
         assertThat(applied.get("targetOutcomeId")).hasToString(erasedOutcomeId.toString());
         assertThat(jdbcTemplate.queryForObject(

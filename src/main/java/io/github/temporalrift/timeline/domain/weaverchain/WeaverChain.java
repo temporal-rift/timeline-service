@@ -24,6 +24,9 @@ public final class WeaverChain {
 
     static final int COMPLETION_LENGTH = 3;
 
+    private static final String PARAM_EVENT_ID = "eventId";
+    private static final String PARAM_OUTCOME_ID = "outcomeId";
+
     private final UUID chainId;
     private final UUID playerId;
     private final UUID gameId;
@@ -162,8 +165,8 @@ public final class WeaverChain {
             Set<ResolvedOutcome> resolvedOutcomes,
             UUID sourceEventId,
             UUID sourceOutcomeId) {
-        Objects.requireNonNull(eventId, "eventId");
-        Objects.requireNonNull(outcomeId, "outcomeId");
+        Objects.requireNonNull(eventId, PARAM_EVENT_ID);
+        Objects.requireNonNull(outcomeId, PARAM_OUTCOME_ID);
         Objects.requireNonNull(resolvedOutcomes, "resolvedOutcomes");
         Objects.requireNonNull(sourceEventId, "sourceEventId");
         Objects.requireNonNull(sourceOutcomeId, "sourceOutcomeId");
@@ -198,8 +201,8 @@ public final class WeaverChain {
      */
     public ChainReAnchored reAnchor(
             UUID eventId, UUID outcomeId, int eraNumber, Set<ResolvedOutcome> resolvedOutcomes) {
-        Objects.requireNonNull(eventId, "eventId");
-        Objects.requireNonNull(outcomeId, "outcomeId");
+        Objects.requireNonNull(eventId, PARAM_EVENT_ID);
+        Objects.requireNonNull(outcomeId, PARAM_OUTCOME_ID);
         Objects.requireNonNull(resolvedOutcomes, "resolvedOutcomes");
         if (links.isEmpty()) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "chain has no links to re-anchor");
@@ -213,10 +216,8 @@ public final class WeaverChain {
         if (!resolvedOutcomes.contains(new ResolvedOutcome(eventId, outcomeId))) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "outcome did not resolve");
         }
-        if (links.stream()
-                .anyMatch(link ->
-                        link.eventId().equals(eventId) && link.outcomeId().equals(outcomeId))) {
-            throw new InvalidChainLinkException(chainId, eventId, outcomeId, "outcome already linked");
+        if (links.stream().anyMatch(link -> link.eventId().equals(eventId))) {
+            throw new InvalidChainLinkException(chainId, eventId, outcomeId, "event already linked");
         }
         var discarded = links.getLast();
         var reAnchored = new ChainReAnchored(
@@ -251,8 +252,8 @@ public final class WeaverChain {
      * or empty when the annihilated outcome was never part of this chain.
      */
     public Optional<ChainLinkInvalidated> invalidateLink(UUID eventId, UUID outcomeId) {
-        Objects.requireNonNull(eventId, "eventId");
-        Objects.requireNonNull(outcomeId, "outcomeId");
+        Objects.requireNonNull(eventId, PARAM_EVENT_ID);
+        Objects.requireNonNull(outcomeId, PARAM_OUTCOME_ID);
         if (status != ChainStatus.ACTIVE) {
             return Optional.empty();
         }
