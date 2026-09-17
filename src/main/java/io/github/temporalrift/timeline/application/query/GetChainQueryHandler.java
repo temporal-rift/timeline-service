@@ -62,6 +62,10 @@ class GetChainQueryHandler implements GetChainUseCase {
      * is no "current era" concept anywhere else in timeline-service to compare against; the highest era
      * {@code EraStarted} has recorded for this game is the only signal available, and its absence (no era
      * started yet) means there is no current era for the armed flag to apply to.
+     *
+     * <p>{@code EraStarted} and {@code SpecialActionPlayed} land in different consumer groups, so this read can
+     * momentarily under-report a same-instant TAPESTRY as unarmed until the era-players projection catches up —
+     * the same eventual-consistency window every other read in this system already accepts.
      */
     private boolean isProtectionCurrentlyArmed(LoadedChain loaded) {
         return eraPlayers

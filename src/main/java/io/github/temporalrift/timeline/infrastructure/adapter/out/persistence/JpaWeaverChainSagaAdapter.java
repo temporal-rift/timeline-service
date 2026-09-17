@@ -55,7 +55,8 @@ class JpaWeaverChainSagaAdapter implements WeaverChainSagaRepository {
                 state.playerId(),
                 state.status(),
                 state.tapestryProtected(),
-                state.tapestryUsedEra()));
+                state.tapestryUsedEra(),
+                state.reweaveUsedEra()));
     }
 
     private static WeaverChainSagaState toState(WeaverChainSagaEntity entity) {
@@ -65,6 +66,7 @@ class JpaWeaverChainSagaAdapter implements WeaverChainSagaRepository {
                 entity.getPlayerId(),
                 entity.getStatus(),
                 entity.isTapestryProtected(),
-                entity.getTapestryUsedEra());
+                entity.getTapestryUsedEra(),
+                entity.getReweaveUsedEra());
     }
 }

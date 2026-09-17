@@ -346,6 +346,58 @@ class WeaverChainSagaTest {
     }
 
     @Test
+    void reweave_alreadyUsedThisEra_rejectedWithoutChange() {
+        var chainId = openChainWithLinks(2);
+        var firstTarget = UUID.randomUUID();
+        var firstOutcome = UUID.randomUUID();
+        given(futureEvents.findById(firstTarget)).willReturn(resolvedEvent(firstTarget, firstOutcome));
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, firstTarget, firstOutcome);
+        var secondTarget = UUID.randomUUID();
+        var secondOutcome = UUID.randomUUID();
+
+        // Rejected purely on the era-budget check — never even looks up the second target.
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, secondTarget, secondOutcome);
+
+        var chain = chains.findById(chainId);
+        assertThat(chain.links().getLast().eventId()).isEqualTo(firstTarget);
+        var rejected = published(SpecialRejectedEvent.class);
+        assertThat(rejected.reason()).isEqualTo("ALREADY_USED_THIS_ERA");
+    }
+
+    @Test
+    void reweave_usedInAnEarlierEra_succeedsAgainInALaterEra() {
+        var chainId = openChainWithLinks(2);
+        var firstTarget = UUID.randomUUID();
+        var firstOutcome = UUID.randomUUID();
+        given(futureEvents.findById(firstTarget)).willReturn(resolvedEvent(firstTarget, firstOutcome));
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, firstTarget, firstOutcome);
+        var secondTarget = UUID.randomUUID();
+        var secondOutcome = UUID.randomUUID();
+        given(futureEvents.findById(secondTarget)).willReturn(resolvedEvent(secondTarget, secondOutcome));
+
+        saga.playReweave(GAME_ID, ERA + 1, PLAYER_ID, secondTarget, secondOutcome);
+
+        var chain = chains.findById(chainId);
+        assertThat(chain.links().getLast().eventId()).isEqualTo(secondTarget);
+        published(ChainReAnchoredEvent.class);
+    }
+
+    @Test
+    void reweave_rejectedAttempt_doesNotCountTowardTheEraLimit() {
+        var chainId = openChainWithLinks(1);
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, null, null);
+        var target = UUID.randomUUID();
+        var outcome = UUID.randomUUID();
+        given(futureEvents.findById(target)).willReturn(resolvedEvent(target, outcome));
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, target, outcome);
+
+        assertThat(chains.findById(chainId).links().getLast().eventId()).isEqualTo(target);
+        published(ChainReAnchoredEvent.class);
+    }
+
+    @Test
     void reweave_withoutActiveChain_rejected() {
         var targetEvent = UUID.randomUUID();
         var targetOutcome = UUID.randomUUID();
@@ -518,7 +570,8 @@ class WeaverChainSagaTest {
                     chainId, UUID.randomUUID(), UUID.randomUUID(), index + 1, UUID.randomUUID(), UUID.randomUUID()));
         }
         chains.appendAll(chainId, history);
-        sagas.save(new WeaverChainSagaState(chainId, GAME_ID, PLAYER_ID, WeaverChainSagaStatus.OPEN, false, null));
+        sagas.save(
+                new WeaverChainSagaState(chainId, GAME_ID, PLAYER_ID, WeaverChainSagaStatus.OPEN, false, null, null));
         return chainId;
     }
 

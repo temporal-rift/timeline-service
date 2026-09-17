@@ -625,9 +625,21 @@ class ResolveEraCommandHandlerTest {
         given(chainSagas.findOpenByGame(GAME_ID))
                 .willReturn(List.of(
                         new WeaverChainSagaState(
-                                firstChainId, GAME_ID, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null),
+                                firstChainId,
+                                GAME_ID,
+                                UUID.randomUUID(),
+                                WeaverChainSagaStatus.OPEN,
+                                false,
+                                null,
+                                null),
                         new WeaverChainSagaState(
-                                secondChainId, GAME_ID, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null)));
+                                secondChainId,
+                                GAME_ID,
+                                UUID.randomUUID(),
+                                WeaverChainSagaStatus.OPEN,
+                                false,
+                                null,
+                                null)));
         given(chains.findById(firstChainId)).willReturn(chainLinking(firstChainId, eventId, firstOutcomeId));
         given(chains.findById(secondChainId)).willReturn(chainLinking(secondChainId, eventId, secondOutcomeId));
     }

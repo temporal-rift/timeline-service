@@ -29,6 +29,7 @@ import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
+import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
@@ -977,6 +978,23 @@ class ReplayRoundActionsCommandHandlerTest {
         then(cascadeCarryForward).should().arm(GAME_ID, ERA_NUMBER, player, eventId, target);
         then(futureEvents).should(never()).findById(eventId);
         then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_cascadeMissingTargetCoordinate_rejectedInsteadOfSilentlySkipped() {
+        var player = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialActionBy(player, "CASCADE", null, null, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(cascadeCarryForward).should(never()).arm(any(), anyInt(), any(), any(), any());
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should().publish(captor.capture());
+        var rejected = (SpecialRejectedEvent) captor.getValue().payload();
+        assertThat(rejected.specialAction()).isEqualTo("CASCADE");
+        assertThat(rejected.playerId()).isEqualTo(player);
+        assertThat(rejected.reason()).isEqualTo("MISSING_COORDINATE");
     }
 
     @Test

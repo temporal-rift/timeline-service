@@ -16,6 +16,7 @@
     <!-- WeaverChain: aggregate snapshots -->
     <include file="db/changelog/weaverchain/001-create-aggregate-snapshot.xml"/>
     <include file="db/changelog/weaverchain/002-create-weaver-chain-saga.xml"/>
+    <include file="db/changelog/weaverchain/003-add-reweave-used-era.xml"/>
 
     <!-- Era: player roster carried by EraStarted -->
     <include file="db/changelog/era/001-create-era-players.xml"/>

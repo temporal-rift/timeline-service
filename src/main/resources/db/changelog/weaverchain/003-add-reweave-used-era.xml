@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!-- REWEAVE's own once-per-era budget, tracked the same way as tapestry_used_era. -->
+  <changeSet id="003-add-reweave-used-era" author="timeline-service">
+    <addColumn tableName="weaver_chain_saga">
+      <column name="reweave_used_era" type="INTEGER"/>
+    </addColumn>
+  </changeSet>
+
+</databaseChangeLog>

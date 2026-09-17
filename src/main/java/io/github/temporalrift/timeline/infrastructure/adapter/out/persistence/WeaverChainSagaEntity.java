@@ -35,6 +35,9 @@ class WeaverChainSagaEntity {
     @Column(name = "tapestry_used_era")
     private Integer tapestryUsedEra;
 
+    @Column(name = "reweave_used_era")
+    private Integer reweaveUsedEra;
+
     protected WeaverChainSagaEntity() {
         // for JPA
     }
@@ -45,13 +48,15 @@ class WeaverChainSagaEntity {
             UUID playerId,
             WeaverChainSagaStatus status,
             boolean tapestryProtected,
-            Integer tapestryUsedEra) {
+            Integer tapestryUsedEra,
+            Integer reweaveUsedEra) {
         this.chainId = chainId;
         this.gameId = gameId;
         this.playerId = playerId;
         this.status = status;
         this.tapestryProtected = tapestryProtected;
         this.tapestryUsedEra = tapestryUsedEra;
+        this.reweaveUsedEra = reweaveUsedEra;
     }
 
     UUID getChainId() {
@@ -76,5 +81,9 @@ class WeaverChainSagaEntity {
 
     Integer getTapestryUsedEra() {
         return tapestryUsedEra;
+    }
+
+    Integer getReweaveUsedEra() {
+        return reweaveUsedEra;
     }
 }
