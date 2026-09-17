@@ -126,7 +126,7 @@ class GameEventsTestPublisher {
             case "ANNIHILATE", "CORRUPT", "CASCADE" -> "ERASERS";
             case "SEAL", "FORESIGHT", "FULFILLMENT" -> "PROPHETS";
             case "MIMIC", "REWRITE", "OBSCURE" -> "REVISIONISTS";
-            case "THREAD", "TAPESTRY", "UNRAVEL" -> "WEAVERS";
+            case "THREAD", "TAPESTRY", "REWEAVE" -> "WEAVERS";
             case "RALLY", "EXPOSE", "MOMENTUM" -> "ACTIVISTS";
             default -> throw new IllegalArgumentException("Unknown special action: " + specialAction);
         };
