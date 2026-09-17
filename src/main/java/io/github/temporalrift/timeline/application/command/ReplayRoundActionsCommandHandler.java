@@ -73,6 +73,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final String CARD_TYPE_STALL = "STALL";
 
     private static final String SPECIAL_ACTION_MIMIC = "MIMIC";
+    private static final String SPECIAL_ACTION_CASCADE = "CASCADE";
 
     /** Eligible for AMPLIFY's doubling and NULLIFY's cancellation like any other remaining-tier card. */
     private static final Set<String> AMPLIFIABLE_SHIFTER_TYPES =
@@ -353,29 +354,33 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      */
     private void applyCascadeTier(UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
         for (var a : sorted) {
-            if (!isSpecial(a, "CASCADE") || cancelled.contains(a.envelopeEventId())) {
+            if (!isSpecial(a, SPECIAL_ACTION_CASCADE) || cancelled.contains(a.envelopeEventId())) {
                 continue;
             }
             if (a.targetEventId() != null && a.targetOutcomeId() != null) {
                 cascadeCarryForward.arm(gameId, eraNumber, a.playerId(), a.targetEventId(), a.targetOutcomeId());
-                continue;
+            } else {
+                publishCascadeMissingCoordinate(gameId, eraNumber, a);
             }
-            publisher.publish(TimelineEventEnvelope.create(
-                    a.playerId(),
-                    FUTURE_EVENT_AGGREGATE_TYPE,
-                    gameId,
-                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new SpecialRejectedEvent(
-                            gameId,
-                            eraNumber,
-                            a.playerId(),
-                            "CASCADE",
-                            null,
-                            a.targetEventId(),
-                            a.targetOutcomeId(),
-                            "MISSING_COORDINATE"),
-                    clock));
         }
+    }
+
+    private void publishCascadeMissingCoordinate(UUID gameId, int eraNumber, BufferedAction a) {
+        publisher.publish(TimelineEventEnvelope.create(
+                a.playerId(),
+                FUTURE_EVENT_AGGREGATE_TYPE,
+                gameId,
+                TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                new SpecialRejectedEvent(
+                        gameId,
+                        eraNumber,
+                        a.playerId(),
+                        SPECIAL_ACTION_CASCADE,
+                        null,
+                        a.targetEventId(),
+                        a.targetOutcomeId(),
+                        "MISSING_COORDINATE"),
+                clock));
     }
 
     /**
@@ -772,7 +777,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 || isSpecial(a, "CORRUPT")
                 || isSpecial(a, SPECIAL_ACTION_MIMIC)
                 || isSpecial(a, "RALLY")
-                || isSpecial(a, "CASCADE");
+                || isSpecial(a, SPECIAL_ACTION_CASCADE);
     }
 
     private enum ShiftKind {
