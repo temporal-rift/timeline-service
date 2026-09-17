@@ -825,20 +825,6 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     }
 
     @Test
-    @DisplayName("UNRAVEL — retired, same-slice no-op at this consumer (never published by game-service)")
-    void handle_unravel_isSameSliceNoOp() {
-        var eventId = UUID.randomUUID();
-        var payload = specialActionPlayed(SpecialAction.UNRAVEL, null, null, UUID.randomUUID());
-        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
-        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
-
-        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
-
-        then(weaverChainSaga).shouldHaveNoInteractions();
-        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
-    }
-
-    @Test
     @DisplayName("GameEnded — ends every open Weaver chain in that game")
     void handle_gameEnded_endsOpenWeaverChains() {
         var eventId = UUID.randomUUID();
