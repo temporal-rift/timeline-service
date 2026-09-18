@@ -10,6 +10,7 @@ import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.v1.ChainsA
 import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.v1.model.ChainLink;
 import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.v1.model.ChainResponse;
 import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.v1.model.ChainStatus;
+import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.v1.model.PendingChainLink;
 import io.github.temporalrift.timeline.shared.CurrentPlayer;
 
 @RestController
@@ -25,12 +26,15 @@ class ChainsController implements ChainsApi {
     public ResponseEntity<ChainResponse> getChain(UUID gameId) {
         var result = getChainUseCase.get(gameId, CurrentPlayer.id());
         var links = result.links().stream()
-                .map(link -> new ChainLink(link.eventId(), link.outcomeId(), link.eraNumber())
-                        .sourceEventId(link.sourceEventId())
-                        .sourceOutcomeId(link.sourceOutcomeId()))
+                .map(link -> new ChainLink(link.eventId(), link.outcomeId(), link.eraNumber()))
                 .toList();
+        var pendingLink = result.pendingLink() == null
+                ? null
+                : new PendingChainLink(
+                        result.pendingLink().eventId(), result.pendingLink().outcomeId());
         return ResponseEntity.ok(new ChainResponse(
                         result.chainId(), ChainStatus.valueOf(result.status().name()), result.chainLength(), links)
+                .pendingLink(pendingLink)
                 .protectionArmed(result.protectionArmed()));
     }
 }

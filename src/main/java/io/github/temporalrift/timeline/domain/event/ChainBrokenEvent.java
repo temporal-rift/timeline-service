@@ -4,4 +4,4 @@ import java.util.UUID;
 
 /** Publication record for the {@code ChainBroken} wire fact. */
 public record ChainBrokenEvent(
-        UUID gameId, int eraNumber, UUID chainId, UUID brokenByPlayerId, UUID targetPlayerId, int chainLengthAtBreak) {}
+        UUID gameId, int eraNumber, UUID chainId, UUID playerId, UUID paradoxId, int chainLengthAtBreak) {}

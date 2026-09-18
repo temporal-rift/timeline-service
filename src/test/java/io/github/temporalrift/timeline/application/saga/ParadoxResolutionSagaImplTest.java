@@ -3,6 +3,7 @@ package io.github.temporalrift.timeline.application.saga;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.lenient;
@@ -23,7 +24,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
@@ -86,6 +86,9 @@ class ParadoxResolutionSagaImplTest {
     @Mock
     io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository chains;
 
+    @Mock
+    io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase weaverChainSaga;
+
     private final Clock clock = Clock.fixed(Instant.parse("2026-08-09T00:00:00Z"), ZoneOffset.UTC);
 
     private ParadoxResolutionSagaImpl saga;
@@ -102,6 +105,7 @@ class ParadoxResolutionSagaImplTest {
                 probabilityRules,
                 chainSagas,
                 chains,
+                weaverChainSaga,
                 clock);
         lenient().when(chainSagas.findOpenByGame(any())).thenReturn(List.of());
     }
@@ -250,24 +254,20 @@ class ParadoxResolutionSagaImplTest {
     }
 
     @Test
-    void handleTimerExpiry_chainConflictPersists_cascadesInsteadOfResolving() {
+    void handleTimerExpiry_chainConflictPersists_cascadesInsteadOfResolvingAndBreaksChain() {
         var sagaId = UUID.randomUUID();
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
-        var firstOutcomeId = UUID.randomUUID();
-        var secondOutcomeId = UUID.randomUUID();
-        var futureEvent = cleanFutureEvent(affectedEventId, firstOutcomeId, secondOutcomeId);
+        var pendingOutcomeId = UUID.randomUUID();
+        var futureEvent = cleanFutureEvent(affectedEventId, pendingOutcomeId, UUID.randomUUID());
+        futureEvent.annihilateOutcome(pendingOutcomeId);
         var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
                 ERA_NUMBER,
                 ParadoxResolutionPhaseStatus.WAITING,
                 List.of(new PendingParadox(
-                        paradoxId,
-                        ParadoxType.CHAIN_CONFLICT,
-                        List.of(firstOutcomeId, secondOutcomeId),
-                        affectedEventId,
-                        0)),
+                        paradoxId, ParadoxType.CHAIN_CONFLICT, List.of(pendingOutcomeId), affectedEventId, 0)),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -275,12 +275,15 @@ class ParadoxResolutionSagaImplTest {
 
         given(stateManager.findBySagaIdWithLock(sagaId)).willReturn(Optional.of(phase));
         given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
-        givenConflictingChains(affectedEventId, firstOutcomeId, secondOutcomeId);
+        givenActiveChainWithPendingLink(affectedEventId, pendingOutcomeId);
 
         saga.handleTimerExpiry(sagaId);
 
         then(stateManager).should().complete(phase);
         then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
+        then(weaverChainSaga)
+                .should()
+                .breakChainOnCascadedParadox(GAME_ID, ERA_NUMBER, affectedEventId, pendingOutcomeId, paradoxId);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
         then(publisher).should(times(2)).publish(captor.capture());
@@ -297,6 +300,48 @@ class ParadoxResolutionSagaImplTest {
                 .containsExactly(
                         new TerminalResolution(affectedEventId, 0, TerminalResolution.TerminalState.CASCADED, null));
         assertThat(payloads).noneMatch(OutcomeApplied.class::isInstance);
+    }
+
+    @Test
+    void handleTimerExpiry_chainConflictStabilized_resolvesAndConfirmsPendingLink() {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var pendingOutcomeId = UUID.randomUUID();
+        var futureEvent = cleanFutureEvent(affectedEventId, pendingOutcomeId, UUID.randomUUID());
+        futureEvent.annihilateOutcome(pendingOutcomeId);
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.CHAIN_CONFLICT, List.of(pendingOutcomeId), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(new Submission(UUID.randomUUID(), "STABILIZE", null, affectedEventId, null)),
+                clock.instant());
+
+        given(stateManager.findBySagaIdWithLock(sagaId)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+        givenActiveChainWithPendingLink(affectedEventId, pendingOutcomeId);
+
+        saga.handleTimerExpiry(sagaId);
+
+        then(weaverChainSaga)
+                .should()
+                .confirmParadoxResolvedLink(GAME_ID, ERA_NUMBER, affectedEventId, pendingOutcomeId);
+        then(weaverChainSaga).should(never()).breakChainOnCascadedParadox(any(), anyInt(), any(), any(), any());
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(3)).publish(captor.capture());
+        var payloads = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .toList();
+        assertThat(payloads).anyMatch(ParadoxResolved.class::isInstance);
+        assertThat(payloads).anyMatch(OutcomeApplied.class::isInstance);
+        assertThat(payloads).anyMatch(EraResolutionCompleted.class::isInstance);
+        then(weaverChainSaga).should().resolvePendingLink(eq(GAME_ID), eq(ERA_NUMBER), eq(affectedEventId), any());
     }
 
     @Test
@@ -873,37 +918,20 @@ class ParadoxResolutionSagaImplTest {
                                 new Outcome(UUID.randomUUID(), "third", 25)))));
     }
 
-    private void givenConflictingChains(UUID eventId, UUID firstOutcomeId, UUID secondOutcomeId) {
-        var firstChainId = UUID.randomUUID();
-        var secondChainId = UUID.randomUUID();
+    private void givenActiveChainWithPendingLink(UUID eventId, UUID pendingOutcomeId) {
+        var chainId = UUID.randomUUID();
         given(chainSagas.findOpenByGame(GAME_ID))
-                .willReturn(List.of(
-                        new WeaverChainSagaState(
-                                firstChainId,
-                                GAME_ID,
-                                UUID.randomUUID(),
-                                WeaverChainSagaStatus.OPEN,
-                                false,
-                                null,
-                                null),
-                        new WeaverChainSagaState(
-                                secondChainId,
-                                GAME_ID,
-                                UUID.randomUUID(),
-                                WeaverChainSagaStatus.OPEN,
-                                false,
-                                null,
-                                null)));
-        given(chains.findById(firstChainId)).willReturn(chainLinking(firstChainId, eventId, firstOutcomeId));
-        given(chains.findById(secondChainId)).willReturn(chainLinking(secondChainId, eventId, secondOutcomeId));
+                .willReturn(List.of(new WeaverChainSagaState(
+                        chainId, GAME_ID, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null, null)));
+        given(chains.findById(chainId)).willReturn(chainWithPendingLink(chainId, eventId, pendingOutcomeId));
     }
 
-    private static WeaverChain chainLinking(UUID chainId, UUID eventId, UUID outcomeId) {
+    private static WeaverChain chainWithPendingLink(UUID chainId, UUID eventId, UUID outcomeId) {
         return WeaverChain.replay(
                 chainId,
                 List.of(
                         new WeaverChainStarted(chainId, UUID.randomUUID(), GAME_ID),
-                        new ChainLinkAdded(
-                                chainId, eventId, outcomeId, ERA_NUMBER, UUID.randomUUID(), UUID.randomUUID())));
+                        new io.github.temporalrift.timeline.domain.event.ChainLinkThreaded(
+                                chainId, eventId, outcomeId, ERA_NUMBER)));
     }
 }

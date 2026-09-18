@@ -4,7 +4,8 @@ import java.util.List;
 import java.util.UUID;
 
 /** Serializable value state of a {@link WeaverChain}, persisted as snapshot data. */
-public record WeaverChainSnapshot(UUID chainId, UUID playerId, UUID gameId, List<ChainLink> links, ChainStatus status) {
+public record WeaverChainSnapshot(
+        UUID chainId, UUID playerId, UUID gameId, List<ChainLink> links, ChainLink pendingLink, ChainStatus status) {
 
     public WeaverChainSnapshot {
         links = List.copyOf(links);

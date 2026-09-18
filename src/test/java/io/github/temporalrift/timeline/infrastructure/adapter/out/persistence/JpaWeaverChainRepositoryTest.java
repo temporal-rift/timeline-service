@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Clock;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -21,6 +20,7 @@ import tools.jackson.databind.json.JsonMapper;
 import io.github.temporalrift.timeline.TestcontainersConfiguration;
 import io.github.temporalrift.timeline.TimelineServiceApplication;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
+import io.github.temporalrift.timeline.domain.event.ChainLinkThreaded;
 import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.eventstore.AggregateSnapshot;
@@ -82,8 +82,8 @@ class JpaWeaverChainRepositoryTest {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
         chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
-        chains.append(
-                chainId, new ChainLinkAdded(chainId, eventId, outcomeId, 1, UUID.randomUUID(), UUID.randomUUID()));
+        chains.append(chainId, new ChainLinkThreaded(chainId, eventId, outcomeId, 1));
+        chains.append(chainId, new ChainLinkAdded(chainId, eventId, outcomeId, 1));
 
         var chain = chains.findById(chainId);
 
@@ -102,18 +102,16 @@ class JpaWeaverChainRepositoryTest {
         var firstEvent = UUID.randomUUID();
         var firstOutcome = UUID.randomUUID();
         chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
-        chains.append(
-                chainId,
-                new ChainLinkAdded(chainId, firstEvent, firstOutcome, 1, UUID.randomUUID(), UUID.randomUUID()));
+        chains.append(chainId, new ChainLinkThreaded(chainId, firstEvent, firstOutcome, 1));
+        chains.append(chainId, new ChainLinkAdded(chainId, firstEvent, firstOutcome, 1));
         var covered = chains.findById(chainId);
         snapshots.save(new AggregateSnapshot(
-                chainId, "WeaverChain", objectMapper.writeValueAsString(covered.snapshot()), 2, clock.instant()));
+                chainId, "WeaverChain", objectMapper.writeValueAsString(covered.snapshot()), 3, clock.instant()));
 
         var secondEvent = UUID.randomUUID();
         var secondOutcome = UUID.randomUUID();
-        chains.append(
-                chainId,
-                new ChainLinkAdded(chainId, secondEvent, secondOutcome, 2, UUID.randomUUID(), UUID.randomUUID()));
+        chains.append(chainId, new ChainLinkThreaded(chainId, secondEvent, secondOutcome, 2));
+        chains.append(chainId, new ChainLinkAdded(chainId, secondEvent, secondOutcome, 2));
 
         var chain = chains.findById(chainId);
 
@@ -144,20 +142,20 @@ class JpaWeaverChainRepositoryTest {
         var playerId = UUID.randomUUID();
         var gameId = UUID.randomUUID();
         chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
-        var resolved = new HashSet<ResolvedOutcome>();
         var facts = new ArrayList<WeaverChainEvent>();
         var live = chains.findById(chainId);
         for (int era = 1; era <= 3; era++) {
             var eventId = UUID.randomUUID();
             var outcomeId = UUID.randomUUID();
-            resolved.add(new ResolvedOutcome(eventId, outcomeId));
             if (era < 3) {
-                for (var fact : live.addLink(eventId, outcomeId, era, resolved, UUID.randomUUID(), UUID.randomUUID())) {
-                    chains.append(chainId, fact);
-                }
+                chains.append(chainId, live.threadPendingLink(eventId, outcomeId, era));
+                live = chains.findById(chainId);
+                chains.appendAll(chainId, live.confirmPendingLink());
                 live = chains.findById(chainId);
             } else {
-                facts.addAll(live.addLink(eventId, outcomeId, era, resolved, UUID.randomUUID(), UUID.randomUUID()));
+                chains.append(chainId, live.threadPendingLink(eventId, outcomeId, era));
+                live = chains.findById(chainId);
+                facts.addAll(live.confirmPendingLink());
             }
         }
 

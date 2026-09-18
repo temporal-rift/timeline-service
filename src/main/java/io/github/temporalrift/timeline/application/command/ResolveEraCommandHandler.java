@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import io.github.temporalrift.timeline.application.port.in.OpenParadoxResolutionPhaseUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
+import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
@@ -55,6 +56,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     private final OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase;
     private final WeaverChainSagaRepository chainSagas;
     private final WeaverChainRepository chains;
+    private final WeaverChainSagaUseCase weaverChainSaga;
     private final Clock clock;
 
     ResolveEraCommandHandler(
@@ -65,6 +67,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase,
             WeaverChainSagaRepository chainSagas,
             WeaverChainRepository chains,
+            WeaverChainSagaUseCase weaverChainSaga,
             Clock clock) {
         this.eraIndex = eraIndex;
         this.futureEvents = futureEvents;
@@ -73,6 +76,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
         this.openParadoxResolutionPhase = openParadoxResolutionPhase;
         this.chainSagas = chainSagas;
         this.chains = chains;
+        this.weaverChainSaga = weaverChainSaga;
         this.clock = clock;
     }
 
@@ -172,6 +176,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                 futureEvent.outcomes(), futureEvent.sealBreach(), futureEvent.id(), activeChains);
         if (detected.isEmpty()) {
             var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
+            weaverChainSaga.resolvePendingLink(gameId, eraNumber, futureEvent.id(), outcomeApplied.winningOutcomeId());
             accumulator.resolutions().add(outcomeApplied);
             accumulator
                     .terminalResolutions()

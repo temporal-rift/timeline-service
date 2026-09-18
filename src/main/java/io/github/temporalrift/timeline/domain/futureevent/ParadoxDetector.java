@@ -1,10 +1,11 @@
 package io.github.temporalrift.timeline.domain.futureevent;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
-import io.github.temporalrift.timeline.domain.weaverchain.ChainLink;
 import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
@@ -37,7 +38,7 @@ public final class ParadoxDetector {
         var paradoxes = new ArrayList<DetectedParadox>();
         paradoxes.addAll(detectDeadHeat(outcomes));
         paradoxes.addAll(detectImpossibleErasure(outcomes));
-        paradoxes.addAll(detectChainConflict(eventId, chains));
+        paradoxes.addAll(detectChainConflict(eventId, outcomes, chains));
         paradoxes.addAll(detectSealBreach(outcomes, sealBreach));
         return List.copyOf(paradoxes);
     }
@@ -92,28 +93,40 @@ public final class ParadoxDetector {
     }
 
     /**
-     * Reports one {@link DetectedParadox} of type {@code CHAIN_CONFLICT} when two or more active chains
-     * link the same event but require different outcomes on it.
+     * Reports one {@link DetectedParadox} of type {@code CHAIN_CONFLICT} per active chain whose pending link
+     * names {@code eventId} and whose named outcome was annihilated — the timeline erased the outcome the
+     * chain's causal claim depends on. Tapestry-protected annihilations never reach here: protection consumes
+     * the Annihilate and confirms the link before this detection ever runs (see {@code WeaverChainSaga}).
      */
-    private static List<DetectedParadox> detectChainConflict(UUID eventId, List<WeaverChain> chains) {
+    private static List<DetectedParadox> detectChainConflict(
+            UUID eventId, List<Outcome> outcomes, List<WeaverChain> chains) {
         if (eventId == null || chains == null || chains.isEmpty()) {
             return List.of();
         }
-        var conflictingOutcomeIds = chains.stream()
-                .filter(chain -> chain != null && chain.status() == ChainStatus.ACTIVE)
-                .flatMap(chain -> chain.links().stream()
-                        .filter(link -> eventId.equals(link.eventId()))
-                        .map(ChainLink::outcomeId))
-                .distinct()
-                .sorted()
-                .toList();
-        if (conflictingOutcomeIds.size() < 2) {
-            return List.of();
+        Set<UUID> annihilatedOutcomeIds = new HashSet<>();
+        for (var outcome : outcomes) {
+            if (outcome.annihilated()) {
+                annihilatedOutcomeIds.add(outcome.outcomeId());
+            }
         }
-        return List.of(new DetectedParadox(
-                ParadoxType.CHAIN_CONFLICT,
-                conflictingOutcomeIds,
-                "Weaver chains require conflicting outcomes " + conflictingOutcomeIds + " for event " + eventId));
+        var paradoxes = new ArrayList<DetectedParadox>();
+        for (var chain : chains) {
+            if (chain == null || chain.status() != ChainStatus.ACTIVE) {
+                continue;
+            }
+            var pending = chain.pendingLink();
+            if (pending == null || !eventId.equals(pending.eventId())) {
+                continue;
+            }
+            if (annihilatedOutcomeIds.contains(pending.outcomeId())) {
+                paradoxes.add(new DetectedParadox(
+                        ParadoxType.CHAIN_CONFLICT,
+                        List.of(pending.outcomeId()),
+                        "Weaver chain's pending link requires outcome " + pending.outcomeId() + " for event " + eventId
+                                + ", which was annihilated"));
+            }
+        }
+        return paradoxes;
     }
 
     /**

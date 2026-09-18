@@ -290,8 +290,6 @@ class CardPlayedAndResolutionKafkaConsumer {
                         payload.gameId(),
                         payload.eraNumber(),
                         payload.playerId(),
-                        payload.sourceEventId(),
-                        payload.sourceOutcomeId(),
                         payload.targetEventId(),
                         payload.targetOutcomeId());
             case TAPESTRY -> weaverChainSaga.playTapestry(payload.gameId(), payload.eraNumber(), payload.playerId());

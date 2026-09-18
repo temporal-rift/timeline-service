@@ -18,6 +18,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.github.temporalrift.timeline.application.port.in.GetChainUseCase;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
+import io.github.temporalrift.timeline.domain.event.ChainLinkThreaded;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.membership.GameMembership;
 import io.github.temporalrift.timeline.domain.membership.MemberFaction;
@@ -59,8 +60,6 @@ class GetChainQueryHandlerTest {
         var chainId = UUID.randomUUID();
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
-        var sourceEventId = UUID.randomUUID();
-        var sourceOutcomeId = UUID.randomUUID();
         givenMembership(gameId, playerId, MemberFaction.WEAVERS);
         given(sagas.findAllByGameAndPlayer(gameId, playerId)).willReturn(List.of(openSaga(chainId, gameId, playerId)));
         given(chains.findById(chainId))
@@ -68,7 +67,8 @@ class GetChainQueryHandlerTest {
                         chainId,
                         List.of(
                                 new WeaverChainStarted(chainId, playerId, gameId),
-                                new ChainLinkAdded(chainId, eventId, outcomeId, 1, sourceEventId, sourceOutcomeId))));
+                                new ChainLinkThreaded(chainId, eventId, outcomeId, 1),
+                                new ChainLinkAdded(chainId, eventId, outcomeId, 1))));
 
         GetChainUseCase.Result result = handler.get(gameId, playerId);
 
@@ -78,8 +78,32 @@ class GetChainQueryHandlerTest {
         assertThat(result.links().getFirst().eventId()).isEqualTo(eventId);
         assertThat(result.links().getFirst().outcomeId()).isEqualTo(outcomeId);
         assertThat(result.links().getFirst().eraNumber()).isEqualTo(1);
-        assertThat(result.links().getFirst().sourceEventId()).isEqualTo(sourceEventId);
-        assertThat(result.links().getFirst().sourceOutcomeId()).isEqualTo(sourceOutcomeId);
+        assertThat(result.pendingLink()).isNull();
+    }
+
+    @Test
+    @DisplayName("weaver with an open pending link — reported distinctly from confirmed links")
+    void get_weaverWithPendingLink_returnsPendingLinkSeparately() {
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var chainId = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        givenMembership(gameId, playerId, MemberFaction.WEAVERS);
+        given(sagas.findAllByGameAndPlayer(gameId, playerId)).willReturn(List.of(openSaga(chainId, gameId, playerId)));
+        given(chains.findById(chainId))
+                .willReturn(WeaverChain.replay(
+                        chainId,
+                        List.of(
+                                new WeaverChainStarted(chainId, playerId, gameId),
+                                new ChainLinkThreaded(chainId, eventId, outcomeId, 1))));
+
+        GetChainUseCase.Result result = handler.get(gameId, playerId);
+
+        assertThat(result.chainLength()).isZero();
+        assertThat(result.links()).isEmpty();
+        assertThat(result.pendingLink().eventId()).isEqualTo(eventId);
+        assertThat(result.pendingLink().outcomeId()).isEqualTo(outcomeId);
     }
 
     @Test

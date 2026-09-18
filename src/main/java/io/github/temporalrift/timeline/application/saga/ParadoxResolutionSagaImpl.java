@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.ParadoxCascaded;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolutionPhaseStarted;
@@ -21,6 +22,7 @@ import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.futureevent.DetectedParadox;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxDetector;
+import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
@@ -61,6 +63,7 @@ class ParadoxResolutionSagaImpl {
     private final ProbabilityRulesPort probabilityRules;
     private final WeaverChainSagaRepository chainSagas;
     private final WeaverChainRepository chains;
+    private final WeaverChainSagaUseCase weaverChainSaga;
     private final Clock clock;
 
     ParadoxResolutionSagaImpl(
@@ -73,6 +76,7 @@ class ParadoxResolutionSagaImpl {
             ProbabilityRulesPort probabilityRules,
             WeaverChainSagaRepository chainSagas,
             WeaverChainRepository chains,
+            WeaverChainSagaUseCase weaverChainSaga,
             Clock clock) {
         this.stateManager = stateManager;
         this.futureEvents = futureEvents;
@@ -83,6 +87,7 @@ class ParadoxResolutionSagaImpl {
         this.probabilityRules = probabilityRules;
         this.chainSagas = chainSagas;
         this.chains = chains;
+        this.weaverChainSaga = weaverChainSaga;
         this.clock = clock;
     }
 
@@ -312,6 +317,14 @@ class ParadoxResolutionSagaImpl {
                                 futureEvent.outcomes(),
                                 detonatedByPlayerIds(phase, affectedEventId)),
                         clock));
+                if (pending.type() == ParadoxType.CHAIN_CONFLICT) {
+                    weaverChainSaga.breakChainOnCascadedParadox(
+                            phase.gameId(),
+                            phase.eraNumber(),
+                            affectedEventId,
+                            pending.affectedOutcomeIds().getFirst(),
+                            pending.paradoxId());
+                }
             } else {
                 publisher.publish(TimelineEventEnvelope.create(
                         affectedEventId,
@@ -324,12 +337,21 @@ class ParadoxResolutionSagaImpl {
                                 pending.paradoxId(),
                                 resolvedByPlayerIdByEvent.get(affectedEventId)),
                         clock));
+                if (pending.type() == ParadoxType.CHAIN_CONFLICT) {
+                    weaverChainSaga.confirmParadoxResolvedLink(
+                            phase.gameId(),
+                            phase.eraNumber(),
+                            affectedEventId,
+                            pending.affectedOutcomeIds().getFirst());
+                }
             }
         }
 
         if (allResolved) {
             var outcomeApplied = futureEvent.resolve(phase.gameId(), phase.eraNumber());
             futureEvents.append(affectedEventId, outcomeApplied);
+            weaverChainSaga.resolvePendingLink(
+                    phase.gameId(), phase.eraNumber(), affectedEventId, outcomeApplied.winningOutcomeId());
             publisher.publish(TimelineEventEnvelope.create(
                     affectedEventId,
                     FUTURE_EVENT_AGGREGATE_TYPE,

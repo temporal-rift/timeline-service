@@ -26,7 +26,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.github.temporalrift.timeline.application.port.in.OpenParadoxResolutionPhaseUseCase;
-import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
+import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
@@ -79,6 +79,9 @@ class ResolveEraCommandHandlerTest {
     @Mock
     WeaverChainRepository chains;
 
+    @Mock
+    WeaverChainSagaUseCase weaverChainSaga;
+
     private final Clock clock = Clock.fixed(Instant.parse("2026-07-31T00:00:00Z"), ZoneOffset.UTC);
 
     private ResolveEraCommandHandler handler;
@@ -93,6 +96,7 @@ class ResolveEraCommandHandlerTest {
                 openParadoxResolutionPhase,
                 chainSagas,
                 chains,
+                weaverChainSaga,
                 clock);
         given(chainSagas.findOpenByGame(any())).willReturn(List.of());
     }
@@ -571,16 +575,25 @@ class ResolveEraCommandHandlerTest {
     }
 
     @Test
-    void resolve_conflictingChains_publishesChainConflictParadox() {
+    void resolve_annihilatedPendingLink_publishesChainConflictParadox() {
         var eventId = UUID.randomUUID();
-        var firstOutcomeId = UUID.randomUUID();
-        var secondOutcomeId = UUID.randomUUID();
-        var futureEvent = draftedFutureEvent(eventId, firstOutcomeId);
+        var pendingOutcomeId = UUID.randomUUID();
+        // Three outcomes, pendingOutcomeId not the highest — annihilating it trips only CHAIN_CONFLICT, not
+        // IMPOSSIBLE_ERASURE too (that requires the annihilated outcome to hold the highest probability).
+        var futureEvent = FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(pendingOutcomeId, "pending", 30),
+                                new Outcome(UUID.randomUUID(), "second", 45),
+                                new Outcome(UUID.randomUUID(), "third", 25)))));
+        futureEvent.annihilateOutcome(pendingOutcomeId);
 
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        givenActiveChains(eventId, firstOutcomeId, secondOutcomeId);
+        givenActiveChainWithPendingLink(eventId, pendingOutcomeId);
         givenOpenEchoesBackItsPendingParadoxes();
 
         handler.resolve(GAME_ID, ERA_NUMBER);
@@ -596,12 +609,12 @@ class ResolveEraCommandHandlerTest {
         assertThat(paradoxDetected.paradoxes()).singleElement().satisfies(paradox -> {
             assertThat(paradox.type()).isEqualTo(ParadoxType.CHAIN_CONFLICT);
             assertThat(paradox.affectedEventId()).isEqualTo(eventId);
-            assertThat(paradox.affectedOutcomeIds()).containsExactlyInAnyOrder(firstOutcomeId, secondOutcomeId);
+            assertThat(paradox.affectedOutcomeIds()).containsExactly(pendingOutcomeId);
         });
     }
 
     @Test
-    void resolve_compatibleChains_publishesNoParadox() {
+    void resolve_pendingLinkNotAnnihilated_publishesNoParadox() {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
         var futureEvent = draftedFutureEvent(eventId, outcomeId);
@@ -609,7 +622,7 @@ class ResolveEraCommandHandlerTest {
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        givenActiveChains(eventId, outcomeId, outcomeId);
+        givenActiveChainWithPendingLink(eventId, outcomeId);
 
         handler.resolve(GAME_ID, ERA_NUMBER);
 
@@ -619,38 +632,21 @@ class ResolveEraCommandHandlerTest {
                 .noneMatch(ParadoxDetected.class::isInstance);
     }
 
-    private void givenActiveChains(UUID eventId, UUID firstOutcomeId, UUID secondOutcomeId) {
-        var firstChainId = UUID.randomUUID();
-        var secondChainId = UUID.randomUUID();
+    private void givenActiveChainWithPendingLink(UUID eventId, UUID pendingOutcomeId) {
+        var chainId = UUID.randomUUID();
         given(chainSagas.findOpenByGame(GAME_ID))
-                .willReturn(List.of(
-                        new WeaverChainSagaState(
-                                firstChainId,
-                                GAME_ID,
-                                UUID.randomUUID(),
-                                WeaverChainSagaStatus.OPEN,
-                                false,
-                                null,
-                                null),
-                        new WeaverChainSagaState(
-                                secondChainId,
-                                GAME_ID,
-                                UUID.randomUUID(),
-                                WeaverChainSagaStatus.OPEN,
-                                false,
-                                null,
-                                null)));
-        given(chains.findById(firstChainId)).willReturn(chainLinking(firstChainId, eventId, firstOutcomeId));
-        given(chains.findById(secondChainId)).willReturn(chainLinking(secondChainId, eventId, secondOutcomeId));
+                .willReturn(List.of(new WeaverChainSagaState(
+                        chainId, GAME_ID, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null, null)));
+        given(chains.findById(chainId)).willReturn(chainWithPendingLink(chainId, eventId, pendingOutcomeId));
     }
 
-    private static WeaverChain chainLinking(UUID chainId, UUID eventId, UUID outcomeId) {
+    private static WeaverChain chainWithPendingLink(UUID chainId, UUID eventId, UUID outcomeId) {
         return WeaverChain.replay(
                 chainId,
                 List.of(
                         new WeaverChainStarted(chainId, UUID.randomUUID(), GAME_ID),
-                        new ChainLinkAdded(
-                                chainId, eventId, outcomeId, ERA_NUMBER, UUID.randomUUID(), UUID.randomUUID())));
+                        new io.github.temporalrift.timeline.domain.event.ChainLinkThreaded(
+                                chainId, eventId, outcomeId, ERA_NUMBER)));
     }
 
     /**
