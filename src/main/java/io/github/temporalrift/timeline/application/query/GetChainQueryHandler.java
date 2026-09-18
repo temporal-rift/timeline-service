@@ -53,7 +53,12 @@ class GetChainQueryHandler implements GetChainUseCase {
         var loaded = selectChain(gameId, playerId);
         var chain = loaded.chain();
         return new Result(
-                chain.chainId(), chain.status(), chain.length(), chain.links(), isProtectionCurrentlyArmed(loaded));
+                chain.chainId(),
+                chain.status(),
+                chain.length(),
+                chain.links(),
+                chain.pendingLink(),
+                isProtectionCurrentlyArmed(loaded));
     }
 
     /**

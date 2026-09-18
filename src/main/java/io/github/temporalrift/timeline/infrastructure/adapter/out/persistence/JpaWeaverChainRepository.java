@@ -14,6 +14,7 @@ import io.github.temporalrift.timeline.domain.event.ChainBroken;
 import io.github.temporalrift.timeline.domain.event.ChainCompleted;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
 import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidated;
+import io.github.temporalrift.timeline.domain.event.ChainLinkThreaded;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchored;
 import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
@@ -121,6 +122,7 @@ class JpaWeaverChainRepository implements WeaverChainRepository {
     private WeaverChainEvent toDomainEvent(StoredEvent stored) {
         return switch (stored.eventType()) {
             case "WeaverChainStarted" -> objectMapper.readValue(stored.payload(), WeaverChainStarted.class);
+            case "ChainLinkThreaded" -> objectMapper.readValue(stored.payload(), ChainLinkThreaded.class);
             case "ChainLinkAdded" -> objectMapper.readValue(stored.payload(), ChainLinkAdded.class);
             case "ChainLinkInvalidated" -> objectMapper.readValue(stored.payload(), ChainLinkInvalidated.class);
             case "ChainCompleted" -> objectMapper.readValue(stored.payload(), ChainCompleted.class);

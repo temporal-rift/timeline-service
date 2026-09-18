@@ -77,33 +77,41 @@ class TimelineEventWireMapperTest {
     }
 
     @Test
+    void toWire_chainLinkThreaded_mapsEveryField() {
+        var gameId = UUID.randomUUID();
+        var chainId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var event = new io.github.temporalrift.timeline.domain.event.ChainLinkThreadedEvent(
+                gameId, 2, chainId, playerId, eventId, outcomeId);
+
+        var wire = mapper.toWire(event);
+
+        assertThat(wire.gameId()).isEqualTo(gameId);
+        assertThat(wire.eraNumber()).isEqualTo(2);
+        assertThat(wire.chainId()).isEqualTo(chainId);
+        assertThat(wire.playerId()).isEqualTo(playerId);
+        assertThat(wire.eventId()).isEqualTo(eventId);
+        assertThat(wire.outcomeId()).isEqualTo(outcomeId);
+    }
+
+    @Test
     void toWire_chainLinkAdded_mapsEveryField() {
         var gameId = UUID.randomUUID();
         var chainId = UUID.randomUUID();
         var playerId = UUID.randomUUID();
-        var sourceEventId = UUID.randomUUID();
-        var sourceOutcomeId = UUID.randomUUID();
         var linkedEventId = UUID.randomUUID();
         var linkedOutcomeId = UUID.randomUUID();
         var previousLinkEventId = UUID.randomUUID();
         var event = new ChainLinkAddedEvent(
-                gameId,
-                chainId,
-                playerId,
-                sourceEventId,
-                sourceOutcomeId,
-                linkedEventId,
-                linkedOutcomeId,
-                2,
-                previousLinkEventId);
+                gameId, chainId, playerId, linkedEventId, linkedOutcomeId, 2, previousLinkEventId);
 
         var wire = mapper.toWire(event);
 
         assertThat(wire.gameId()).isEqualTo(gameId);
         assertThat(wire.chainId()).isEqualTo(chainId);
         assertThat(wire.playerId()).isEqualTo(playerId);
-        assertThat(wire.sourceEventId()).isEqualTo(sourceEventId);
-        assertThat(wire.sourceOutcomeId()).isEqualTo(sourceOutcomeId);
         assertThat(wire.linkedEventId()).isEqualTo(linkedEventId);
         assertThat(wire.linkedOutcomeId()).isEqualTo(linkedOutcomeId);
         assertThat(wire.chainLength()).isEqualTo(2);
@@ -140,17 +148,17 @@ class TimelineEventWireMapperTest {
     void toWire_chainBroken_mapsEveryField() {
         var gameId = UUID.randomUUID();
         var chainId = UUID.randomUUID();
-        var brokenByPlayerId = UUID.randomUUID();
-        var targetPlayerId = UUID.randomUUID();
-        var event = new ChainBrokenEvent(gameId, 2, chainId, brokenByPlayerId, targetPlayerId, 2);
+        var playerId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var event = new ChainBrokenEvent(gameId, 2, chainId, playerId, paradoxId, 2);
 
         var wire = mapper.toWire(event);
 
         assertThat(wire.gameId()).isEqualTo(gameId);
         assertThat(wire.eraNumber()).isEqualTo(2);
         assertThat(wire.chainId()).isEqualTo(chainId);
-        assertThat(wire.brokenByPlayerId()).isEqualTo(brokenByPlayerId);
-        assertThat(wire.targetPlayerId()).isEqualTo(targetPlayerId);
+        assertThat(wire.playerId()).isEqualTo(playerId);
+        assertThat(wire.paradoxId()).isEqualTo(paradoxId);
         assertThat(wire.chainLengthAtBreak()).isEqualTo(2);
     }
 
@@ -180,20 +188,9 @@ class TimelineEventWireMapperTest {
         var gameId = UUID.randomUUID();
         var chainId = UUID.randomUUID();
         var playerId = UUID.randomUUID();
-        var sourceEventId = UUID.randomUUID();
-        var sourceOutcomeId = UUID.randomUUID();
-        var referencedEventId = UUID.randomUUID();
-        var referencedOutcomeId = UUID.randomUUID();
-        var event = new ThreadRejectedEvent(
-                gameId,
-                2,
-                chainId,
-                playerId,
-                sourceEventId,
-                sourceOutcomeId,
-                referencedEventId,
-                referencedOutcomeId,
-                "OUTCOME_DID_NOT_RESOLVE");
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var event = new ThreadRejectedEvent(gameId, 2, chainId, playerId, eventId, outcomeId, "ALREADY_PENDING");
 
         var wire = mapper.toWire(event);
 
@@ -201,11 +198,9 @@ class TimelineEventWireMapperTest {
         assertThat(wire.eraNumber()).isEqualTo(2);
         assertThat(wire.chainId()).isEqualTo(chainId);
         assertThat(wire.playerId()).isEqualTo(playerId);
-        assertThat(wire.sourceEventId()).isEqualTo(sourceEventId);
-        assertThat(wire.sourceOutcomeId()).isEqualTo(sourceOutcomeId);
-        assertThat(wire.referencedEventId()).isEqualTo(referencedEventId);
-        assertThat(wire.referencedOutcomeId()).isEqualTo(referencedOutcomeId);
-        assertThat(wire.reason()).isEqualTo("OUTCOME_DID_NOT_RESOLVE");
+        assertThat(wire.eventId()).isEqualTo(eventId);
+        assertThat(wire.outcomeId()).isEqualTo(outcomeId);
+        assertThat(wire.reason()).isEqualTo("ALREADY_PENDING");
     }
 
     @Test

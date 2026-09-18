@@ -768,12 +768,9 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     @DisplayName("THREAD — routed to the Weaver chain saga, never buffered for replay")
     void handle_thread_delegatesToWeaverChainSaga() {
         var eventId = UUID.randomUUID();
-        var sourceEventId = UUID.randomUUID();
-        var sourceOutcomeId = UUID.randomUUID();
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
-        var payload = specialActionPlayed(
-                SpecialAction.THREAD, sourceEventId, sourceOutcomeId, targetEventId, targetOutcomeId, null);
+        var payload = specialActionPlayed(SpecialAction.THREAD, targetEventId, targetOutcomeId, null);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
         given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
 
@@ -781,14 +778,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
         then(weaverChainSaga)
                 .should()
-                .playThread(
-                        payload.gameId(),
-                        ERA_NUMBER,
-                        payload.playerId(),
-                        sourceEventId,
-                        sourceOutcomeId,
-                        targetEventId,
-                        targetOutcomeId);
+                .playThread(payload.gameId(), ERA_NUMBER, payload.playerId(), targetEventId, targetOutcomeId);
         then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
     }
 

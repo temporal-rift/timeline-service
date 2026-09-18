@@ -17,6 +17,7 @@ import io.github.temporalrift.timeline.domain.event.ChainBrokenEvent;
 import io.github.temporalrift.timeline.domain.event.ChainCompletedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAddedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidatedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainLinkThreadedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainProtectionArmedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainProtectionConsumedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchoredEvent;
@@ -73,6 +74,7 @@ class TimelineEventPublisherAdapter implements TimelineEventPublisher {
             case ParadoxResolved e -> publish("ParadoxResolved", mapper.toWire(e), event);
             case AdjustedBandsPublished e -> publish("AdjustedBandsPublished", mapper.toWire(e), event);
             case CorruptInversionConfirmed e -> publish("CorruptInversionConfirmed", mapper.toWire(e), event);
+            case ChainLinkThreadedEvent e -> publish("ChainLinkThreaded", mapper.toWire(e), event);
             case ChainLinkAddedEvent e -> publish("ChainLinkAdded", mapper.toWire(e), event);
             case ChainCompletedEvent e -> publish("ChainCompleted", mapper.toWire(e), event);
             case ChainBrokenEvent e -> publish("ChainBroken", mapper.toWire(e), event);

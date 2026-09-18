@@ -3,7 +3,6 @@ package io.github.temporalrift.timeline.domain.weaverchain;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -12,13 +11,16 @@ import io.github.temporalrift.timeline.domain.event.ChainCompleted;
 import io.github.temporalrift.timeline.domain.event.ChainFact;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
 import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidated;
+import io.github.temporalrift.timeline.domain.event.ChainLinkThreaded;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchored;
 import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 
 /**
  * Event-sourced aggregate for one Weaver player's causal chain. Rebuilt by {@link #replay(UUID, List)} or
- * {@link #restore(WeaverChainSnapshot, List)}, never loaded from a current-state row.
+ * {@link #restore(WeaverChainSnapshot, List)}, never loaded from a current-state row. The newest link may be
+ * {@code pending} — anchored to a not-yet-resolved current-era outcome (a live THREAD prediction) — before it
+ * confirms into {@link #links()}; at most one pending link is open at a time.
  */
 public final class WeaverChain {
 
@@ -31,13 +33,21 @@ public final class WeaverChain {
     private final UUID playerId;
     private final UUID gameId;
     private final List<ChainLink> links;
+    private ChainLink pendingLink;
     private ChainStatus status;
 
-    private WeaverChain(UUID chainId, UUID playerId, UUID gameId, List<ChainLink> links, ChainStatus status) {
+    private WeaverChain(
+            UUID chainId,
+            UUID playerId,
+            UUID gameId,
+            List<ChainLink> links,
+            ChainLink pendingLink,
+            ChainStatus status) {
         this.chainId = chainId;
         this.playerId = playerId;
         this.gameId = gameId;
         this.links = links;
+        this.pendingLink = pendingLink;
         this.status = status;
     }
 
@@ -58,7 +68,7 @@ public final class WeaverChain {
                 if (!Objects.equals(id, chainId)) {
                     throw new IllegalStateException("Event belongs to WeaverChain " + id + ", not " + chainId);
                 }
-                chain = new WeaverChain(chainId, player, game, new ArrayList<>(), ChainStatus.ACTIVE);
+                chain = new WeaverChain(chainId, player, game, new ArrayList<>(), null, ChainStatus.ACTIVE);
             } else if (event instanceof ChainFact fact) {
                 if (chain == null) {
                     throw new IllegalStateException(
@@ -79,6 +89,7 @@ public final class WeaverChain {
                 snapshot.playerId(),
                 snapshot.gameId(),
                 new ArrayList<>(snapshot.links()),
+                snapshot.pendingLink(),
                 snapshot.status());
         for (var event : tail) {
             if (event instanceof WeaverChainStarted) {
@@ -108,20 +119,20 @@ public final class WeaverChain {
         if (status != ChainStatus.ACTIVE) {
             throw new IllegalStateException("Event replayed outside the started and active state for " + chainId);
         }
+        if (event instanceof ChainLinkThreaded threaded
+                && (pendingLink != null
+                        || links.stream().anyMatch(link -> link.eventId().equals(threaded.eventId())))) {
+            throw new IllegalStateException("Invalid pending link for " + threaded.eventId());
+        }
         if (event instanceof ChainLinkAdded added
-                && links.stream().anyMatch(link -> link.eventId().equals(added.eventId()))) {
-            throw new IllegalStateException("Duplicate event link for " + added.eventId());
+                && (pendingLink == null || !pendingLink.eventId().equals(added.eventId()))) {
+            throw new IllegalStateException("No matching pending link to confirm for " + added.eventId());
         }
         if (event instanceof ChainLinkInvalidated invalidated
-                && links.stream()
-                        .noneMatch(link -> link.eventId().equals(invalidated.eventId())
-                                && link.outcomeId().equals(invalidated.outcomeId()))) {
-            throw new IllegalStateException("Invalidated link was never appended for " + invalidated.eventId());
+                && (pendingLink == null || !pendingLink.eventId().equals(invalidated.eventId()))) {
+            throw new IllegalStateException("No matching pending link to invalidate for " + invalidated.eventId());
         }
-        if (event instanceof ChainReAnchored reAnchored
-                && links.stream()
-                        .noneMatch(link -> link.eventId().equals(reAnchored.discardedEventId())
-                                && link.outcomeId().equals(reAnchored.discardedOutcomeId()))) {
+        if (event instanceof ChainReAnchored reAnchored && !newestLinkMatches(reAnchored.discardedEventId())) {
             throw new IllegalStateException("Re-anchored link was never appended for " + reAnchored.discardedEventId());
         }
         if (event instanceof ChainCompleted && links.size() != COMPLETION_LENGTH) {
@@ -130,63 +141,74 @@ public final class WeaverChain {
         apply(event);
     }
 
+    private boolean newestLinkMatches(UUID eventId) {
+        if (pendingLink != null) {
+            return pendingLink.eventId().equals(eventId);
+        }
+        return !links.isEmpty() && links.getLast().eventId().equals(eventId);
+    }
+
     private void apply(ChainFact event) {
         switch (event) {
-            case ChainLinkAdded e -> {
-                links.add(new ChainLink(
-                        e.eventId(), e.outcomeId(), e.eraNumber(), e.sourceEventId(), e.sourceOutcomeId()));
-                if (links.size() >= COMPLETION_LENGTH) {
-                    status = ChainStatus.COMPLETED;
-                }
+            case ChainLinkThreaded e -> pendingLink = new ChainLink(e.eventId(), e.outcomeId(), e.eraNumber());
+            case ChainLinkAdded _ -> {
+                links.add(pendingLink);
+                pendingLink = null;
             }
-            case ChainLinkInvalidated e ->
-                links.removeIf(link ->
-                        link.eventId().equals(e.eventId()) && link.outcomeId().equals(e.outcomeId()));
+            case ChainLinkInvalidated _ -> pendingLink = null;
             case ChainCompleted _ -> status = ChainStatus.COMPLETED;
-            case ChainBroken _ -> status = ChainStatus.BROKEN;
+            case ChainBroken _ -> {
+                status = ChainStatus.BROKEN;
+                pendingLink = null;
+            }
             case ChainReAnchored e -> {
-                links.removeIf(link -> link.eventId().equals(e.discardedEventId())
-                        && link.outcomeId().equals(e.discardedOutcomeId()));
-                links.add(new ChainLink(
-                        e.eventId(), e.outcomeId(), e.eraNumber(), e.sourceEventId(), e.sourceOutcomeId()));
+                if (pendingLink != null) {
+                    pendingLink = null;
+                } else {
+                    links.removeLast();
+                }
+                links.add(new ChainLink(e.eventId(), e.outcomeId(), e.eraNumber()));
             }
         }
     }
 
     /**
-     * Appends one validated causal link, anchored from a current-era {@code (sourceEventId, sourceOutcomeId)}.
-     * Returns the stream facts to append in order — one {@link ChainLinkAdded}, plus a {@link ChainCompleted}
-     * when the third link lands.
+     * Accepts one {@code THREAD} play, opening a pending link anchored to a not-yet-resolved current-era
+     * outcome. Rejected when the chain already has an open pending link or the event is already linked.
      */
-    public List<WeaverChainEvent> addLink(
-            UUID eventId,
-            UUID outcomeId,
-            int eraNumber,
-            Set<ResolvedOutcome> resolvedOutcomes,
-            UUID sourceEventId,
-            UUID sourceOutcomeId) {
+    public ChainLinkThreaded threadPendingLink(UUID eventId, UUID outcomeId, int eraNumber) {
         Objects.requireNonNull(eventId, PARAM_EVENT_ID);
         Objects.requireNonNull(outcomeId, PARAM_OUTCOME_ID);
-        Objects.requireNonNull(resolvedOutcomes, "resolvedOutcomes");
-        Objects.requireNonNull(sourceEventId, "sourceEventId");
-        Objects.requireNonNull(sourceOutcomeId, "sourceOutcomeId");
         if (status == ChainStatus.COMPLETED) {
             throw new WeaverChainCompletedException(chainId);
         }
         if (status == ChainStatus.BROKEN) {
             throw new WeaverChainBrokenException(chainId);
         }
-        if (links.size() >= COMPLETION_LENGTH) {
-            throw new WeaverChainCompletedException(chainId);
-        }
-        if (!resolvedOutcomes.contains(new ResolvedOutcome(eventId, outcomeId))) {
-            throw new InvalidChainLinkException(chainId, eventId, outcomeId, "outcome did not resolve");
+        if (pendingLink != null) {
+            throw new InvalidChainLinkException(chainId, eventId, outcomeId, "chain already has an open pending link");
         }
         if (links.stream().anyMatch(link -> link.eventId().equals(eventId))) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "event already linked");
         }
-        var linkAdded = new ChainLinkAdded(chainId, eventId, outcomeId, eraNumber, sourceEventId, sourceOutcomeId);
-        links.add(new ChainLink(eventId, outcomeId, eraNumber, sourceEventId, sourceOutcomeId));
+        var fact = new ChainLinkThreaded(chainId, eventId, outcomeId, eraNumber);
+        pendingLink = new ChainLink(eventId, outcomeId, eraNumber);
+        return fact;
+    }
+
+    /**
+     * Confirms the chain's open pending link — it resolved as predicted, was Tapestry-protected against an
+     * Annihilate, or its {@code CHAIN_CONFLICT} paradox resolved in the Weaver's favor. Returns the stream facts
+     * to append in order — one {@link ChainLinkAdded}, plus a {@link ChainCompleted} when the third link lands.
+     */
+    public List<WeaverChainEvent> confirmPendingLink() {
+        if (pendingLink == null) {
+            throw new InvalidChainLinkException(chainId, null, null, "chain has no pending link to confirm");
+        }
+        var confirmed = pendingLink;
+        var linkAdded = new ChainLinkAdded(chainId, confirmed.eventId(), confirmed.outcomeId(), confirmed.eraNumber());
+        links.add(confirmed);
+        pendingLink = null;
         if (links.size() == COMPLETION_LENGTH) {
             status = ChainStatus.COMPLETED;
             return List.of(linkAdded, new ChainCompleted(chainId));
@@ -195,16 +217,28 @@ public final class WeaverChain {
     }
 
     /**
-     * Discards this chain's newest link and replaces it with a different resolved past outcome in one
-     * indivisible step ({@code REWEAVE}). Length and earlier links are unchanged; the replacement link
-     * retains the discarded link's current-era anchor source.
+     * Clears the chain's open pending link — it resolved to a different, non-annihilated outcome than
+     * predicted. No penalty: chain length and confirmed links are unchanged, and the chain stays open.
+     */
+    public ChainLinkInvalidated clearPendingLink() {
+        if (pendingLink == null) {
+            throw new InvalidChainLinkException(chainId, null, null, "chain has no pending link to clear");
+        }
+        var cleared = pendingLink;
+        pendingLink = null;
+        return new ChainLinkInvalidated(chainId, cleared.eventId(), cleared.outcomeId());
+    }
+
+    /**
+     * Discards this chain's newest link — pending or confirmed — and replaces it with a different resolved
+     * past outcome in one indivisible step ({@code REWEAVE}). Length and earlier links are unchanged.
      */
     public ChainReAnchored reAnchor(
             UUID eventId, UUID outcomeId, int eraNumber, Set<ResolvedOutcome> resolvedOutcomes) {
         Objects.requireNonNull(eventId, PARAM_EVENT_ID);
         Objects.requireNonNull(outcomeId, PARAM_OUTCOME_ID);
         Objects.requireNonNull(resolvedOutcomes, "resolvedOutcomes");
-        if (links.isEmpty()) {
+        if (pendingLink == null && links.isEmpty()) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "chain has no links to re-anchor");
         }
         if (status == ChainStatus.COMPLETED) {
@@ -219,22 +253,19 @@ public final class WeaverChain {
         if (links.stream().anyMatch(link -> link.eventId().equals(eventId))) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "event already linked");
         }
-        var discarded = links.getLast();
-        var reAnchored = new ChainReAnchored(
-                chainId,
-                discarded.eventId(),
-                discarded.outcomeId(),
-                eventId,
-                outcomeId,
-                eraNumber,
-                discarded.sourceEventId(),
-                discarded.sourceOutcomeId());
-        links.removeLast();
-        links.add(new ChainLink(eventId, outcomeId, eraNumber, discarded.sourceEventId(), discarded.sourceOutcomeId()));
+        var discarded = pendingLink != null ? pendingLink : links.getLast();
+        var reAnchored =
+                new ChainReAnchored(chainId, discarded.eventId(), discarded.outcomeId(), eventId, outcomeId, eraNumber);
+        if (pendingLink != null) {
+            pendingLink = null;
+        } else {
+            links.removeLast();
+        }
+        links.add(new ChainLink(eventId, outcomeId, eraNumber));
         return reAnchored;
     }
 
-    /** Marks this chain broken, preserving its links. */
+    /** Marks this chain broken, preserving its confirmed links and discarding any open pending link. */
     public ChainBroken breakChain(String reason) {
         Objects.requireNonNull(reason, "reason");
         if (status == ChainStatus.COMPLETED) {
@@ -244,33 +275,13 @@ public final class WeaverChain {
             throw new WeaverChainBrokenException(chainId);
         }
         status = ChainStatus.BROKEN;
+        pendingLink = null;
         return new ChainBroken(chainId, reason);
-    }
-
-    /**
-     * Removes one annihilated link, keeping the chain open for rebuilding. Returns the invalidation fact,
-     * or empty when the annihilated outcome was never part of this chain.
-     */
-    public Optional<ChainLinkInvalidated> invalidateLink(UUID eventId, UUID outcomeId) {
-        Objects.requireNonNull(eventId, PARAM_EVENT_ID);
-        Objects.requireNonNull(outcomeId, PARAM_OUTCOME_ID);
-        if (status != ChainStatus.ACTIVE) {
-            return Optional.empty();
-        }
-        var linked = links.stream()
-                .anyMatch(link ->
-                        link.eventId().equals(eventId) && link.outcomeId().equals(outcomeId));
-        if (!linked) {
-            return Optional.empty();
-        }
-        links.removeIf(
-                link -> link.eventId().equals(eventId) && link.outcomeId().equals(outcomeId));
-        return Optional.of(new ChainLinkInvalidated(chainId, eventId, outcomeId));
     }
 
     /** Captures this chain's full value state for snapshot persistence. */
     public WeaverChainSnapshot snapshot() {
-        return new WeaverChainSnapshot(chainId, playerId, gameId, List.copyOf(links), status);
+        return new WeaverChainSnapshot(chainId, playerId, gameId, List.copyOf(links), pendingLink, status);
     }
 
     public UUID chainId() {
@@ -295,5 +306,10 @@ public final class WeaverChain {
 
     public List<ChainLink> links() {
         return List.copyOf(links);
+    }
+
+    /** The chain's open pending link — a not-yet-resolved current-era THREAD prediction — or {@code null}. */
+    public ChainLink pendingLink() {
+        return pendingLink;
     }
 }

@@ -7,12 +7,4 @@ import java.util.UUID;
  * {@code chainId} means the player had no active chain when the invalid THREAD arrived.
  */
 public record ThreadRejectedEvent(
-        UUID gameId,
-        int eraNumber,
-        UUID chainId,
-        UUID playerId,
-        UUID sourceEventId,
-        UUID sourceOutcomeId,
-        UUID referencedEventId,
-        UUID referencedOutcomeId,
-        String reason) {}
+        UUID gameId, int eraNumber, UUID chainId, UUID playerId, UUID eventId, UUID outcomeId, String reason) {}

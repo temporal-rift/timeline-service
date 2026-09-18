@@ -12,10 +12,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
+import io.github.temporalrift.timeline.domain.event.ChainBrokenEvent;
 import io.github.temporalrift.timeline.domain.event.ChainCompleted;
 import io.github.temporalrift.timeline.domain.event.ChainCompletedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAddedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidatedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainLinkThreadedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainProtectionArmedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainProtectionConsumedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchored;
@@ -56,10 +58,10 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     private static final String SPECIAL_TAPESTRY = "TAPESTRY";
     private static final String SPECIAL_REWEAVE = "REWEAVE";
 
-    private static final String REASON_DID_NOT_RESOLVE = "OUTCOME_DID_NOT_RESOLVE";
-    private static final String REASON_ALREADY_LINKED = "EVENT_ALREADY_LINKED";
     private static final String REASON_MISSING_COORDINATE = "MISSING_COORDINATE";
-    private static final String REASON_INVALID_SOURCE = "INVALID_SOURCE";
+    private static final String REASON_INVALID_COORDINATE = "INVALID_COORDINATE";
+    private static final String REASON_ALREADY_PENDING = "ALREADY_PENDING";
+    private static final String REASON_ALREADY_LINKED = "EVENT_ALREADY_LINKED";
 
     private static final String REASON_NO_ACTIVE_CHAIN = "NO_ACTIVE_CHAIN";
     private static final String REASON_CHAIN_TOO_SHORT = "CHAIN_TOO_SHORT";
@@ -94,51 +96,32 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
 
     @Override
     @Transactional
-    public void playThread(
-            UUID gameId,
-            int eraNumber,
-            UUID playerId,
-            UUID sourceEventId,
-            UUID sourceOutcomeId,
-            UUID targetEventId,
-            UUID targetOutcomeId) {
+    public void playThread(UUID gameId, int eraNumber, UUID playerId, UUID eventId, UUID outcomeId) {
         var saga = sagas.findOpenByGameAndPlayer(gameId, playerId).orElse(null);
-        var source = new OutcomeCoordinate(sourceEventId, sourceOutcomeId);
-        var target = new OutcomeCoordinate(targetEventId, targetOutcomeId);
-        var rejectionReason = validateThread(gameId, eraNumber, source, target);
+        var coordinate = new OutcomeCoordinate(eventId, outcomeId);
+        var rejectionReason = validateThread(gameId, eraNumber, coordinate);
         if (rejectionReason != null) {
             publishThreadRejected(
-                    gameId, eraNumber, saga == null ? null : saga.chainId(), playerId, source, target, rejectionReason);
+                    gameId, eraNumber, saga == null ? null : saga.chainId(), playerId, coordinate, rejectionReason);
             return;
         }
-        acceptThread(gameId, eraNumber, playerId, saga, source, target);
+        acceptThread(gameId, eraNumber, playerId, saga, coordinate);
     }
 
     /** The causal-link validity rules THREAD alone can check before touching the chain aggregate. */
-    private String validateThread(UUID gameId, int eraNumber, OutcomeCoordinate source, OutcomeCoordinate target) {
-        if (source.eventId() == null
-                || source.outcomeId() == null
-                || target.eventId() == null
-                || target.outcomeId() == null) {
+    private String validateThread(UUID gameId, int eraNumber, OutcomeCoordinate coordinate) {
+        if (coordinate.eventId() == null || coordinate.outcomeId() == null) {
             return REASON_MISSING_COORDINATE;
         }
-        if (!isValidCurrentEraSource(gameId, eraNumber, source.eventId(), source.outcomeId())) {
-            return REASON_INVALID_SOURCE;
-        }
-        if (!resolvedAs(target.eventId(), target.outcomeId())) {
-            return REASON_DID_NOT_RESOLVE;
+        if (!isValidCurrentEraCoordinate(gameId, eraNumber, coordinate.eventId(), coordinate.outcomeId())) {
+            return REASON_INVALID_COORDINATE;
         }
         return null;
     }
 
-    /** Grows (or starts) the chain once THREAD's coordinates are known valid. */
+    /** Opens (or starts) a pending link once THREAD's coordinate is known valid. */
     private void acceptThread(
-            UUID gameId,
-            int eraNumber,
-            UUID playerId,
-            WeaverChainSagaState saga,
-            OutcomeCoordinate source,
-            OutcomeCoordinate target) {
+            UUID gameId, int eraNumber, UUID playerId, WeaverChainSagaState saga, OutcomeCoordinate coordinate) {
         UUID chainId = saga == null ? UUID.randomUUID() : saga.chainId();
         if (saga == null) {
             chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
@@ -146,92 +129,57 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                     new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null));
         }
         var chain = chains.findById(chainId);
-        UUID previousLinkEventId = chain.links().isEmpty()
-                ? null
-                : chain.links().get(chain.links().size() - 1).eventId();
-        List<? extends WeaverChainEvent> facts;
         try {
-            facts = chain.addLink(
-                    target.eventId(),
-                    target.outcomeId(),
-                    eraNumber,
-                    Set.of(new ResolvedOutcome(target.eventId(), target.outcomeId())),
-                    source.eventId(),
-                    source.outcomeId());
+            var fact = chain.threadPendingLink(coordinate.eventId(), coordinate.outcomeId(), eraNumber);
+            chains.append(chainId, fact);
         } catch (InvalidChainLinkException _) {
-            publishThreadRejected(gameId, eraNumber, chainId, playerId, source, target, REASON_ALREADY_LINKED);
+            var reason = chain.pendingLink() != null ? REASON_ALREADY_PENDING : REASON_ALREADY_LINKED;
+            publishThreadRejected(gameId, eraNumber, chainId, playerId, coordinate, reason);
             return;
         }
-        chains.appendAll(chainId, facts);
-        applyThreadReward(source.eventId(), source.outcomeId());
-        var grown = chains.findById(chainId);
+        applyThreadReward(coordinate.eventId(), coordinate.outcomeId());
         publisher.publish(TimelineEventEnvelope.create(
                 chainId,
                 AGGREGATE_TYPE,
                 gameId,
                 TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                new ChainLinkAddedEvent(
-                        gameId,
-                        chainId,
-                        playerId,
-                        source.eventId(),
-                        source.outcomeId(),
-                        target.eventId(),
-                        target.outcomeId(),
-                        grown.length(),
-                        previousLinkEventId),
+                new ChainLinkThreadedEvent(
+                        gameId, eraNumber, chainId, playerId, coordinate.eventId(), coordinate.outcomeId()),
                 clock));
-        if (facts.stream().anyMatch(ChainCompleted.class::isInstance)) {
-            publisher.publish(TimelineEventEnvelope.create(
-                    chainId,
-                    AGGREGATE_TYPE,
-                    gameId,
-                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new ChainCompletedEvent(gameId, eraNumber, chainId, playerId, toEntries(grown.links())),
-                    clock));
-            sagas.save(new WeaverChainSagaState(
-                    chainId,
-                    gameId,
-                    playerId,
-                    WeaverChainSagaStatus.COMPLETED,
-                    false,
-                    saga == null ? null : saga.tapestryUsedEra(),
-                    saga == null ? null : saga.reweaveUsedEra()));
-        }
     }
 
     /**
-     * The accepted link's reward: the configured favourable shift applied to the source outcome, through the
+     * The accepted link's reward: the configured favourable shift applied to the named outcome, through the
      * same transfer path (bounds, redistribution, sealed-outcome handling) as any other direct transfer.
      */
-    private void applyThreadReward(UUID sourceEventId, UUID sourceOutcomeId) {
-        var sourceEvent = futureEvents.findById(sourceEventId);
-        var result = sourceEvent.applyShift(
-                new ProbabilityShift.Push(sourceOutcomeId),
+    private void applyThreadReward(UUID eventId, UUID outcomeId) {
+        var futureEvent = futureEvents.findById(eventId);
+        var result = futureEvent.applyShift(
+                new ProbabilityShift.Push(outcomeId),
                 probabilityRules.threadShift(),
                 probabilityRules.probabilityFloor(),
                 probabilityRules.probabilityCeiling());
-        futureEvents.append(sourceEventId, result);
+        futureEvents.append(eventId, result);
     }
 
-    /** The source names a current-era, not-yet-resolved outcome — the only claim this saga can itself verify. */
-    private boolean isValidCurrentEraSource(UUID gameId, int eraNumber, UUID sourceEventId, UUID sourceOutcomeId) {
+    /** The coordinate names a current-era, not-yet-resolved outcome — the only claim this saga can itself verify. */
+    private boolean isValidCurrentEraCoordinate(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId) {
         var currentEraEventIds = eraIndex.findByGameIdAndEraNumber(gameId, eraNumber).stream()
                 .map(FutureEventEraIndexPort.IndexedEventId::eventId)
                 .collect(Collectors.toSet());
-        if (!currentEraEventIds.contains(sourceEventId)) {
+        if (!currentEraEventIds.contains(eventId)) {
             return false;
         }
-        final FutureEvent sourceEvent;
+        final FutureEvent futureEvent;
         try {
-            sourceEvent = futureEvents.findById(sourceEventId);
+            futureEvent = futureEvents.findById(eventId);
         } catch (FutureEventNotFoundException _) {
             return false;
         }
-        if (sourceEvent.resolved()) {
+        if (futureEvent.resolved()) {
             return false;
         }
-        return sourceEvent.outcomes().stream().anyMatch(o -> o.outcomeId().equals(sourceOutcomeId));
+        return futureEvent.outcomes().stream().anyMatch(o -> o.outcomeId().equals(outcomeId));
     }
 
     @Override
@@ -369,30 +317,100 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     @Transactional
     public void annihilateOutcome(UUID gameId, int eraNumber, UUID targetEventId, UUID targetOutcomeId) {
         for (var saga : sagas.findOpenByGame(gameId)) {
-            invalidateLinkedOutcome(saga, gameId, eraNumber, targetEventId, targetOutcomeId);
+            protectPendingLinkIfArmed(saga, gameId, eraNumber, targetEventId, targetOutcomeId);
         }
     }
 
-    private void invalidateLinkedOutcome(
-            WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID targetEventId, UUID targetOutcomeId) {
+    /**
+     * When the chain's open pending link names the just-annihilated outcome: if Tapestry protection is armed
+     * for this era, consumes it and confirms the link anyway; otherwise leaves the pending link as-is —
+     * {@code ParadoxDetector} picks up the annihilated-and-unprotected pending link at era resolution.
+     */
+    private void protectPendingLinkIfArmed(
+            WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID eventId, UUID outcomeId) {
         var chain = chains.findById(saga.chainId());
-        boolean linked = chain.links().stream()
-                .anyMatch(link ->
-                        link.eventId().equals(targetEventId) && link.outcomeId().equals(targetOutcomeId));
-        if (!linked) {
+        var pending = chain.pendingLink();
+        if (pending == null
+                || !pending.eventId().equals(eventId)
+                || !pending.outcomeId().equals(outcomeId)) {
             return;
         }
         // Protection is scoped to the era it was armed in — an unconsumed TAPESTRY from an earlier era
-        // must not still be treated as active protection (confirmed bug: this previously checked only
-        // the boolean flag, never the era it was armed for).
+        // must not still be treated as active protection.
         boolean protectedNow =
                 saga.tapestryProtected() && Integer.valueOf(eraNumber).equals(saga.tapestryUsedEra());
-        if (protectedNow) {
+        if (!protectedNow) {
+            return;
+        }
+        sagas.save(new WeaverChainSagaState(
+                saga.chainId(),
+                gameId,
+                saga.playerId(),
+                WeaverChainSagaStatus.OPEN,
+                false,
+                saga.tapestryUsedEra(),
+                saga.reweaveUsedEra()));
+        publisher.publish(TimelineEventEnvelope.create(
+                saga.chainId(),
+                AGGREGATE_TYPE,
+                gameId,
+                TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                new ChainProtectionConsumedEvent(
+                        gameId, eraNumber, saga.chainId(), saga.playerId(), eventId, outcomeId),
+                clock));
+        confirmPendingLink(gameId, eraNumber, saga);
+    }
+
+    @Override
+    @Transactional
+    public void resolvePendingLink(UUID gameId, int eraNumber, UUID eventId, UUID winningOutcomeId) {
+        for (var saga : sagas.findOpenByGame(gameId)) {
+            var chain = chains.findById(saga.chainId());
+            var pending = chain.pendingLink();
+            if (pending == null || !pending.eventId().equals(eventId)) {
+                continue;
+            }
+            if (pending.outcomeId().equals(winningOutcomeId)) {
+                confirmPendingLink(gameId, eraNumber, saga);
+            } else {
+                clearPendingLink(gameId, eraNumber, saga, chain);
+            }
+        }
+    }
+
+    @Override
+    @Transactional
+    public void confirmParadoxResolvedLink(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId) {
+        for (var saga : sagas.findOpenByGame(gameId)) {
+            var chain = chains.findById(saga.chainId());
+            var pending = chain.pendingLink();
+            if (pending != null
+                    && pending.eventId().equals(eventId)
+                    && pending.outcomeId().equals(outcomeId)) {
+                confirmPendingLink(gameId, eraNumber, saga);
+            }
+        }
+    }
+
+    @Override
+    @Transactional
+    public void breakChainOnCascadedParadox(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId, UUID paradoxId) {
+        for (var saga : sagas.findOpenByGame(gameId)) {
+            var chain = chains.findById(saga.chainId());
+            var pending = chain.pendingLink();
+            if (pending == null
+                    || !pending.eventId().equals(eventId)
+                    || !pending.outcomeId().equals(outcomeId)) {
+                continue;
+            }
+            var chainLengthAtBreak = chain.length();
+            var broken = chain.breakChain("CHAIN_CONFLICT paradox cascaded unresolved");
+            chains.append(saga.chainId(), broken);
             sagas.save(new WeaverChainSagaState(
                     saga.chainId(),
                     gameId,
                     saga.playerId(),
-                    WeaverChainSagaStatus.OPEN,
+                    WeaverChainSagaStatus.BROKEN,
                     false,
                     saga.tapestryUsedEra(),
                     saga.reweaveUsedEra()));
@@ -401,16 +419,60 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                     AGGREGATE_TYPE,
                     gameId,
                     TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new ChainProtectionConsumedEvent(
-                            gameId, eraNumber, saga.chainId(), saga.playerId(), targetEventId, targetOutcomeId),
+                    new ChainBrokenEvent(
+                            gameId, eraNumber, saga.chainId(), saga.playerId(), paradoxId, chainLengthAtBreak),
                     clock));
-            return;
         }
-        var invalidated = chain.invalidateLink(targetEventId, targetOutcomeId);
-        if (invalidated.isEmpty()) {
-            return;
+    }
+
+    /** Confirms the given saga's chain's pending link, publishing {@code ChainLinkAdded} (+ {@code ChainCompleted}). */
+    private void confirmPendingLink(UUID gameId, int eraNumber, WeaverChainSagaState saga) {
+        var chain = chains.findById(saga.chainId());
+        var pending = chain.pendingLink();
+        var beforeLength = chain.length();
+        List<WeaverChainEvent> facts = chain.confirmPendingLink();
+        chains.appendAll(saga.chainId(), facts);
+        var grown = chains.findById(saga.chainId());
+        UUID previousLinkEventId =
+                beforeLength == 0 ? null : grown.links().get(beforeLength - 1).eventId();
+        publisher.publish(TimelineEventEnvelope.create(
+                saga.chainId(),
+                AGGREGATE_TYPE,
+                gameId,
+                TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                new ChainLinkAddedEvent(
+                        gameId,
+                        saga.chainId(),
+                        saga.playerId(),
+                        pending.eventId(),
+                        pending.outcomeId(),
+                        grown.length(),
+                        previousLinkEventId),
+                clock));
+        if (facts.stream().anyMatch(ChainCompleted.class::isInstance)) {
+            publisher.publish(TimelineEventEnvelope.create(
+                    saga.chainId(),
+                    AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new ChainCompletedEvent(
+                            gameId, eraNumber, saga.chainId(), saga.playerId(), toEntries(grown.links())),
+                    clock));
+            sagas.save(new WeaverChainSagaState(
+                    saga.chainId(),
+                    gameId,
+                    saga.playerId(),
+                    WeaverChainSagaStatus.COMPLETED,
+                    false,
+                    saga.tapestryUsedEra(),
+                    saga.reweaveUsedEra()));
         }
-        chains.append(saga.chainId(), invalidated.get());
+    }
+
+    /** Clears the given saga's chain's pending link, publishing {@code ChainLinkInvalidated} (no penalty). */
+    private void clearPendingLink(UUID gameId, int eraNumber, WeaverChainSagaState saga, WeaverChain chain) {
+        var fact = chain.clearPendingLink();
+        chains.append(saga.chainId(), fact);
         var current = chains.findById(saga.chainId());
         publisher.publish(TimelineEventEnvelope.create(
                 saga.chainId(),
@@ -422,8 +484,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                         eraNumber,
                         saga.chainId(),
                         saga.playerId(),
-                        targetEventId,
-                        targetOutcomeId,
+                        fact.eventId(),
+                        fact.outcomeId(),
                         current.length()),
                 clock));
     }
@@ -445,7 +507,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
 
     /**
      * Whether the referenced outcome actually resolved as the winner of its event — the causal-link
-     * validity rule. Unknown events, unresolved events, and resolved-differently outcomes all fail.
+     * validity rule for REWEAVE's target. Unknown events, unresolved events, and resolved-differently
+     * outcomes all fail.
      */
     private boolean resolvedAs(UUID eventId, UUID outcomeId) {
         final FutureEvent futureEvent;
@@ -457,12 +520,12 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         if (!futureEvent.resolved()) {
             return false;
         }
-        return Objects.equals(winningOutcomeId(futureEvent.outcomes()), outcomeId);
+        return Objects.equals(winningOutcomeId(futureEvent), outcomeId);
     }
 
     /** Highest-probability non-annihilated outcome, ties broken by smallest outcomeId — as resolved. */
-    private static UUID winningOutcomeId(List<Outcome> outcomes) {
-        return outcomes.stream()
+    private static UUID winningOutcomeId(FutureEvent futureEvent) {
+        return futureEvent.outcomes().stream()
                 .filter(outcome -> !outcome.annihilated())
                 .max(Comparator.comparingInt(Outcome::probability)
                         .thenComparing(Comparator.comparing(Outcome::outcomeId).reversed()))
@@ -477,28 +540,14 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     }
 
     private void publishThreadRejected(
-            UUID gameId,
-            int eraNumber,
-            UUID chainId,
-            UUID playerId,
-            OutcomeCoordinate source,
-            OutcomeCoordinate target,
-            String reason) {
+            UUID gameId, int eraNumber, UUID chainId, UUID playerId, OutcomeCoordinate coordinate, String reason) {
         publisher.publish(TimelineEventEnvelope.create(
                 chainId == null ? playerId : chainId,
                 AGGREGATE_TYPE,
                 gameId,
                 TimelineEventEnvelope.SCHEMA_VERSION_V1,
                 new ThreadRejectedEvent(
-                        gameId,
-                        eraNumber,
-                        chainId,
-                        playerId,
-                        source.eventId(),
-                        source.outcomeId(),
-                        target.eventId(),
-                        target.outcomeId(),
-                        reason),
+                        gameId, eraNumber, chainId, playerId, coordinate.eventId(), coordinate.outcomeId(), reason),
                 clock));
     }
 

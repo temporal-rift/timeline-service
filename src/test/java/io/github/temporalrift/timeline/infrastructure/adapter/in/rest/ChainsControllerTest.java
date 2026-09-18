@@ -63,15 +63,9 @@ class ChainsControllerTest {
     @Test
     @DisplayName("weaver with a chain — returns chain state")
     void getChain_weaverWithChain_returnsChainState() throws Exception {
-        var sourceEventId = UUID.randomUUID();
-        var sourceOutcomeId = UUID.randomUUID();
         given(getChainUseCase.get(GAME_ID, PLAYER_ID))
                 .willReturn(new GetChainUseCase.Result(
-                        CHAIN_ID,
-                        ChainStatus.ACTIVE,
-                        1,
-                        List.of(new ChainLink(EVENT_ID, OUTCOME_ID, 2, sourceEventId, sourceOutcomeId)),
-                        true));
+                        CHAIN_ID, ChainStatus.ACTIVE, 1, List.of(new ChainLink(EVENT_ID, OUTCOME_ID, 2)), null, true));
 
         mockMvc.perform(get("/api/v1/games/{gameId}/chains", GAME_ID).with(auth()))
                 .andExpect(status().isOk())
@@ -81,11 +75,25 @@ class ChainsControllerTest {
                 .andExpect(jsonPath("$.links[0].eventId").value(EVENT_ID.toString()))
                 .andExpect(jsonPath("$.links[0].outcomeId").value(OUTCOME_ID.toString()))
                 .andExpect(jsonPath("$.links[0].eraNumber").value(2))
-                .andExpect(jsonPath("$.links[0].sourceEventId").value(sourceEventId.toString()))
-                .andExpect(jsonPath("$.links[0].sourceOutcomeId").value(sourceOutcomeId.toString()))
+                .andExpect(jsonPath("$.pendingLink").doesNotExist())
                 .andExpect(jsonPath("$.protectionArmed").value(true));
 
         then(getChainUseCase).should().get(GAME_ID, PLAYER_ID);
+    }
+
+    @Test
+    @DisplayName("weaver with a pending link — reported distinctly from confirmed links")
+    void getChain_weaverWithPendingLink_returnsPendingLinkSeparately() throws Exception {
+        given(getChainUseCase.get(GAME_ID, PLAYER_ID))
+                .willReturn(new GetChainUseCase.Result(
+                        CHAIN_ID, ChainStatus.ACTIVE, 0, List.of(), new ChainLink(EVENT_ID, OUTCOME_ID, 2), false));
+
+        mockMvc.perform(get("/api/v1/games/{gameId}/chains", GAME_ID).with(auth()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chainLength").value(0))
+                .andExpect(jsonPath("$.links").isEmpty())
+                .andExpect(jsonPath("$.pendingLink.eventId").value(EVENT_ID.toString()))
+                .andExpect(jsonPath("$.pendingLink.outcomeId").value(OUTCOME_ID.toString()));
     }
 
     @Test

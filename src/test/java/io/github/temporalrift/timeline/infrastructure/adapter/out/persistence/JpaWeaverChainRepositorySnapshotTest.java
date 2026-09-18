@@ -18,6 +18,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
+import io.github.temporalrift.timeline.domain.event.ChainLinkThreaded;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.eventstore.AggregateSnapshot;
 import io.github.temporalrift.timeline.domain.eventstore.StoredEvent;
@@ -82,23 +83,25 @@ class JpaWeaverChainRepositorySnapshotTest {
 
         snapshotting.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
         assertThat(snapshots.saved).isEmpty();
-        snapshotting.append(
-                chainId, new ChainLinkAdded(chainId, eventId, outcomeId, 1, UUID.randomUUID(), UUID.randomUUID()));
+        snapshotting.append(chainId, new ChainLinkThreaded(chainId, eventId, outcomeId, 1));
 
         assertThat(snapshots.saved).containsKey(chainId);
         var saved = snapshots.saved.get(chainId);
         assertThat(saved.sequenceNr()).isEqualTo(2);
         assertThat(objectMapper.readValue(saved.snapshotData(), WeaverChainSnapshot.class))
                 .isEqualTo(snapshotting.findById(chainId).snapshot());
+
+        snapshotting.append(chainId, new ChainLinkAdded(chainId, eventId, outcomeId, 1));
+        assertThat(snapshots.saved.get(chainId).sequenceNr()).isEqualTo(2);
     }
 
     private UUID seedChain() {
         var chainId = UUID.randomUUID();
         var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
         chains.append(chainId, new WeaverChainStarted(chainId, UUID.randomUUID(), UUID.randomUUID()));
-        chains.append(
-                chainId,
-                new ChainLinkAdded(chainId, eventId, UUID.randomUUID(), 1, UUID.randomUUID(), UUID.randomUUID()));
+        chains.append(chainId, new ChainLinkThreaded(chainId, eventId, outcomeId, 1));
+        chains.append(chainId, new ChainLinkAdded(chainId, eventId, outcomeId, 1));
         return chainId;
     }
 

@@ -20,17 +20,18 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 
 /**
- * Kafka-level proof of the Weaver chain saga: THREAD anchors a current-era, not-yet-resolved outcome to a past
- * resolved one, growing the same chain across era boundaries until the third link completes it; a redelivered
- * THREAD emits once; GameEnded closes an incomplete chain without further chain events; and an Annihilate naming
- * an already-resolved (and possibly chain-linked) outcome no longer crashes the round replay (see
- * temporal-rift/timeline-service#108 for actually invalidating the link).
+ * Kafka-level proof of the Weaver chain saga: THREAD opens a pending link on a not-yet-resolved current-era
+ * outcome; the pending link confirms (ChainLinkAdded) when its era resolves as predicted, growing the same chain
+ * across era boundaries until the third link completes it; a redelivered THREAD emits only one ChainLinkThreaded;
+ * GameEnded closes an incomplete chain without further chain events; and an Annihilate naming an already-resolved,
+ * confirmed-linked outcome is a no-op (only the chain's open pending link, if any, can ever be invalidated).
  */
 @TimelineServiceIntegrationTest
 class WeaverChainSagaIT {
 
     private static final String GAME_EVENTS_TOPIC = "game.events";
     private static final String OUTCOME_APPLIED = "OutcomeApplied";
+    private static final String CHAIN_LINK_THREADED = "ChainLinkThreaded";
     private static final String CHAIN_LINK_ADDED = "ChainLinkAdded";
     private static final String CHAIN_COMPLETED = "ChainCompleted";
     private static final String CHAIN_LINK_INVALIDATED = "ChainLinkInvalidated";
@@ -50,11 +51,9 @@ class WeaverChainSagaIT {
     }
 
     @Test
-    void threadAcrossFourEras_completesChainAndEndsSaga() {
+    void threadAcrossThreeEras_completesChainAndEndsSaga() {
         var gameId = UUID.randomUUID();
         var weaver = UUID.randomUUID();
-        var era1Event = UUID.randomUUID();
-        var era1Winner = UUID.randomUUID();
         var era2Event = UUID.randomUUID();
         var era2Winner = UUID.randomUUID();
         var era3Event = UUID.randomUUID();
@@ -62,21 +61,20 @@ class WeaverChainSagaIT {
         var era4Event = UUID.randomUUID();
         var era4Winner = UUID.randomUUID();
 
-        draftEra(gameId, 1, era1Event, era1Winner);
-        resolveEra(gameId, 1, era1Event);
-
         draftEra(gameId, 2, era2Event, era2Winner);
-        publishThread(gameId, 2, weaver, era2Event, era2Winner, era1Event, era1Winner, UUID.randomUUID());
-        awaitChainLinkAdded(gameId, 1);
+        publishThread(gameId, 2, weaver, era2Event, era2Winner, UUID.randomUUID());
+        awaitChainLinkThreaded(gameId);
         resolveEra(gameId, 2, era2Event);
+        awaitChainLinkAdded(gameId, 1);
 
         draftEra(gameId, 3, era3Event, era3Winner);
-        publishThread(gameId, 3, weaver, era3Event, era3Winner, era2Event, era2Winner, UUID.randomUUID());
-        awaitChainLinkAdded(gameId, 2);
+        publishThread(gameId, 3, weaver, era3Event, era3Winner, UUID.randomUUID());
         resolveEra(gameId, 3, era3Event);
+        awaitChainLinkAdded(gameId, 2);
 
         draftEra(gameId, 4, era4Event, era4Winner);
-        publishThread(gameId, 4, weaver, era4Event, era4Winner, era3Event, era3Winner, UUID.randomUUID());
+        publishThread(gameId, 4, weaver, era4Event, era4Winner, UUID.randomUUID());
+        resolveEra(gameId, 4, era4Event);
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(
@@ -90,9 +88,8 @@ class WeaverChainSagaIT {
         assertThat(added.get(0)).containsEntry("chainLength", 1);
         assertThat(added.get(1)).containsEntry("chainLength", 2);
         assertThat(added.get(2)).containsEntry("chainLength", 3);
-        assertThat(added.get(0).get("sourceEventId")).hasToString(era2Event.toString());
-        assertThat(added.get(0).get("sourceOutcomeId")).hasToString(era2Winner.toString());
-        assertThat(added.get(1).get("previousLinkEventId")).hasToString(era1Event.toString());
+        assertThat(added.get(0).get("linkedEventId")).hasToString(era2Event.toString());
+        assertThat(added.get(1).get("previousLinkEventId")).hasToString(era2Event.toString());
 
         var completed = payloadsOf(messagesFor(gameId), CHAIN_COMPLETED).getFirst();
         assertThat(completed.get("chainId")).hasToString(chainId);
@@ -101,17 +98,14 @@ class WeaverChainSagaIT {
     }
 
     /**
-     * A chain link's target is always an already-resolved {@code FutureEvent} (only a resolved outcome can be
-     * Threaded to), and every {@code FutureEvent} mutation — including {@code annihilateOutcome} — refuses to
-     * touch a resolved event. Game-service does not restrict Annihilate's target to the current era, so a client
-     * can legitimately name a past, already-resolved (possibly chain-linked) event. Before this fix, that
-     * combination let an uncaught exception crash the whole round-replay transaction instead of just leaving the
-     * chain untouched; tracked to actually invalidate the link as temporal-rift/timeline-service#108. This proves
-     * only that the crash is fixed: era2's own unrelated resolution still completes normally afterward, and no
-     * chain event is produced.
+     * A confirmed chain link always references an already-resolved {@code FutureEvent}, and every
+     * {@code FutureEvent} mutation — including {@code annihilateOutcome} — refuses to touch a resolved event.
+     * Game-service does not restrict Annihilate's target to the current era, so a client can legitimately name a
+     * past, already-resolved, confirmed-linked event. Only the chain's open pending link (naming a not-yet-resolved
+     * current-era outcome) can ever be invalidated by an Annihilate; a confirmed link is untouched either way.
      */
     @Test
-    void annihilateAgainstAnAlreadyResolvedLinkedOutcome_doesNotCrashTheRoundReplay() {
+    void annihilateAgainstAnAlreadyResolvedConfirmedLink_doesNotInvalidateIt() {
         var gameId = UUID.randomUUID();
         var weaver = UUID.randomUUID();
         var era1Event = UUID.randomUUID();
@@ -120,11 +114,12 @@ class WeaverChainSagaIT {
         var era2Winner = UUID.randomUUID();
 
         draftEra(gameId, 1, era1Event, era1Winner);
+        publishThread(gameId, 1, weaver, era1Event, era1Winner, UUID.randomUUID());
+        awaitChainLinkThreaded(gameId);
         resolveEra(gameId, 1, era1Event);
-        draftEra(gameId, 2, era2Event, era2Winner);
-        publishThread(gameId, 2, weaver, era2Event, era2Winner, era1Event, era1Winner, UUID.randomUUID());
         awaitChainLinkAdded(gameId, 1);
 
+        draftEra(gameId, 2, era2Event, era2Winner);
         publishSpecialActionPlayed(gameId, 2, UUID.randomUUID(), "ANNIHILATE", era1Event, era1Winner);
         publishActionRoundClosed(gameId, 2, 1);
         resolveEra(gameId, 2, era2Event);
@@ -133,26 +128,22 @@ class WeaverChainSagaIT {
     }
 
     @Test
-    void redeliveredThread_emitsOnlyOneChainLinkAdded() {
+    void redeliveredThread_emitsOnlyOneChainLinkThreaded() {
         var gameId = UUID.randomUUID();
         var weaver = UUID.randomUUID();
-        var era1Event = UUID.randomUUID();
-        var era1Winner = UUID.randomUUID();
         var era2Event = UUID.randomUUID();
         var era2Winner = UUID.randomUUID();
         var threadEventId = UUID.randomUUID();
 
-        draftEra(gameId, 1, era1Event, era1Winner);
-        resolveEra(gameId, 1, era1Event);
         draftEra(gameId, 2, era2Event, era2Winner);
-        publishThread(gameId, 2, weaver, era2Event, era2Winner, era1Event, era1Winner, threadEventId);
-        awaitChainLinkAdded(gameId, 1);
+        publishThread(gameId, 2, weaver, era2Event, era2Winner, threadEventId);
+        awaitChainLinkThreaded(gameId);
 
-        publishThread(gameId, 2, weaver, era2Event, era2Winner, era1Event, era1Winner, threadEventId);
+        publishThread(gameId, 2, weaver, era2Event, era2Winner, threadEventId);
 
         await().pollDelay(Duration.ofSeconds(5))
                 .atMost(Duration.ofSeconds(10))
-                .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_LINK_ADDED))
+                .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_LINK_THREADED))
                         .hasSize(1));
     }
 
@@ -160,16 +151,12 @@ class WeaverChainSagaIT {
     void gameEnded_closesIncompleteChainWithoutFurtherChainEvents() {
         var gameId = UUID.randomUUID();
         var weaver = UUID.randomUUID();
-        var era1Event = UUID.randomUUID();
-        var era1Winner = UUID.randomUUID();
         var era2Event = UUID.randomUUID();
         var era2Winner = UUID.randomUUID();
 
-        draftEra(gameId, 1, era1Event, era1Winner);
-        resolveEra(gameId, 1, era1Event);
         draftEra(gameId, 2, era2Event, era2Winner);
-        publishThread(gameId, 2, weaver, era2Event, era2Winner, era1Event, era1Winner, UUID.randomUUID());
-        awaitChainLinkAdded(gameId, 1);
+        publishThread(gameId, 2, weaver, era2Event, era2Winner, UUID.randomUUID());
+        awaitChainLinkThreaded(gameId);
         publishGameEnded(gameId);
         // Wait until GameEnded actually closed the saga before the ANNIHILATE arrives; a still-open saga would
         // answer it with ChainLinkInvalidated within the assertion window below.
@@ -179,7 +166,7 @@ class WeaverChainSagaIT {
                                 Integer.class,
                                 gameId))
                         .isZero());
-        publishSpecialActionPlayed(gameId, 2, UUID.randomUUID(), "ANNIHILATE", era1Event, era1Winner);
+        publishSpecialActionPlayed(gameId, 2, UUID.randomUUID(), "ANNIHILATE", era2Event, era2Winner);
         publishActionRoundClosed(gameId, 2, 1);
 
         await().pollDelay(Duration.ofSeconds(3))
@@ -202,6 +189,12 @@ class WeaverChainSagaIT {
                                 payload -> assertThat(payload.get("eventId")).hasToString(eventId.toString())));
     }
 
+    private void awaitChainLinkThreaded(UUID gameId) {
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(
+                        () -> assertThat(eventTypesOf(messagesFor(gameId))).contains(CHAIN_LINK_THREADED));
+    }
+
     private void awaitChainLinkAdded(UUID gameId, int chainLength) {
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_LINK_ADDED))
@@ -219,14 +212,7 @@ class WeaverChainSagaIT {
     }
 
     private void publishThread(
-            UUID gameId,
-            int eraNumber,
-            UUID playerId,
-            UUID sourceEventId,
-            UUID sourceOutcomeId,
-            UUID targetEventId,
-            UUID targetOutcomeId,
-            UUID eventId) {
+            UUID gameId, int eraNumber, UUID playerId, UUID targetEventId, UUID targetOutcomeId, UUID eventId) {
         var payload = new HashMap<String, Object>();
         payload.put("gameId", gameId);
         payload.put("eraNumber", eraNumber);
@@ -234,8 +220,8 @@ class WeaverChainSagaIT {
         payload.put("playerId", playerId);
         payload.put("faction", "WEAVERS");
         payload.put("specialAction", "THREAD");
-        payload.put("sourceEventId", sourceEventId);
-        payload.put("sourceOutcomeId", sourceOutcomeId);
+        payload.put("sourceEventId", null);
+        payload.put("sourceOutcomeId", null);
         payload.put("targetEventId", targetEventId);
         payload.put("targetOutcomeId", targetOutcomeId);
         payload.put("targetPlayerId", null);
