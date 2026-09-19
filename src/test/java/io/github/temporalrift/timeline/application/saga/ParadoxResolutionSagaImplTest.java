@@ -338,9 +338,10 @@ class ParadoxResolutionSagaImplTest {
         var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .toList();
-        assertThat(payloads).anyMatch(ParadoxResolved.class::isInstance);
-        assertThat(payloads).anyMatch(OutcomeApplied.class::isInstance);
-        assertThat(payloads).anyMatch(EraResolutionCompleted.class::isInstance);
+        assertThat(payloads)
+                .anyMatch(ParadoxResolved.class::isInstance)
+                .anyMatch(OutcomeApplied.class::isInstance)
+                .anyMatch(EraResolutionCompleted.class::isInstance);
         then(weaverChainSaga).should().resolvePendingLink(eq(GAME_ID), eq(ERA_NUMBER), eq(affectedEventId), any());
     }
 

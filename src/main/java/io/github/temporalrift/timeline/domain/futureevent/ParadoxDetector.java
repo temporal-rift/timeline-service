@@ -111,14 +111,8 @@ public final class ParadoxDetector {
         }
         var paradoxes = new ArrayList<DetectedParadox>();
         for (var chain : chains) {
-            if (chain == null || chain.status() != ChainStatus.ACTIVE) {
-                continue;
-            }
-            var pending = chain.pendingLink();
-            if (pending == null || !eventId.equals(pending.eventId())) {
-                continue;
-            }
-            if (annihilatedOutcomeIds.contains(pending.outcomeId())) {
+            if (hasAnnihilatedPendingLink(chain, eventId, annihilatedOutcomeIds)) {
+                var pending = chain.pendingLink();
                 paradoxes.add(new DetectedParadox(
                         ParadoxType.CHAIN_CONFLICT,
                         List.of(pending.outcomeId()),
@@ -127,6 +121,16 @@ public final class ParadoxDetector {
             }
         }
         return paradoxes;
+    }
+
+    private static boolean hasAnnihilatedPendingLink(WeaverChain chain, UUID eventId, Set<UUID> annihilatedOutcomeIds) {
+        if (chain == null || chain.status() != ChainStatus.ACTIVE) {
+            return false;
+        }
+        var pending = chain.pendingLink();
+        return pending != null
+                && eventId.equals(pending.eventId())
+                && annihilatedOutcomeIds.contains(pending.outcomeId());
     }
 
     /**
