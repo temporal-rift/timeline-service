@@ -206,16 +206,19 @@ class WeaverChainTest {
         var eventId = UUID.randomUUID();
         chain.threadPendingLink(eventId, UUID.randomUUID(), 1);
         chain.confirmPendingLink();
+        var retryOutcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> chain.threadPendingLink(eventId, UUID.randomUUID(), 2))
+        assertThatThrownBy(() -> chain.threadPendingLink(eventId, retryOutcomeId, 2))
                 .isInstanceOf(InvalidChainLinkException.class);
     }
 
     @Test
     void threadPendingLink_afterCompleted_throws() {
         var chain = completedChain();
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 4))
+        assertThatThrownBy(() -> chain.threadPendingLink(eventId, outcomeId, 4))
                 .isInstanceOf(WeaverChainCompletedException.class);
     }
 
@@ -223,8 +226,10 @@ class WeaverChainTest {
     void threadPendingLink_afterBroken_throws() {
         var chain = started();
         chain.breakChain("CHAIN_CONFLICT paradox cascaded unresolved");
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 2))
+        assertThatThrownBy(() -> chain.threadPendingLink(eventId, outcomeId, 2))
                 .isInstanceOf(WeaverChainBrokenException.class);
     }
 
@@ -334,8 +339,9 @@ class WeaverChainTest {
         var chain = started();
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
+        var claimedResolved = Set.of(new ResolvedOutcome(eventId, outcomeId));
 
-        assertThatThrownBy(() -> chain.reAnchor(eventId, outcomeId, 1, Set.of(new ResolvedOutcome(eventId, outcomeId))))
+        assertThatThrownBy(() -> chain.reAnchor(eventId, outcomeId, 1, claimedResolved))
                 .isInstanceOf(InvalidChainLinkException.class);
     }
 
