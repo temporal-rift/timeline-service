@@ -190,6 +190,21 @@ class WeaverChainSagaTest {
     }
 
     @Test
+    void thread_alreadyAnnihilatedOutcome_rejected() {
+        openChainWithConfirmedLinks(1);
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA)).willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(annihilatedUnresolvedEventWithOutcome(eventId, outcomeId));
+
+        saga.playThread(GAME_ID, ERA, PLAYER_ID, eventId, outcomeId);
+
+        var rejected = published(ThreadRejectedEvent.class);
+        assertThat(rejected.reason()).isEqualTo("INVALID_COORDINATE");
+        publishedNever(ChainLinkThreadedEvent.class);
+    }
+
+    @Test
     void thread_alreadyPending_rejected() {
         var chainId = openChainWithPendingLink();
         var coordinate = stubValidCoordinate();
@@ -643,6 +658,16 @@ class WeaverChainSagaTest {
                 new Outcome(UUID.randomUUID(), "third", 33));
         var event = FutureEvent.replay(eventId, List.of(new FutureEventDrafted(eventId, outcomes)));
         event.sealOutcome(outcomeId);
+        return event;
+    }
+
+    private FutureEvent annihilatedUnresolvedEventWithOutcome(UUID eventId, UUID outcomeId) {
+        var outcomes = List.of(
+                new Outcome(outcomeId, "first", 34),
+                new Outcome(UUID.randomUUID(), "second", 33),
+                new Outcome(UUID.randomUUID(), "third", 33));
+        var event = FutureEvent.replay(eventId, List.of(new FutureEventDrafted(eventId, outcomes)));
+        event.annihilateOutcome(outcomeId);
         return event;
     }
 

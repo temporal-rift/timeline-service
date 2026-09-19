@@ -23,6 +23,47 @@ class WeaverChainTest {
     private static final UUID GAME_ID = UUID.randomUUID();
 
     @Test
+    void replay_chainLinkAddedWithMismatchedOutcome_throwsIllegalState() {
+        var eventId = UUID.randomUUID();
+        var pendingOutcomeId = UUID.randomUUID();
+        var wrongOutcomeId = UUID.randomUUID();
+        var history = List.of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkThreaded(CHAIN_ID, eventId, pendingOutcomeId, 1),
+                new ChainLinkAdded(CHAIN_ID, eventId, wrongOutcomeId, 1));
+
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void replay_chainLinkInvalidatedWithMismatchedOutcome_throwsIllegalState() {
+        var eventId = UUID.randomUUID();
+        var pendingOutcomeId = UUID.randomUUID();
+        var wrongOutcomeId = UUID.randomUUID();
+        var history = List.of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkThreaded(CHAIN_ID, eventId, pendingOutcomeId, 1),
+                new ChainLinkInvalidated(CHAIN_ID, eventId, wrongOutcomeId));
+
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void replay_chainReAnchoredWithMismatchedDiscardedOutcome_throwsIllegalState() {
+        var confirmedEventId = UUID.randomUUID();
+        var confirmedOutcomeId = UUID.randomUUID();
+        var wrongOutcomeId = UUID.randomUUID();
+        var history = List.of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkThreaded(CHAIN_ID, confirmedEventId, confirmedOutcomeId, 1),
+                new ChainLinkAdded(CHAIN_ID, confirmedEventId, confirmedOutcomeId, 1),
+                new io.github.temporalrift.timeline.domain.event.ChainReAnchored(
+                        CHAIN_ID, confirmedEventId, wrongOutcomeId, UUID.randomUUID(), UUID.randomUUID(), 2));
+
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void replay_emptyHistory_throwsNotFound() {
         assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, List.of()))
                 .isInstanceOf(WeaverChainNotFoundException.class);
@@ -56,10 +97,7 @@ class WeaverChainTest {
 
     @Test
     void replay_threeConfirmedLinksWithoutTerminal_derivesCompleted() {
-        var chain = started();
-        completeWithThreeLinks(chain);
-
-        var replayed = WeaverChain.replay(CHAIN_ID, streamOf(chain));
+        var replayed = WeaverChain.replay(CHAIN_ID, threeConfirmedLinkHistory());
 
         assertThat(replayed.length()).isEqualTo(3);
         assertThat(replayed.status()).isEqualTo(ChainStatus.COMPLETED);
