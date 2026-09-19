@@ -162,7 +162,12 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         futureEvents.append(eventId, result);
     }
 
-    /** The coordinate names a current-era, not-yet-resolved outcome — the only claim this saga can itself verify. */
+    /**
+     * The coordinate names a current-era, not-yet-resolved, not-already-annihilated outcome — the only claim
+     * this saga can itself verify. An annihilated outcome can never win, so it is as dead a bet as an already-
+     * resolved one; accepting it would open a pending link with no path to Tapestry protection (the reactive
+     * check in {@link #annihilateOutcome} only fires at the moment of annihilation, which has already passed).
+     */
     private boolean isValidCurrentEraCoordinate(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId) {
         var currentEraEventIds = eraIndex.findByGameIdAndEraNumber(gameId, eraNumber).stream()
                 .map(FutureEventEraIndexPort.IndexedEventId::eventId)
@@ -179,7 +184,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         if (futureEvent.resolved()) {
             return false;
         }
-        return futureEvent.outcomes().stream().anyMatch(o -> o.outcomeId().equals(outcomeId));
+        return futureEvent.outcomes().stream().anyMatch(o -> o.outcomeId().equals(outcomeId) && !o.annihilated());
     }
 
     @Override

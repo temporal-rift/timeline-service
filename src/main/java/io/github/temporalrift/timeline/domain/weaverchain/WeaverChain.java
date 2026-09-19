@@ -124,15 +124,15 @@ public final class WeaverChain {
                         || links.stream().anyMatch(link -> link.eventId().equals(threaded.eventId())))) {
             throw new IllegalStateException("Invalid pending link for " + threaded.eventId());
         }
-        if (event instanceof ChainLinkAdded added
-                && (pendingLink == null || !pendingLink.eventId().equals(added.eventId()))) {
+        if (event instanceof ChainLinkAdded added && !pendingLinkMatches(added.eventId(), added.outcomeId())) {
             throw new IllegalStateException("No matching pending link to confirm for " + added.eventId());
         }
         if (event instanceof ChainLinkInvalidated invalidated
-                && (pendingLink == null || !pendingLink.eventId().equals(invalidated.eventId()))) {
+                && !pendingLinkMatches(invalidated.eventId(), invalidated.outcomeId())) {
             throw new IllegalStateException("No matching pending link to invalidate for " + invalidated.eventId());
         }
-        if (event instanceof ChainReAnchored reAnchored && !newestLinkMatches(reAnchored.discardedEventId())) {
+        if (event instanceof ChainReAnchored reAnchored
+                && !newestLinkMatches(reAnchored.discardedEventId(), reAnchored.discardedOutcomeId())) {
             throw new IllegalStateException("Re-anchored link was never appended for " + reAnchored.discardedEventId());
         }
         if (event instanceof ChainCompleted && links.size() != COMPLETION_LENGTH) {
@@ -141,11 +141,21 @@ public final class WeaverChain {
         apply(event);
     }
 
-    private boolean newestLinkMatches(UUID eventId) {
+    private boolean pendingLinkMatches(UUID eventId, UUID outcomeId) {
+        return pendingLink != null
+                && pendingLink.eventId().equals(eventId)
+                && pendingLink.outcomeId().equals(outcomeId);
+    }
+
+    private boolean newestLinkMatches(UUID eventId, UUID outcomeId) {
         if (pendingLink != null) {
-            return pendingLink.eventId().equals(eventId);
+            return pendingLinkMatches(eventId, outcomeId);
         }
-        return !links.isEmpty() && links.getLast().eventId().equals(eventId);
+        if (links.isEmpty()) {
+            return false;
+        }
+        var newest = links.getLast();
+        return newest.eventId().equals(eventId) && newest.outcomeId().equals(outcomeId);
     }
 
     private void apply(ChainFact event) {
@@ -154,6 +164,9 @@ public final class WeaverChain {
             case ChainLinkAdded _ -> {
                 links.add(pendingLink);
                 pendingLink = null;
+                if (links.size() == COMPLETION_LENGTH) {
+                    status = ChainStatus.COMPLETED;
+                }
             }
             case ChainLinkInvalidated _ -> pendingLink = null;
             case ChainCompleted _ -> status = ChainStatus.COMPLETED;
