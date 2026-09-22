@@ -111,9 +111,9 @@ class EraStartedKafkaConsumerTest {
                 {"gameId":"%s","eraNumber":1,"cascadedEventIds":[],"playerIds":[]}
                 """.formatted(UUID.randomUUID());
 
-        assertThatThrownBy(() -> consumer.handle(
-                        KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1)))
-                .isInstanceOf(RuntimeException.class);
+        var payload = KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1);
+
+        assertThatThrownBy(() -> consumer.handle(payload)).isInstanceOf(RuntimeException.class);
     }
 
     @Test
@@ -125,8 +125,8 @@ class EraStartedKafkaConsumerTest {
                 {"gameId":"%s","eraNumber":1,"playerIds":[]}
                 """.formatted(UUID.randomUUID());
 
-        assertThatThrownBy(() -> consumer.handle(
-                        KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1)))
-                .isInstanceOf(RuntimeException.class);
+        var payload = KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1);
+
+        assertThatThrownBy(() -> consumer.handle(payload)).isInstanceOf(RuntimeException.class);
     }
 }

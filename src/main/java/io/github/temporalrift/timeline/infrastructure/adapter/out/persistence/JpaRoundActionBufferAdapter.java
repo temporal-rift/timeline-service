@@ -27,19 +27,8 @@ class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
     public void save(UUID gameId, int eraNumber, int roundNumber, BufferedAction action) {
         repository.save(new RoundActionBufferEntity(
                 new RoundKey(gameId, eraNumber, roundNumber),
-                action.kind(),
-                action.cardType(),
-                action.specialAction(),
-                action.grade(),
-                action.playerId(),
-                action.cardInstanceId(),
-                action.targetEventId(),
-                action.targetEventIds().isEmpty() ? null : objectMapper.writeValueAsString(action.targetEventIds()),
-                action.sourceOutcomeId(),
-                action.targetOutcomeId(),
-                action.targetPlayerId(),
-                action.occurredAt(),
-                action.envelopeEventId()));
+                action,
+                action.targetEventIds().isEmpty() ? null : objectMapper.writeValueAsString(action.targetEventIds())));
     }
 
     @Override

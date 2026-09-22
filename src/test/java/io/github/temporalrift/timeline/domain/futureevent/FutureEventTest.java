@@ -511,9 +511,9 @@ class FutureEventTest {
         var b = new Outcome(UUID.randomUUID(), "b", 30);
         var c = new Outcome(UUID.randomUUID(), "c", 20);
         var event = drafted(id, a, b, c);
+        var shift = new ProbabilityShift.Swing(null, a.outcomeId());
 
-        assertThatThrownBy(() -> event.applyShift(new ProbabilityShift.Swing(null, a.outcomeId()), 30, 0, 90))
-                .isInstanceOf(UnknownOutcomeException.class);
+        assertThatThrownBy(() -> event.applyShift(shift, 30, 0, 90)).isInstanceOf(UnknownOutcomeException.class);
     }
 
     @Test
@@ -523,9 +523,9 @@ class FutureEventTest {
         var b = new Outcome(UUID.randomUUID(), "b", 30);
         var c = new Outcome(UUID.randomUUID(), "c", 20);
         var event = drafted(id, a, b, c);
+        var shift = new ProbabilityShift.Push(UUID.randomUUID());
 
-        assertThatThrownBy(() -> event.applyShift(new ProbabilityShift.Push(UUID.randomUUID()), 20, 0, 90))
-                .isInstanceOf(UnknownOutcomeException.class);
+        assertThatThrownBy(() -> event.applyShift(shift, 20, 0, 90)).isInstanceOf(UnknownOutcomeException.class);
     }
 
     @Test
@@ -536,8 +536,9 @@ class FutureEventTest {
         var c = new Outcome(UUID.randomUUID(), "c", 20);
         var event = drafted(id, a, b, c);
         event.resolve(GAME_ID, ERA_NUMBER);
+        var shift = new ProbabilityShift.Push(a.outcomeId());
 
-        assertThatThrownBy(() -> event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90))
+        assertThatThrownBy(() -> event.applyShift(shift, 20, 0, 90))
                 .isInstanceOf(FutureEventAlreadyResolvedException.class);
     }
 
@@ -724,9 +725,9 @@ class FutureEventTest {
     void annihilateOutcome_unknownOutcomeId_throws() {
         var id = UUID.randomUUID();
         var event = drafted(id, new Outcome(UUID.randomUUID(), "only", 100));
+        var unknownOutcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> event.annihilateOutcome(UUID.randomUUID()))
-                .isInstanceOf(UnknownOutcomeException.class);
+        assertThatThrownBy(() -> event.annihilateOutcome(unknownOutcomeId)).isInstanceOf(UnknownOutcomeException.class);
     }
 
     @Test
@@ -735,8 +736,9 @@ class FutureEventTest {
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);
         var event = drafted(id, outcome);
         event.resolve(GAME_ID, ERA_NUMBER);
+        var outcomeId = outcome.outcomeId();
 
-        assertThatThrownBy(() -> event.annihilateOutcome(outcome.outcomeId()))
+        assertThatThrownBy(() -> event.annihilateOutcome(outcomeId))
                 .isInstanceOf(FutureEventAlreadyResolvedException.class);
     }
 
@@ -763,8 +765,9 @@ class FutureEventTest {
     void sealOutcome_unknownOutcomeId_throws() {
         var id = UUID.randomUUID();
         var event = drafted(id, new Outcome(UUID.randomUUID(), "only", 100));
+        var unknownOutcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> event.sealOutcome(UUID.randomUUID())).isInstanceOf(UnknownOutcomeException.class);
+        assertThatThrownBy(() -> event.sealOutcome(unknownOutcomeId)).isInstanceOf(UnknownOutcomeException.class);
     }
 
     @Test
@@ -773,9 +776,9 @@ class FutureEventTest {
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);
         var event = drafted(id, outcome);
         event.resolve(GAME_ID, ERA_NUMBER);
+        var outcomeId = outcome.outcomeId();
 
-        assertThatThrownBy(() -> event.sealOutcome(outcome.outcomeId()))
-                .isInstanceOf(FutureEventAlreadyResolvedException.class);
+        assertThatThrownBy(() -> event.sealOutcome(outcomeId)).isInstanceOf(FutureEventAlreadyResolvedException.class);
     }
 
     @Test
@@ -858,7 +861,7 @@ class FutureEventTest {
 
         assertThat(byId(event, a.outcomeId())).isEqualTo(70);
         assertThat(byId(event, b.outcomeId())).isEqualTo(30);
-        assertThat(byId(event, c.outcomeId())).isEqualTo(0);
+        assertThat(byId(event, c.outcomeId())).isZero();
         assertThat(event.outcomes().stream()
                         .filter(o -> o.outcomeId().equals(b.outcomeId()))
                         .findFirst()

@@ -92,21 +92,21 @@ class JpaRoundActionBufferAdapterTest {
     void findByRound_persistedTargetEventIdsContainsNull_dropsTheNullEntryInstead() {
         var gameId = UUID.randomUUID();
         var eventId = UUID.randomUUID();
-        var entity = new RoundActionBufferEntity(
-                new RoundKey(gameId, 1, 1),
+        var action = new BufferedAction(
                 ActionKind.CARD_PLAYED,
                 "SCAN",
                 null,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                null,
+                List.of(),
+                null,
+                null,
+                null,
                 CardGrade.I,
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                null,
-                "[\"" + eventId + "\", null]",
-                null,
-                null,
-                null,
                 Instant.now(),
                 UUID.randomUUID());
+        var entity = new RoundActionBufferEntity(new RoundKey(gameId, 1, 1), action, "[\"" + eventId + "\", null]");
         jpaRepository.save(entity);
 
         var found = buffer.findByRound(gameId, 1, 1);

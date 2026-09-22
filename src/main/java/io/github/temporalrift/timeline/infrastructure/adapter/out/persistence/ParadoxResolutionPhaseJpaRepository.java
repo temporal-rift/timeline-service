@@ -25,6 +25,9 @@ interface ParadoxResolutionPhaseJpaRepository extends JpaRepository<ParadoxResol
      *
      * @return 1 if this call inserted the row, 0 if a row for {@code (gameId, eraNumber)} already existed
      */
+    // Nine parameters — one per inserted column of the atomic ON CONFLICT upsert; grouping them into a
+    // wrapper object would only obscure the 1:1 column binding this native query exists to make explicit.
+    @SuppressWarnings("java:S107")
     @Modifying
     @Query(value = """
                     INSERT INTO paradox_resolution_phase

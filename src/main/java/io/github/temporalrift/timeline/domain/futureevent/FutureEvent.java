@@ -59,12 +59,12 @@ public final class FutureEvent {
                 case OutcomeApplied e -> new FutureEvent(id, e.finalOutcomes(), true, false, state.sealBreach());
                 case ProbabilityShifted e ->
                     new FutureEvent(id, e.outcomes(), false, state.stalled(), state.sealBreach());
-                case EventStalled e -> new FutureEvent(id, state.outcomes(), false, true, state.sealBreach());
-                case EventUnstalled e -> new FutureEvent(id, state.outcomes(), false, false, state.sealBreach());
+                case EventStalled _ -> new FutureEvent(id, state.outcomes(), false, true, state.sealBreach());
+                case EventUnstalled _ -> new FutureEvent(id, state.outcomes(), false, false, state.sealBreach());
                 case OutcomeSealed e -> new FutureEvent(id, e.outcomes(), false, state.stalled(), state.sealBreach());
                 case OutcomeAnnihilated e ->
                     new FutureEvent(id, e.outcomes(), false, state.stalled(), state.sealBreach());
-                case SealBreachRecorded e -> new FutureEvent(id, state.outcomes(), false, state.stalled(), true);
+                case SealBreachRecorded _ -> new FutureEvent(id, state.outcomes(), false, state.stalled(), true);
                 case EraStateCleared e -> new FutureEvent(id, e.outcomes(), false, state.stalled(), false);
                 default -> throw new IllegalArgumentException("Unknown FutureEvent domain event: " + event.getClass());
             };
@@ -136,22 +136,25 @@ public final class FutureEvent {
             throw new FutureEventAlreadyResolvedException(id);
         }
         return switch (shift) {
-            case ProbabilityShift.Push p -> shiftSingleOrBreach(p.targetOutcomeId(), magnitude, floor, ceiling);
-            case ProbabilityShift.Suppress s -> shiftSingleOrBreach(s.targetOutcomeId(), magnitude, floor, ceiling);
-            case ProbabilityShift.Swing sw ->
-                swingOrBreach(sw.sourceOutcomeId(), sw.targetOutcomeId(), magnitude, floor, ceiling);
-            case ProbabilityShift.Collide c -> collideOrBreach(c.outcomeAId(), c.outcomeBId(), floor, ceiling);
-            case ProbabilityShift.Restore r -> {
+            case ProbabilityShift.Push(var targetOutcomeId) ->
+                shiftSingleOrBreach(targetOutcomeId, magnitude, floor, ceiling);
+            case ProbabilityShift.Suppress(var targetOutcomeId) ->
+                shiftSingleOrBreach(targetOutcomeId, magnitude, floor, ceiling);
+            case ProbabilityShift.Swing(var sourceOutcomeId, var targetOutcomeId) ->
+                swingOrBreach(sourceOutcomeId, targetOutcomeId, magnitude, floor, ceiling);
+            case ProbabilityShift.Collide(var outcomeAId, var outcomeBId) ->
+                collideOrBreach(outcomeAId, outcomeBId, floor, ceiling);
+            case ProbabilityShift.Restore(var targetProbabilities) -> {
                 // A snapshot predates any SEAL cast on this event since — restoring it verbatim would
                 // silently overwrite a sealed outcome's now-frozen probability if the two disagree. Decline
                 // the whole restore rather than partially rebuild the other two around a value we're not
                 // allowed to change (undo/REDIRECT/CORRUPT all funnel through here, so this protects all
                 // three, not just CORRUPT), and record it as a breach — the same signal PUSH/SUPPRESS/SWING
                 // already record whenever a seal blocks their effect.
-                if (conflictsWithSealedOutcome(r.targetProbabilities())) {
+                if (conflictsWithSealedOutcome(targetProbabilities)) {
                     yield recordSealBreach();
                 }
-                var shiftedOutcomes = replaceProbabilities(r.targetProbabilities());
+                var shiftedOutcomes = replaceProbabilities(targetProbabilities);
                 var event = new ProbabilityShifted(id, shiftedOutcomes);
                 this.outcomes = shiftedOutcomes;
                 yield event;
@@ -377,8 +380,8 @@ public final class FutureEvent {
         var source = outcomeById(sourceOutcomeId);
         var target = outcomeById(targetOutcomeId);
 
-        int actualMove = Math.max(
-                0, Math.min(magnitude, Math.min(source.probability() - floor, ceiling - target.probability())));
+        int actualMove =
+                Math.clamp(Math.min(source.probability() - floor, ceiling - target.probability()), 0, magnitude);
 
         return replaceProbabilities(Map.of(
                 sourceOutcomeId,
@@ -426,7 +429,7 @@ public final class FutureEvent {
     }
 
     private static int clamp(int value, int floor, int ceiling) {
-        return Math.max(floor, Math.min(ceiling, value));
+        return Math.clamp(value, floor, ceiling);
     }
 
     public UUID id() {

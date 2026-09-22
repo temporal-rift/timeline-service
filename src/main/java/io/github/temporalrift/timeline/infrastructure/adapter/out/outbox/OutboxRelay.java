@@ -76,7 +76,7 @@ class OutboxRelay {
             kafkaTemplate.send(message).get(10, TimeUnit.SECONDS);
             log.debug("Relayed outbox event {} to {}", row.id(), row.topic());
             return true;
-        } catch (InterruptedException e) {
+        } catch (InterruptedException _) {
             Thread.currentThread().interrupt();
             log.warn("Interrupted relaying outbox event {} to {} — will retry next sweep", row.id(), row.topic());
             return false;
