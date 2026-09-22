@@ -186,7 +186,8 @@ public final class FutureEvent {
         var other1 = others.get(0);
         var other2 = others.get(1);
 
-        int actualDelta = Math.clamp(target.probability() + magnitude, floor, ceiling) - target.probability();
+        int desiredTarget = target.probability() + magnitude;
+        int actualDelta = Math.clamp(desiredTarget, floor, ceiling) - target.probability();
         if (actualDelta == 0) {
             var event = new ProbabilityShifted(id, outcomes());
             this.outcomes = event.outcomes();
@@ -352,7 +353,8 @@ public final class FutureEvent {
         var other1 = others.get(0);
         var other2 = others.get(1);
 
-        int desiredTarget = Math.clamp(target.probability() + delta, floor, ceiling);
+        int unclampedTarget = target.probability() + delta;
+        int desiredTarget = Math.clamp(unclampedTarget, floor, ceiling);
         int actualDelta = desiredTarget - target.probability();
         if (actualDelta == 0) {
             return outcomes();
