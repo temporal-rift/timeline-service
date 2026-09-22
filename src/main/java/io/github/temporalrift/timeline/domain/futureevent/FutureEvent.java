@@ -409,23 +409,28 @@ public final class FutureEvent {
     }
 
     /**
-     * Splits a fixed {@code a + b} between two box-constrained values in one step: each variable's bound
-     * accounts for the other's constraint (e.g. {@code a}'s lower bound is raised to {@code sum - ceiling}
-     * so {@code b = sum - a} cannot exceed the ceiling), so both results land in {@code [floor, ceiling]}
-     * with no further iteration — valid whenever {@code sum} itself is within {@code [2*floor, 2*ceiling]}.
+     * Splits fixed {@code desiredFirst + desiredSecond} between two box-constrained values in one step: each
+     * variable's bound accounts for the other's constraint (e.g. the first value's lower bound is raised to
+     * {@code sum - ceiling} so {@code second = sum - first} cannot exceed the ceiling), so both results land
+     * in {@code [floor, ceiling]} with no further iteration — valid whenever {@code sum} itself is within
+     * {@code [2*floor, 2*ceiling]}.
      * Used both for two of three outcomes given the third's already-clamped value ({@code sum = 100 -
      * thirdOutcome}), and for a target/free-other pair when the remaining third outcome is sealed and frozen
      * ({@code sum = 100 - sealedOutcome}) — either way {@code sum} is {@code 100} minus one outcome's
      * probability, already within {@code [floor, ceiling]}, so the precondition holds for every case exactly
      * when {@code floor + 2*ceiling >= 100 and 2*floor + ceiling <= 100} — enforced at startup by
      * {@code TimelineRulesProperties}, not re-checked here.
+     *
+     * @param desiredFirst the first outcome's desired probability before clamping
+     * @param desiredSecond the second outcome's desired probability before clamping
+     * @return the clamped pair {@code [first, second]} with the same sum as the inputs
      */
-    private static int[] clampPairPreservingSum(int a, int b, int floor, int ceiling) {
-        int sum = a + b;
+    private static int[] clampPairPreservingSum(int desiredFirst, int desiredSecond, int floor, int ceiling) {
+        int sum = desiredFirst + desiredSecond;
         int lower = Math.max(floor, sum - ceiling);
         int upper = Math.min(ceiling, sum - floor);
-        int clampedA = Math.clamp(a, lower, upper);
-        return new int[] {clampedA, sum - clampedA};
+        int clampedFirst = Math.clamp(desiredFirst, lower, upper);
+        return new int[] {clampedFirst, sum - clampedFirst};
     }
 
     public UUID id() {
