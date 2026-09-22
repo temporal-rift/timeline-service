@@ -186,7 +186,7 @@ public final class FutureEvent {
         var other1 = others.get(0);
         var other2 = others.get(1);
 
-        int actualDelta = clamp(target.probability() + magnitude, floor, ceiling) - target.probability();
+        int actualDelta = Math.clamp(target.probability() + magnitude, floor, ceiling) - target.probability();
         if (actualDelta == 0) {
             var event = new ProbabilityShifted(id, outcomes());
             this.outcomes = event.outcomes();
@@ -273,7 +273,7 @@ public final class FutureEvent {
             this.outcomes = shiftedOutcomes;
             return event;
         }
-        int clampedThird = clamp(thirdIdeal, floor, ceiling);
+        int clampedThird = Math.clamp(thirdIdeal, floor, ceiling);
         int pairSum = 100 - clampedThird;
         var ordered = outcomeAId.compareTo(outcomeBId) <= 0
                 ? new UUID[] {outcomeAId, outcomeBId}
@@ -352,7 +352,7 @@ public final class FutureEvent {
         var other1 = others.get(0);
         var other2 = others.get(1);
 
-        int desiredTarget = clamp(target.probability() + delta, floor, ceiling);
+        int desiredTarget = Math.clamp(target.probability() + delta, floor, ceiling);
         int actualDelta = desiredTarget - target.probability();
         if (actualDelta == 0) {
             return outcomes();
@@ -424,12 +424,8 @@ public final class FutureEvent {
         int sum = a + b;
         int lower = Math.max(floor, sum - ceiling);
         int upper = Math.min(ceiling, sum - floor);
-        int clampedA = clamp(a, lower, upper);
+        int clampedA = Math.clamp(a, lower, upper);
         return new int[] {clampedA, sum - clampedA};
-    }
-
-    private static int clamp(int value, int floor, int ceiling) {
-        return Math.clamp(value, floor, ceiling);
     }
 
     public UUID id() {
