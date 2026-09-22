@@ -146,6 +146,10 @@ class ParadoxResolutionSagaImpl {
                             result.phase().pendingParadoxes().stream()
                                     .map(PendingParadox::paradoxId)
                                     .toList(),
+                            result.phase().pendingParadoxes().stream()
+                                    .map(PendingParadox::affectedEventId)
+                                    .distinct()
+                                    .toList(),
                             timerSeconds),
                     clock));
         }
