@@ -381,7 +381,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
         var order = inOrder(buffer, resolveEra);
         order.verify(buffer).save(any(), anyInt(), anyInt(), any());
-        order.verify(resolveEra).resolve(eq(gameId), eq(1));
+        order.verify(resolveEra).resolve(gameId, 1);
     }
 
     @Test

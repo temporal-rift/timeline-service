@@ -13,6 +13,7 @@ import org.hibernate.type.SqlTypes;
 
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.ActionKind;
+import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.BufferedAction;
 
 @Entity
 @Table(name = "round_action_buffer")
@@ -65,35 +66,21 @@ class RoundActionBufferEntity extends RoundScopedEntity {
         // for JPA
     }
 
-    RoundActionBufferEntity(
-            RoundKey key,
-            ActionKind kind,
-            String cardType,
-            String specialAction,
-            CardGrade grade,
-            UUID playerId,
-            UUID cardInstanceId,
-            UUID targetEventId,
-            String targetEventIds,
-            UUID sourceOutcomeId,
-            UUID targetOutcomeId,
-            UUID targetPlayerId,
-            Instant occurredAt,
-            UUID envelopeEventId) {
+    RoundActionBufferEntity(RoundKey key, BufferedAction action, String targetEventIds) {
         super(key);
-        this.kind = kind;
-        this.cardType = cardType;
-        this.specialAction = specialAction;
-        this.grade = grade;
-        this.playerId = playerId;
-        this.cardInstanceId = cardInstanceId;
-        this.targetEventId = targetEventId;
+        this.kind = action.kind();
+        this.cardType = action.cardType();
+        this.specialAction = action.specialAction();
+        this.grade = action.grade();
+        this.playerId = action.playerId();
+        this.cardInstanceId = action.cardInstanceId();
+        this.targetEventId = action.targetEventId();
         this.targetEventIds = targetEventIds;
-        this.sourceOutcomeId = sourceOutcomeId;
-        this.targetOutcomeId = targetOutcomeId;
-        this.targetPlayerId = targetPlayerId;
-        this.occurredAt = occurredAt;
-        this.envelopeEventId = envelopeEventId;
+        this.sourceOutcomeId = action.sourceOutcomeId();
+        this.targetOutcomeId = action.targetOutcomeId();
+        this.targetPlayerId = action.targetPlayerId();
+        this.occurredAt = action.occurredAt();
+        this.envelopeEventId = action.envelopeEventId();
     }
 
     ActionKind kind() {

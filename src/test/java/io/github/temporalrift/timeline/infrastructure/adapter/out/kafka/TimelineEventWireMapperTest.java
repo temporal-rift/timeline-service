@@ -50,7 +50,7 @@ class TimelineEventWireMapperTest {
 
         var outcomeAppliedWire = wire.terminalResolutions().get(0);
         assertThat(outcomeAppliedWire.eventId()).isEqualTo(outcomeAppliedEventId);
-        assertThat(outcomeAppliedWire.revealIndex()).isEqualTo(0);
+        assertThat(outcomeAppliedWire.revealIndex()).isZero();
         assertThat(outcomeAppliedWire.terminalState()).isEqualTo("OUTCOME_APPLIED");
         assertThat(outcomeAppliedWire.winningOutcomeId()).isEqualTo(winningOutcomeId);
 

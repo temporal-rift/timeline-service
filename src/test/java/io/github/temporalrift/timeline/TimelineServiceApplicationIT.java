@@ -60,8 +60,10 @@ class TimelineServiceApplicationIT {
         // Producer value-serializer is ByteArraySerializer (pairs with the consumer-side
         // ByteArrayJacksonJsonMessageConverter — see KafkaConsumerConfig), so a raw String value is no
         // longer serializable directly; send its bytes instead.
-        kafkaTemplate
+        var receipt = kafkaTemplate
                 .send("timeline.it-smoke", "k", "v".getBytes(StandardCharsets.UTF_8))
                 .get(10, TimeUnit.SECONDS);
+
+        assertThat(receipt).isNotNull();
     }
 }

@@ -275,9 +275,9 @@ class EventsDrawnKafkaConsumerTest {
                 {"gameId":"%s","eraNumber":1,"events":[{"eventId":"%s","title":"t","outcomes":[]}]}
                 """.formatted(UUID.randomUUID(), UUID.randomUUID());
 
-        assertThatThrownBy(() -> consumer.handle(
-                        KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1)))
-                .isInstanceOf(RuntimeException.class);
+        var payload = KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1);
+
+        assertThatThrownBy(() -> consumer.handle(payload)).isInstanceOf(RuntimeException.class);
 
         then(futureEvents).should(never()).append(any(), any());
     }
@@ -291,9 +291,9 @@ class EventsDrawnKafkaConsumerTest {
                 {"gameId":"%s","eraNumber":1,"events":[{"eventId":"%s","title":"t","outcomes":[],"isCascaded":false}]}
                 """.formatted(UUID.randomUUID(), UUID.randomUUID());
 
-        assertThatThrownBy(() -> consumer.handle(
-                        KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1)))
-                .isInstanceOf(RuntimeException.class);
+        var payload = KafkaTestMessages.withHeaders(json.getBytes(StandardCharsets.UTF_8), eventId, EVENT_TYPE, 1);
+
+        assertThatThrownBy(() -> consumer.handle(payload)).isInstanceOf(RuntimeException.class);
 
         then(futureEvents).should(never()).append(any(), any());
     }
