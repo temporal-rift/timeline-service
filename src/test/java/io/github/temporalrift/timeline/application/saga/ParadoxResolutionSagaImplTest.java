@@ -139,6 +139,7 @@ class ParadoxResolutionSagaImplTest {
         assertThat(payload.gameId()).isEqualTo(GAME_ID);
         assertThat(payload.eraNumber()).isEqualTo(ERA_NUMBER);
         assertThat(payload.paradoxIds()).containsExactly(paradoxId);
+        assertThat(payload.affectedEventIds()).containsExactly(affectedEventId);
         assertThat(payload.timerSeconds()).isEqualTo(TIMER_SECONDS);
     }
 
