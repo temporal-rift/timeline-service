@@ -22,6 +22,7 @@ import io.github.temporalrift.timeline.domain.event.ParadoxResolutionPhaseStarte
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.futureevent.DetectedParadox;
+import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxDetector;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
@@ -298,16 +299,7 @@ class ParadoxResolutionSagaImpl {
         var revealIndex = eventPendingParadoxes.getFirst().revealIndex();
         var futureEvent = futureEvents.findById(affectedEventId);
 
-        // STABILIZE(affectedEventId) suppresses paradox re-detection entirely for this event — every
-        // originally pending finding resolves regardless of what fresh detection on the post-close state
-        // would otherwise find (the rule prevents a paradox from triggering, stronger than clearing only the
-        // originally-tracked finding). No fresh detection is even run in that case — UNLESS the event has no
-        // eligible outcome left: STABILIZE cannot force an outcome selection that isn't possible, so in that
-        // case fresh detection still runs, exactly as if STABILIZE had not been submitted (it will find the
-        // persisting IMPOSSIBLE_ERASURE finding(s) and the event cascades below, same as the non-STABILIZE path).
-        boolean stabilized = futureEvent.hasEligibleOutcome()
-                && phase.submissions().stream()
-                        .anyMatch(s -> "STABILIZE".equals(s.cardType()) && affectedEventId.equals(s.targetEventId()));
+        boolean stabilized = isStabilized(phase, affectedEventId, futureEvent);
         var freshParadoxes = stabilized
                 ? List.<DetectedParadox>of()
                 : ParadoxDetector.detect(
@@ -381,6 +373,13 @@ class ParadoxResolutionSagaImpl {
             terminalResolutions.add(new TerminalResolution(
                     affectedEventId, revealIndex, TerminalResolution.TerminalState.CASCADED, null));
         }
+    }
+
+    /** STABILIZE suppresses re-detection except against an event with no eligible outcome left to draw. */
+    private static boolean isStabilized(ParadoxResolutionPhase phase, UUID affectedEventId, FutureEvent futureEvent) {
+        return futureEvent.hasEligibleOutcome()
+                && phase.submissions().stream()
+                        .anyMatch(s -> "STABILIZE".equals(s.cardType()) && affectedEventId.equals(s.targetEventId()));
     }
 
     /**

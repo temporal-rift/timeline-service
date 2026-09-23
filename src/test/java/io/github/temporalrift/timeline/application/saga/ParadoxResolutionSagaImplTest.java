@@ -791,10 +791,8 @@ class ParadoxResolutionSagaImplTest {
 
     @Test
     void handlePlayerSubmitted_stabilizeTargetsEventWithNoEligibleOutcome_cascadesInsteadOfThrowing() {
-        // issue #115: a carried event that has lost all three outcomes to repeated Annihilate/Cascade has
-        // nothing left for resolve() to draw from. STABILIZE must not be able to force that draw — fresh
-        // detection still runs, still finds every IMPOSSIBLE_ERASURE finding, and the event cascades exactly
-        // as it would with no STABILIZE submitted, instead of the resolution phase throwing.
+        // No outcome is eligible to resolve() — STABILIZE must not force that draw; fresh detection still
+        // runs and the event cascades exactly as it would with no STABILIZE submitted.
         var sagaId = UUID.randomUUID();
         var stabilizingPlayerId = UUID.randomUUID();
         var firstOutcomeId = UUID.randomUUID();

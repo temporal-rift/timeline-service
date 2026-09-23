@@ -476,11 +476,7 @@ public final class FutureEvent {
         return sealBreach;
     }
 
-    /**
-     * True when at least one outcome is not annihilated. {@code drawWeighted}'s empty-eligible-set exception
-     * should be unreachable once callers check this first — a caller must never attempt {@link #resolve} against
-     * an event with no eligible outcome.
-     */
+    /** True when at least one outcome is not annihilated — callers must check this before {@link #resolve}. */
     public boolean hasEligibleOutcome() {
         return outcomes.stream().anyMatch(o -> !o.annihilated());
     }
