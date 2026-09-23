@@ -63,18 +63,20 @@ class WeaverChainSagaIT {
 
         draftDeterministicEra(gameId, 2, era2Event, era2Winner);
         publishThread(gameId, 2, weaver, era2Event, era2Winner, UUID.randomUUID());
-        awaitChainLinkThreaded(gameId);
-        resolveEra(gameId, 2, era2Event);
+        awaitChainLinkThreaded(gameId, 1);
+        resolveEra(gameId, 2, era2Event, era2Winner);
         awaitChainLinkAdded(gameId, 1);
 
         draftDeterministicEra(gameId, 3, era3Event, era3Winner);
         publishThread(gameId, 3, weaver, era3Event, era3Winner, UUID.randomUUID());
-        resolveEra(gameId, 3, era3Event);
+        awaitChainLinkThreaded(gameId, 2);
+        resolveEra(gameId, 3, era3Event, era3Winner);
         awaitChainLinkAdded(gameId, 2);
 
         draftDeterministicEra(gameId, 4, era4Event, era4Winner);
         publishThread(gameId, 4, weaver, era4Event, era4Winner, UUID.randomUUID());
-        resolveEra(gameId, 4, era4Event);
+        awaitChainLinkThreaded(gameId, 3);
+        resolveEra(gameId, 4, era4Event, era4Winner);
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(
@@ -115,14 +117,14 @@ class WeaverChainSagaIT {
 
         draftDeterministicEra(gameId, 1, era1Event, era1Winner);
         publishThread(gameId, 1, weaver, era1Event, era1Winner, UUID.randomUUID());
-        awaitChainLinkThreaded(gameId);
-        resolveEra(gameId, 1, era1Event);
+        awaitChainLinkThreaded(gameId, 1);
+        resolveEra(gameId, 1, era1Event, era1Winner);
         awaitChainLinkAdded(gameId, 1);
 
         draftEra(gameId, 2, era2Event, era2Winner);
         publishSpecialActionPlayed(gameId, 2, UUID.randomUUID(), "ANNIHILATE", era1Event, era1Winner);
         publishActionRoundClosed(gameId, 2, 1);
-        resolveEra(gameId, 2, era2Event);
+        resolveEra(gameId, 2, era2Event, era2Winner);
 
         assertThat(eventTypesOf(messagesFor(gameId))).doesNotContain(CHAIN_LINK_INVALIDATED);
     }
@@ -137,7 +139,7 @@ class WeaverChainSagaIT {
 
         draftEra(gameId, 2, era2Event, era2Winner);
         publishThread(gameId, 2, weaver, era2Event, era2Winner, threadEventId);
-        awaitChainLinkThreaded(gameId);
+        awaitChainLinkThreaded(gameId, 1);
 
         publishThread(gameId, 2, weaver, era2Event, era2Winner, threadEventId);
 
@@ -156,7 +158,7 @@ class WeaverChainSagaIT {
 
         draftEra(gameId, 2, era2Event, era2Winner);
         publishThread(gameId, 2, weaver, era2Event, era2Winner, UUID.randomUUID());
-        awaitChainLinkThreaded(gameId);
+        awaitChainLinkThreaded(gameId, 1);
         publishGameEnded(gameId);
         // Wait until GameEnded actually closed the saga before the ANNIHILATE arrives; a still-open saga would
         // answer it with ChainLinkInvalidated within the assertion window below.
@@ -200,18 +202,20 @@ class WeaverChainSagaIT {
         publishActionRoundClosed(gameId, eraNumber, 1);
     }
 
-    private void resolveEra(UUID gameId, int eraNumber, UUID eventId) {
+    private void resolveEra(UUID gameId, int eraNumber, UUID eventId, UUID expectedWinnerId) {
         publish(gameId, "ResolutionStarted", Map.of("gameId", gameId, "eraNumber", eraNumber));
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), OUTCOME_APPLIED))
-                        .anySatisfy(
-                                payload -> assertThat(payload.get("eventId")).hasToString(eventId.toString())));
+                        .anySatisfy(payload -> {
+                            assertThat(payload.get("eventId")).hasToString(eventId.toString());
+                            assertThat(payload.get("winningOutcomeId")).hasToString(expectedWinnerId.toString());
+                        }));
     }
 
-    private void awaitChainLinkThreaded(UUID gameId) {
+    private void awaitChainLinkThreaded(UUID gameId, int expectedCount) {
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(
-                        () -> assertThat(eventTypesOf(messagesFor(gameId))).contains(CHAIN_LINK_THREADED));
+                .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_LINK_THREADED))
+                        .hasSize(expectedCount));
     }
 
     private void awaitChainLinkAdded(UUID gameId, int chainLength) {

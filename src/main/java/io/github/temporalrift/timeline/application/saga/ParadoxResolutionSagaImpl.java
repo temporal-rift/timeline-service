@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.ParadoxCascaded;
+import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolutionPhaseStarted;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
@@ -265,17 +266,6 @@ class ParadoxResolutionSagaImpl {
         return affectedEventIds;
     }
 
-    /**
-     * Re-runs detection on one affected event's current state; for each of its originally detected paradoxes,
-     * publishes {@code ParadoxResolved} when that exact finding (type + affected outcomes, not type alone — two
-     * independently annihilated outcomes can both trip {@code IMPOSSIBLE_ERASURE} on the same event) is no
-     * longer present, or {@code ParadoxCascaded} when it still is. The event resolves normally (Decision 5) only
-     * when re-detection finds no paradox at all — not merely when the originally-tracked findings are gone — so a
-     * card that clears one paradox but incidentally introduces a different one (e.g. a SUPPRESS that ties two
-     * outcomes into a fresh {@code DEAD_HEAT}) still cascades the event; that new, untracked finding has no
-     * {@code paradoxId} of its own and so gets no dedicated {@code ParadoxCascaded} fact this cycle
-     * (the governing design Non-Goals), but the event itself never wrongly resolves out from under it.
-     */
     private List<WeaverChain> loadActiveChains(UUID gameId) {
         var activeChains = new ArrayList<WeaverChain>();
         for (var saga : chainSagas.findOpenByGame(gameId)) {
@@ -305,53 +295,14 @@ class ParadoxResolutionSagaImpl {
                 : ParadoxDetector.detect(
                         futureEvent.outcomes(), futureEvent.sealBreach(), futureEvent.id(), activeChains);
 
-        var allResolved = stabilized || freshParadoxes.isEmpty();
-        for (var pending : eventPendingParadoxes) {
-            if (stillPresent(pending, freshParadoxes)) {
-                publisher.publish(TimelineEventEnvelope.create(
-                        affectedEventId,
-                        FUTURE_EVENT_AGGREGATE_TYPE,
-                        phase.gameId(),
-                        TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                        new ParadoxCascaded(
-                                phase.gameId(),
-                                phase.eraNumber(),
-                                pending.paradoxId(),
-                                affectedEventId,
-                                futureEvent.outcomes(),
-                                detonatedByPlayerIds(phase, affectedEventId)),
-                        clock));
-                if (pending.type() == ParadoxType.CHAIN_CONFLICT) {
-                    weaverChainSaga.breakChainOnCascadedParadox(
-                            phase.gameId(),
-                            phase.eraNumber(),
-                            affectedEventId,
-                            pending.affectedOutcomeIds().getFirst(),
-                            pending.paradoxId());
-                }
-            } else {
-                publisher.publish(TimelineEventEnvelope.create(
-                        affectedEventId,
-                        FUTURE_EVENT_AGGREGATE_TYPE,
-                        phase.gameId(),
-                        TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                        new ParadoxResolved(
-                                phase.gameId(),
-                                phase.eraNumber(),
-                                pending.paradoxId(),
-                                resolvedByPlayerIdByEvent.get(affectedEventId)),
-                        clock));
-                if (pending.type() == ParadoxType.CHAIN_CONFLICT) {
-                    weaverChainSaga.confirmParadoxResolvedLink(
-                            phase.gameId(),
-                            phase.eraNumber(),
-                            affectedEventId,
-                            pending.affectedOutcomeIds().getFirst());
-                }
-            }
-        }
+        var persistingIds = reconcileFindings(
+                phase,
+                affectedEventId,
+                eventPendingParadoxes,
+                freshParadoxes,
+                resolvedByPlayerIdByEvent.get(affectedEventId));
 
-        if (allResolved) {
+        if (persistingIds.isEmpty()) {
             var outcomeApplied = futureEvent.resolve(phase.gameId(), phase.eraNumber(), random.nextLong());
             futureEvents.append(affectedEventId, outcomeApplied);
             weaverChainSaga.resolvePendingLink(
@@ -369,9 +320,101 @@ class ParadoxResolutionSagaImpl {
                     TerminalResolution.TerminalState.OUTCOME_APPLIED,
                     outcomeApplied.winningOutcomeId()));
         } else {
+            publisher.publish(TimelineEventEnvelope.create(
+                    affectedEventId,
+                    FUTURE_EVENT_AGGREGATE_TYPE,
+                    phase.gameId(),
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new ParadoxCascaded(
+                            phase.gameId(),
+                            phase.eraNumber(),
+                            persistingIds.getFirst(),
+                            persistingIds,
+                            affectedEventId,
+                            futureEvent.outcomes(),
+                            detonatedByPlayerIds(phase, affectedEventId)),
+                    clock));
             eraIndex.add(affectedEventId, phase.gameId(), phase.eraNumber() + 1, revealIndex);
             terminalResolutions.add(new TerminalResolution(
                     affectedEventId, revealIndex, TerminalResolution.TerminalState.CASCADED, null));
+        }
+    }
+
+    /** Reconciles findings one-to-one so each current finding has one stable or newly announced id. */
+    private List<UUID> reconcileFindings(
+            ParadoxResolutionPhase phase,
+            UUID affectedEventId,
+            List<PendingParadox> pendingParadoxes,
+            List<DetectedParadox> freshParadoxes,
+            UUID resolvedByPlayerId) {
+        var unmatchedFresh = new ArrayList<>(freshParadoxes);
+        var persistingIds = new ArrayList<UUID>();
+        for (var pending : pendingParadoxes) {
+            var matchingFresh = unmatchedFresh.stream()
+                    .filter(fresh -> sameFinding(pending, fresh))
+                    .findFirst();
+            if (matchingFresh.isPresent()) {
+                unmatchedFresh.remove(matchingFresh.get());
+                persistingIds.add(pending.paradoxId());
+                breakChainOnCascadeIfChainConflict(
+                        phase,
+                        affectedEventId,
+                        pending.type(),
+                        pending.affectedOutcomeIds().getFirst(),
+                        pending.paradoxId());
+            } else {
+                publisher.publish(TimelineEventEnvelope.create(
+                        affectedEventId,
+                        FUTURE_EVENT_AGGREGATE_TYPE,
+                        phase.gameId(),
+                        TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                        new ParadoxResolved(phase.gameId(), phase.eraNumber(), pending.paradoxId(), resolvedByPlayerId),
+                        clock));
+                if (pending.type() == ParadoxType.CHAIN_CONFLICT) {
+                    weaverChainSaga.confirmParadoxResolvedLink(
+                            phase.gameId(),
+                            phase.eraNumber(),
+                            affectedEventId,
+                            pending.affectedOutcomeIds().getFirst());
+                }
+            }
+        }
+
+        if (!unmatchedFresh.isEmpty()) {
+            var newFindings = new ArrayList<ParadoxDetected.Paradox>();
+            for (var fresh : unmatchedFresh) {
+                var paradoxId = UUID.randomUUID();
+                persistingIds.add(paradoxId);
+                newFindings.add(new ParadoxDetected.Paradox(
+                        paradoxId, fresh.type(), affectedEventId, fresh.affectedOutcomeIds(), fresh.description()));
+                breakChainOnCascadeIfChainConflict(
+                        phase,
+                        affectedEventId,
+                        fresh.type(),
+                        fresh.affectedOutcomeIds().getFirst(),
+                        paradoxId);
+            }
+            publisher.publish(TimelineEventEnvelope.create(
+                    phase.gameId(),
+                    ERA_AGGREGATE_TYPE,
+                    phase.gameId(),
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new ParadoxDetected(phase.gameId(), phase.eraNumber(), newFindings),
+                    clock));
+        }
+        return List.copyOf(persistingIds);
+    }
+
+    /** Breaks the weaver chain only for {@code CHAIN_CONFLICT} findings carried into the next era. */
+    private void breakChainOnCascadeIfChainConflict(
+            ParadoxResolutionPhase phase,
+            UUID affectedEventId,
+            ParadoxType type,
+            UUID affectedOutcomeId,
+            UUID paradoxId) {
+        if (type == ParadoxType.CHAIN_CONFLICT) {
+            weaverChainSaga.breakChainOnCascadedParadox(
+                    phase.gameId(), phase.eraNumber(), affectedEventId, affectedOutcomeId, paradoxId);
         }
     }
 
@@ -401,11 +444,10 @@ class ParadoxResolutionSagaImpl {
      * outcome ids — comparing {@code type} alone would conflate two distinct same-type findings on one event
      * (Decision 2 / review finding).
      */
-    private static boolean stillPresent(PendingParadox pending, List<DetectedParadox> freshParadoxes) {
+    private static boolean sameFinding(PendingParadox pending, DetectedParadox fresh) {
         var pendingOutcomeIds = Set.copyOf(pending.affectedOutcomeIds());
-        return freshParadoxes.stream()
-                .anyMatch(fresh -> fresh.type() == pending.type()
-                        && Set.copyOf(fresh.affectedOutcomeIds()).equals(pendingOutcomeIds));
+        return fresh.type() == pending.type()
+                && Set.copyOf(fresh.affectedOutcomeIds()).equals(pendingOutcomeIds);
     }
 
     record OpenResult(ParadoxResolutionPhase phase, boolean created) {}

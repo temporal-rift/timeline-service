@@ -29,6 +29,7 @@ import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxCascaded;
+import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolutionPhaseStarted;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
@@ -249,6 +250,7 @@ class ParadoxResolutionSagaImplTest {
 
         var cascaded = (ParadoxCascaded) payloads.get(0);
         assertThat(cascaded.paradoxId()).isEqualTo(paradoxId);
+        assertThat(cascaded.paradoxIds()).containsExactly(paradoxId);
         assertThat(cascaded.affectedEventId()).isEqualTo(affectedEventId);
         assertThat(cascaded.carryForwardProbabilityState()).isEqualTo(futureEvent.outcomes());
 
@@ -292,16 +294,23 @@ class ParadoxResolutionSagaImplTest {
                 .breakChainOnCascadedParadox(GAME_ID, ERA_NUMBER, affectedEventId, pendingOutcomeId, paradoxId);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(times(2)).publish(captor.capture());
+        then(publisher).should(times(3)).publish(captor.capture());
         var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .toList();
 
-        var cascaded = (ParadoxCascaded) payloads.get(0);
+        // Annihilation also creates an impossible erasure in this fixture; announce it before cascading.
+        var detected = (ParadoxDetected) payloads.get(0);
+        assertThat(detected.paradoxes())
+                .singleElement()
+                .satisfies(paradox -> assertThat(paradox.type()).isEqualTo(ParadoxType.IMPOSSIBLE_ERASURE));
+        var cascaded = (ParadoxCascaded) payloads.get(1);
         assertThat(cascaded.paradoxId()).isEqualTo(paradoxId);
+        assertThat(cascaded.paradoxIds())
+                .containsExactly(paradoxId, detected.paradoxes().getFirst().paradoxId());
         assertThat(cascaded.affectedEventId()).isEqualTo(affectedEventId);
 
-        var barrier = (EraResolutionCompleted) payloads.get(1);
+        var barrier = (EraResolutionCompleted) payloads.get(2);
         assertThat(barrier.terminalResolutions())
                 .containsExactly(
                         new TerminalResolution(affectedEventId, 0, TerminalResolution.TerminalState.CASCADED, null));
@@ -673,6 +682,69 @@ class ParadoxResolutionSagaImplTest {
     }
 
     @Test
+    void handlePlayerSubmitted_clearsOriginalFindingButCreatesDeadHeat_announcesAndCascades() {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
+        var sealedOutcomeId = UUID.randomUUID();
+        var thirdOutcomeId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                affectedEventId,
+                List.of(new FutureEventDrafted(
+                        affectedEventId,
+                        List.of(
+                                new Outcome(annihilatedId, "annihilated", 50, false, true),
+                                new Outcome(sealedOutcomeId, "sealed", 35, true, false),
+                                new Outcome(thirdOutcomeId, "third", 15)))));
+        // Suppressing the annihilated outcome to 30 clears its erasure; the sealed outcome stays at 35,
+        // and the other live outcome absorbs all 20 freed points to create a new dead heat at 35.
+        var submission = new Submission(playerId, "SUPPRESS", CardGrade.II, affectedEventId, annihilatedId);
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(submission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+        given(probabilityRules.suppressShift(CardGrade.II)).willReturn(-20);
+        given(probabilityRules.probabilityFloor()).willReturn(0);
+        given(probabilityRules.probabilityCeiling()).willReturn(90);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
+
+        then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(4)).publish(captor.capture());
+        var payloads = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .toList();
+        assertThat(((ParadoxResolved) payloads.get(0)).paradoxId()).isEqualTo(paradoxId);
+        var detected = (ParadoxDetected) payloads.get(1);
+        assertThat(detected.paradoxes()).singleElement().satisfies(paradox -> {
+            assertThat(paradox.type()).isEqualTo(ParadoxType.DEAD_HEAT);
+            assertThat(paradox.affectedEventId()).isEqualTo(affectedEventId);
+        });
+        var cascaded = (ParadoxCascaded) payloads.get(2);
+        assertThat(cascaded.paradoxIds())
+                .containsExactly(detected.paradoxes().getFirst().paradoxId());
+        assertThat(cascaded.paradoxId()).isEqualTo(cascaded.paradoxIds().getFirst());
+        assertThat(payloads).noneMatch(OutcomeApplied.class::isInstance);
+        var barrier = (EraResolutionCompleted) payloads.get(3);
+        assertThat(barrier.terminalResolutions())
+                .containsExactly(
+                        new TerminalResolution(affectedEventId, 0, TerminalResolution.TerminalState.CASCADED, null));
+    }
+
+    @Test
     void closeEvent_twoIndependentImpossibleErasureFindingsOnOneEvent_onlyTheClearedOneIsResolved() {
         // Regression: matching a fresh finding to an original one by type alone would treat clearing either
         // annihilated outcome as clearing both. Two outcomes independently annihilated and both >= the sole
@@ -845,13 +917,15 @@ class ParadoxResolutionSagaImplTest {
         then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(times(4)).publish(captor.capture());
+        then(publisher).should(times(2)).publish(captor.capture());
         var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .toList();
-        assertThat(payloads.subList(0, 3)).allSatisfy(p -> assertThat(p).isInstanceOf(ParadoxCascaded.class));
+        var cascaded = (ParadoxCascaded) payloads.get(0);
+        assertThat(cascaded.paradoxId()).isEqualTo(firstParadoxId);
+        assertThat(cascaded.paradoxIds()).containsExactly(firstParadoxId, secondParadoxId, thirdParadoxId);
         assertThat(payloads).noneMatch(ParadoxResolved.class::isInstance).noneMatch(OutcomeApplied.class::isInstance);
-        var barrier = (EraResolutionCompleted) payloads.get(3);
+        var barrier = (EraResolutionCompleted) payloads.get(1);
         assertThat(barrier.terminalResolutions())
                 .containsExactly(
                         new TerminalResolution(affectedEventId, 0, TerminalResolution.TerminalState.CASCADED, null));

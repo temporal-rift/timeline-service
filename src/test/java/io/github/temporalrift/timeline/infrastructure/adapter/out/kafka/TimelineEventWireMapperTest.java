@@ -16,10 +16,12 @@ import io.github.temporalrift.timeline.domain.event.ChainProtectionArmedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainProtectionConsumedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchoredEvent;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
+import io.github.temporalrift.timeline.domain.event.ParadoxCascaded;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.event.ThreadRejectedEvent;
+import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 
 class TimelineEventWireMapperTest {
 
@@ -74,6 +76,37 @@ class TimelineEventWireMapperTest {
         assertThat(wire.eraNumber()).isEqualTo(1);
         assertThat(wire.paradoxId()).isEqualTo(paradoxId);
         assertThat(wire.resolvedByPlayerId()).isEqualTo(resolvedByPlayerId);
+    }
+
+    @Test
+    void toWire_paradoxCascaded_preservesAllFindingIdsAndSingleEventEffects() {
+        var gameId = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        var firstParadoxId = UUID.randomUUID();
+        var secondParadoxId = UUID.randomUUID();
+        var detonatorId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        var event = new ParadoxCascaded(
+                gameId,
+                2,
+                firstParadoxId,
+                List.of(firstParadoxId, secondParadoxId),
+                eventId,
+                List.of(new Outcome(outcomeId, "outcome", 50)),
+                List.of(detonatorId));
+
+        var wire = mapper.toWire(event);
+
+        assertThat(wire.gameId()).isEqualTo(gameId);
+        assertThat(wire.eraNumber()).isEqualTo(2);
+        assertThat(wire.paradoxId()).isEqualTo(firstParadoxId);
+        assertThat(wire.paradoxIds()).containsExactly(firstParadoxId, secondParadoxId);
+        assertThat(wire.affectedEventId()).isEqualTo(eventId);
+        assertThat(wire.carryForwardProbabilityState()).singleElement().satisfies(outcome -> {
+            assertThat(outcome.outcomeId()).isEqualTo(outcomeId);
+            assertThat(outcome.probability()).isEqualTo(50);
+        });
+        assertThat(wire.detonatedByPlayerIds()).containsExactly(detonatorId);
     }
 
     @Test
