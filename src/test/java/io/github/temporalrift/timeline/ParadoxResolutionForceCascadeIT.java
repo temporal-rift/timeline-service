@@ -125,16 +125,17 @@ class ParadoxResolutionForceCascadeIT {
                 .containsEntry("terminalState", "CASCADED")
                 .containsEntry("revealIndex", 0)
                 .doesNotContainKey("winningOutcomeId");
+        // The winner is now drawn (weighted-outcome-resolution capability), not deterministically whichever
+        // outcome leads — this test's focus is the barrier ordering around the paradoxed event, so just confirm
+        // each clean event resolved to one of its own valid outcomes.
         var entry1 = terminalResolutionFor(terminalResolutions, eventId1);
-        assertThat(entry1)
-                .containsEntry("terminalState", "OUTCOME_APPLIED")
-                .containsEntry("revealIndex", 1)
-                .containsEntry("winningOutcomeId", winnerOutcomeId1.toString());
+        assertThat(entry1).containsEntry("terminalState", "OUTCOME_APPLIED").containsEntry("revealIndex", 1);
+        assertThat((String) entry1.get("winningOutcomeId"))
+                .isIn(winnerOutcomeId1.toString(), loserOutcomeId1.toString());
         var entry2 = terminalResolutionFor(terminalResolutions, eventId2);
-        assertThat(entry2)
-                .containsEntry("terminalState", "OUTCOME_APPLIED")
-                .containsEntry("revealIndex", 2)
-                .containsEntry("winningOutcomeId", winnerOutcomeId2.toString());
+        assertThat(entry2).containsEntry("terminalState", "OUTCOME_APPLIED").containsEntry("revealIndex", 2);
+        assertThat((String) entry2.get("winningOutcomeId"))
+                .isIn(winnerOutcomeId2.toString(), loserOutcomeId2.toString());
 
         // Carried into the next era's index, exactly like a STALLED event.
         assertThat(jdbcTemplate.queryForObject(
