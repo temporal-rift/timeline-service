@@ -1049,6 +1049,42 @@ class ParadoxResolutionSagaImplTest {
                 .isEqualTo(pendingOutcomeId);
     }
 
+    @Test
+    void handlePlayerSubmitted_stabilizeAfterPush_creditsStabilizingPlayer() {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
+        var secondOutcomeId = UUID.randomUUID();
+        var stabilizingPlayerId = UUID.randomUUID();
+        var futureEvent =
+                impossibleErasureFutureEvent(affectedEventId, annihilatedId, secondOutcomeId, UUID.randomUUID());
+        var push = new Submission(UUID.randomUUID(), "PUSH", CardGrade.I, affectedEventId, secondOutcomeId);
+        var stabilize = new Submission(stabilizingPlayerId, "STABILIZE", CardGrade.I, affectedEventId, null);
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(push, stabilize),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, stabilize)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+        given(probabilityRules.pushShift(CardGrade.I)).willReturn(10);
+        given(probabilityRules.probabilityFloor()).willReturn(0);
+        given(probabilityRules.probabilityCeiling()).willReturn(90);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, stabilize);
+
+        var resolved = (ParadoxResolved) publishedPayloads(3).get(0);
+        assertThat(resolved.resolvedByPlayerId()).isEqualTo(stabilizingPlayerId);
+    }
+
     private List<Object> publishedPayloads(int expectedCount) {
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
         then(publisher).should(times(expectedCount)).publish(captor.capture());
