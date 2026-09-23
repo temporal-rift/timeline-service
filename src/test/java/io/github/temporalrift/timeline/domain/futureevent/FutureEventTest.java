@@ -3,6 +3,8 @@ package io.github.temporalrift.timeline.domain.futureevent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.security.SecureRandom;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -25,16 +27,16 @@ class FutureEventTest {
     static final int ERA_NUMBER = 1;
 
     @Test
-    void resolve_highestProbability_wins() {
+    void resolve_rollInFirstBucket_firstOutcomeWins() {
         var id = UUID.randomUUID();
-        var winner = new Outcome(UUID.randomUUID(), "winner", 45);
+        var first = new Outcome(UUID.randomUUID(), "first", 45);
         var second = new Outcome(UUID.randomUUID(), "second", 35);
         var third = new Outcome(UUID.randomUUID(), "third", 20);
-        var event = drafted(id, winner, second, third);
+        var event = drafted(id, first, second, third);
 
-        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER);
+        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER, 0L);
 
-        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(winner.outcomeId());
+        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(first.outcomeId());
         assertThat(outcomeApplied.gameId()).isEqualTo(GAME_ID);
         assertThat(outcomeApplied.eraNumber()).isEqualTo(ERA_NUMBER);
         assertThat(outcomeApplied.eventId()).isEqualTo(id);
@@ -42,25 +44,134 @@ class FutureEventTest {
     }
 
     @Test
-    void resolve_tiedProbabilities_smallestOutcomeIdWins() {
+    void resolve_rollAtLastIndexOfFirstBucket_firstOutcomeWins() {
         var id = UUID.randomUUID();
-        var lower = new Outcome(UUID.fromString("00000000-0000-0000-0000-000000000001"), "lower", 40);
-        var higher = new Outcome(UUID.fromString("00000000-0000-0000-0000-000000000002"), "higher", 40);
+        var first = new Outcome(UUID.randomUUID(), "first", 45);
+        var second = new Outcome(UUID.randomUUID(), "second", 35);
         var third = new Outcome(UUID.randomUUID(), "third", 20);
-        var event = drafted(id, higher, lower, third);
+        var event = drafted(id, first, second, third);
 
-        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER);
+        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER, 44L);
 
-        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(lower.outcomeId());
+        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(first.outcomeId());
+    }
+
+    @Test
+    void resolve_rollAtFirstIndexOfSecondBucket_secondOutcomeWins() {
+        var id = UUID.randomUUID();
+        var first = new Outcome(UUID.randomUUID(), "first", 45);
+        var second = new Outcome(UUID.randomUUID(), "second", 35);
+        var third = new Outcome(UUID.randomUUID(), "third", 20);
+        var event = drafted(id, first, second, third);
+
+        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER, 45L);
+
+        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(second.outcomeId());
+    }
+
+    @Test
+    void resolve_rollAtFirstIndexOfThirdBucket_thirdOutcomeWins() {
+        var id = UUID.randomUUID();
+        var first = new Outcome(UUID.randomUUID(), "first", 45);
+        var second = new Outcome(UUID.randomUUID(), "second", 35);
+        var third = new Outcome(UUID.randomUUID(), "third", 20);
+        var event = drafted(id, first, second, third);
+
+        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER, 80L);
+
+        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(third.outcomeId());
+    }
+
+    @Test
+    void resolve_rollAtLastIndexOfLastBucket_lastOutcomeWins() {
+        var id = UUID.randomUUID();
+        var first = new Outcome(UUID.randomUUID(), "first", 45);
+        var second = new Outcome(UUID.randomUUID(), "second", 35);
+        var third = new Outcome(UUID.randomUUID(), "third", 20);
+        var event = drafted(id, first, second, third);
+
+        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER, 99L);
+
+        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(third.outcomeId());
+    }
+
+    @Test
+    void resolve_negativeRoll_wrapsIntoRangeViaFloorMod() {
+        var id = UUID.randomUUID();
+        var first = new Outcome(UUID.randomUUID(), "first", 45);
+        var second = new Outcome(UUID.randomUUID(), "second", 35);
+        var third = new Outcome(UUID.randomUUID(), "third", 20);
+        var event = drafted(id, first, second, third);
+
+        // floorMod(-1, 100) == 99, the last index of the third bucket.
+        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER, -1L);
+
+        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(third.outcomeId());
+    }
+
+    @Test
+    void resolve_tiedProbabilities_eitherOutcomeCanWinDependingOnRoll() {
+        var higher = new Outcome(UUID.fromString("00000000-0000-0000-0000-000000000002"), "higher", 40);
+        var lower = new Outcome(UUID.fromString("00000000-0000-0000-0000-000000000001"), "lower", 40);
+        var third = new Outcome(UUID.randomUUID(), "third", 20);
+        var eventForHigher = drafted(UUID.randomUUID(), higher, lower, third);
+        var eventForLower = drafted(UUID.randomUUID(), higher, lower, third);
+
+        var higherWins = eventForHigher.resolve(GAME_ID, ERA_NUMBER, 0L);
+        var lowerWins = eventForLower.resolve(GAME_ID, ERA_NUMBER, 40L);
+
+        assertThat(higherWins.winningOutcomeId()).isEqualTo(higher.outcomeId());
+        assertThat(lowerWins.winningOutcomeId()).isEqualTo(lower.outcomeId());
+    }
+
+    @Test
+    void resolve_noPositiveWeightAmongEligibleOutcomes_throws() {
+        var id = UUID.randomUUID();
+        var zeroA = new Outcome(UUID.randomUUID(), "zeroA", 0);
+        var zeroB = new Outcome(UUID.randomUUID(), "zeroB", 0);
+        var annihilated = new Outcome(UUID.randomUUID(), "annihilated", 100);
+        var event = drafted(id, zeroA, zeroB, annihilated);
+        event.annihilateOutcome(annihilated.outcomeId());
+
+        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, 0L)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void resolve_freshDistribution_trackEachOutcomesWeightWithinAWideStatisticalTolerance() {
+        // Uses the real SecureRandom-backed source (not a fixed roll) to confirm the draw is genuinely
+        // proportional to weight over many trials, not just correct at hand-picked boundaries. The 10
+        // percentage-point tolerance is far wider than sampling noise at this trial count (expected standard
+        // deviation is under 1 point for each outcome), so this is correct by construction, not a flaky bound.
+        var random = new SecureRandom();
+        var a = new Outcome(UUID.randomUUID(), "a", 33);
+        var b = new Outcome(UUID.randomUUID(), "b", 33);
+        var c = new Outcome(UUID.randomUUID(), "c", 34);
+        var wins = new HashMap<UUID, Integer>();
+        wins.put(a.outcomeId(), 0);
+        wins.put(b.outcomeId(), 0);
+        wins.put(c.outcomeId(), 0);
+        int trials = 6000;
+
+        for (int i = 0; i < trials; i++) {
+            var event = drafted(UUID.randomUUID(), a, b, c);
+            var winnerId = event.resolve(GAME_ID, ERA_NUMBER, random.nextLong()).winningOutcomeId();
+            wins.merge(winnerId, 1, Integer::sum);
+        }
+
+        // Expected share is roughly weight/100 * trials; tolerance is a flat +/-10 percentage points of trials.
+        int tolerance = trials * 10 / 100;
+        assertThat(wins.get(a.outcomeId())).isBetween(trials * 33 / 100 - tolerance, trials * 33 / 100 + tolerance);
+        assertThat(wins.get(b.outcomeId())).isBetween(trials * 33 / 100 - tolerance, trials * 33 / 100 + tolerance);
+        assertThat(wins.get(c.outcomeId())).isBetween(trials * 34 / 100 - tolerance, trials * 34 / 100 + tolerance);
     }
 
     @Test
     void resolve_alreadyResolved_throws() {
         var id = UUID.randomUUID();
         var event = drafted(id, new Outcome(UUID.randomUUID(), "only", 100));
-        event.resolve(GAME_ID, ERA_NUMBER);
+        event.resolve(GAME_ID, ERA_NUMBER, 0L);
 
-        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER))
+        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, 0L))
                 .isInstanceOf(FutureEventAlreadyResolvedException.class);
     }
 
@@ -121,7 +232,7 @@ class FutureEventTest {
         var event = FutureEvent.replay(id, List.of(drafted, applied));
 
         assertThat(event.resolved()).isTrue();
-        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER))
+        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, 0L))
                 .isInstanceOf(FutureEventAlreadyResolvedException.class);
     }
 
@@ -535,7 +646,7 @@ class FutureEventTest {
         var b = new Outcome(UUID.randomUUID(), "b", 30);
         var c = new Outcome(UUID.randomUUID(), "c", 20);
         var event = drafted(id, a, b, c);
-        event.resolve(GAME_ID, ERA_NUMBER);
+        event.resolve(GAME_ID, ERA_NUMBER, 0L);
         var shift = new ProbabilityShift.Push(a.outcomeId());
 
         assertThatThrownBy(() -> event.applyShift(shift, 20, 0, 90))
@@ -566,7 +677,8 @@ class FutureEventTest {
         event.markStalled();
 
         assertThat(event.stalled()).isTrue();
-        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER)).isInstanceOf(FutureEventStalledException.class);
+        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, 0L))
+                .isInstanceOf(FutureEventStalledException.class);
     }
 
     @Test
@@ -579,7 +691,7 @@ class FutureEventTest {
         event.clearStalled();
 
         assertThat(event.stalled()).isFalse();
-        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER);
+        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER, 0L);
         assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(winner.outcomeId());
     }
 
@@ -587,7 +699,7 @@ class FutureEventTest {
     void markStalled_alreadyResolved_throws() {
         var id = UUID.randomUUID();
         var event = drafted(id, new Outcome(UUID.randomUUID(), "only", 100));
-        event.resolve(GAME_ID, ERA_NUMBER);
+        event.resolve(GAME_ID, ERA_NUMBER, 0L);
 
         assertThatThrownBy(event::markStalled).isInstanceOf(FutureEventAlreadyResolvedException.class);
     }
@@ -697,7 +809,7 @@ class FutureEventTest {
         var event = drafted(id, highest, second, third);
         event.annihilateOutcome(highest.outcomeId());
 
-        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER);
+        var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER, 0L);
 
         assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(second.outcomeId());
     }
@@ -711,7 +823,7 @@ class FutureEventTest {
         var event = drafted(id, a, b, c);
 
         event.annihilateOutcome(b.outcomeId());
-        event.resolve(GAME_ID, ERA_NUMBER);
+        event.resolve(GAME_ID, ERA_NUMBER, 0L);
 
         assertThat(event.outcomes().stream()
                         .filter(o -> o.outcomeId().equals(b.outcomeId()))
@@ -735,7 +847,7 @@ class FutureEventTest {
         var id = UUID.randomUUID();
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);
         var event = drafted(id, outcome);
-        event.resolve(GAME_ID, ERA_NUMBER);
+        event.resolve(GAME_ID, ERA_NUMBER, 0L);
         var outcomeId = outcome.outcomeId();
 
         assertThatThrownBy(() -> event.annihilateOutcome(outcomeId))
@@ -775,7 +887,7 @@ class FutureEventTest {
         var id = UUID.randomUUID();
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);
         var event = drafted(id, outcome);
-        event.resolve(GAME_ID, ERA_NUMBER);
+        event.resolve(GAME_ID, ERA_NUMBER, 0L);
         var outcomeId = outcome.outcomeId();
 
         assertThatThrownBy(() -> event.sealOutcome(outcomeId)).isInstanceOf(FutureEventAlreadyResolvedException.class);
@@ -1009,7 +1121,7 @@ class FutureEventTest {
         var id = UUID.randomUUID();
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);
         var event = drafted(id, outcome);
-        event.resolve(GAME_ID, ERA_NUMBER);
+        event.resolve(GAME_ID, ERA_NUMBER, 0L);
 
         assertThatThrownBy(event::clearEraState).isInstanceOf(FutureEventAlreadyResolvedException.class);
     }

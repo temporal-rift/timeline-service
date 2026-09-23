@@ -17,6 +17,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.random.RandomGenerator;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,6 +83,9 @@ class ResolveEraCommandHandlerTest {
     @Mock
     WeaverChainSagaUseCase weaverChainSaga;
 
+    @Mock
+    RandomGenerator random;
+
     private final Clock clock = Clock.fixed(Instant.parse("2026-07-31T00:00:00Z"), ZoneOffset.UTC);
 
     private ResolveEraCommandHandler handler;
@@ -97,7 +101,8 @@ class ResolveEraCommandHandlerTest {
                 chainSagas,
                 chains,
                 weaverChainSaga,
-                clock);
+                clock,
+                random);
         given(chainSagas.findOpenByGame(any())).willReturn(List.of());
     }
 

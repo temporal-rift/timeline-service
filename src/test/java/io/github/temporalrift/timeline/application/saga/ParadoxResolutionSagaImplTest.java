@@ -16,6 +16,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.random.RandomGenerator;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -89,6 +90,9 @@ class ParadoxResolutionSagaImplTest {
     @Mock
     io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase weaverChainSaga;
 
+    @Mock
+    RandomGenerator random;
+
     private final Clock clock = Clock.fixed(Instant.parse("2026-08-09T00:00:00Z"), ZoneOffset.UTC);
 
     private ParadoxResolutionSagaImpl saga;
@@ -106,7 +110,8 @@ class ParadoxResolutionSagaImplTest {
                 chainSagas,
                 chains,
                 weaverChainSaga,
-                clock);
+                clock,
+                random);
         lenient().when(chainSagas.findOpenByGame(any())).thenReturn(List.of());
     }
 

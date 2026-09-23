@@ -284,6 +284,12 @@ class WeaverChainSagaIT {
                         List.of()));
     }
 
+    /**
+     * {@code winnerOutcomeId} is weighted 100 against two 0-weight outcomes — this file tests Weaver chain
+     * mechanics, not the weighted draw itself, so the resolved winner must stay deterministic (a nonzero-weight
+     * outcome is only guaranteed, not merely likely, to win the weighted-outcome-resolution capability's draw
+     * when the other eligible outcomes carry zero weight).
+     */
     private void publishEventsDrawn(UUID gameId, int eraNumber, UUID futureEventId, UUID winnerOutcomeId) {
         publish(
                 gameId,
@@ -303,9 +309,9 @@ class WeaverChainSagaIT {
                                 "FRESH",
                                 "outcomes",
                                 List.of(
-                                        outcome(winnerOutcomeId, "winner", 60),
-                                        outcome(UUID.randomUUID(), "second", 25),
-                                        outcome(UUID.randomUUID(), "third", 15))))));
+                                        outcome(winnerOutcomeId, "winner", 100),
+                                        outcome(UUID.randomUUID(), "second", 0),
+                                        outcome(UUID.randomUUID(), "third", 0))))));
     }
 
     private static Map<String, Object> outcome(UUID outcomeId, String description, int initialProbability) {

@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.random.RandomGenerator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,6 +66,7 @@ class ParadoxResolutionSagaImpl {
     private final WeaverChainRepository chains;
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final Clock clock;
+    private final RandomGenerator random;
 
     ParadoxResolutionSagaImpl(
             ParadoxResolutionPhaseStateManager stateManager,
@@ -77,7 +79,8 @@ class ParadoxResolutionSagaImpl {
             WeaverChainSagaRepository chainSagas,
             WeaverChainRepository chains,
             WeaverChainSagaUseCase weaverChainSaga,
-            Clock clock) {
+            Clock clock,
+            RandomGenerator random) {
         this.stateManager = stateManager;
         this.futureEvents = futureEvents;
         this.eraIndex = eraIndex;
@@ -89,6 +92,7 @@ class ParadoxResolutionSagaImpl {
         this.chains = chains;
         this.weaverChainSaga = weaverChainSaga;
         this.clock = clock;
+        this.random = random;
     }
 
     /**
@@ -352,7 +356,7 @@ class ParadoxResolutionSagaImpl {
         }
 
         if (allResolved) {
-            var outcomeApplied = futureEvent.resolve(phase.gameId(), phase.eraNumber());
+            var outcomeApplied = futureEvent.resolve(phase.gameId(), phase.eraNumber(), random.nextLong());
             futureEvents.append(affectedEventId, outcomeApplied);
             weaverChainSaga.resolvePendingLink(
                     phase.gameId(), phase.eraNumber(), affectedEventId, outcomeApplied.winningOutcomeId());
