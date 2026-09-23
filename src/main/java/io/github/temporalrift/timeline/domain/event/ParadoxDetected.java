@@ -6,8 +6,8 @@ import java.util.UUID;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
 
 /**
- * One era-level fact covering every paradox detected across that era's resolving {@code FutureEvent}s
- * — not an aggregate-level event; built by the resolution use case, not event-sourced.
+ * Announces paradox findings for an era. The resolution use case publishes its initial findings together;
+ * the paradox-resolution phase may announce new findings discovered when submitted cards are applied.
  */
 public record ParadoxDetected(UUID gameId, int eraNumber, List<Paradox> paradoxes) {
 

@@ -29,6 +29,7 @@ import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxCascaded;
+import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolutionPhaseStarted;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
@@ -249,6 +250,7 @@ class ParadoxResolutionSagaImplTest {
 
         var cascaded = (ParadoxCascaded) payloads.get(0);
         assertThat(cascaded.paradoxId()).isEqualTo(paradoxId);
+        assertThat(cascaded.paradoxIds()).containsExactly(paradoxId);
         assertThat(cascaded.affectedEventId()).isEqualTo(affectedEventId);
         assertThat(cascaded.carryForwardProbabilityState()).isEqualTo(futureEvent.outcomes());
 
@@ -292,16 +294,23 @@ class ParadoxResolutionSagaImplTest {
                 .breakChainOnCascadedParadox(GAME_ID, ERA_NUMBER, affectedEventId, pendingOutcomeId, paradoxId);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(times(2)).publish(captor.capture());
+        then(publisher).should(times(3)).publish(captor.capture());
         var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .toList();
 
-        var cascaded = (ParadoxCascaded) payloads.get(0);
+        // Annihilation also creates an impossible erasure in this fixture; announce it before cascading.
+        var detected = (ParadoxDetected) payloads.get(0);
+        assertThat(detected.paradoxes())
+                .singleElement()
+                .satisfies(paradox -> assertThat(paradox.type()).isEqualTo(ParadoxType.IMPOSSIBLE_ERASURE));
+        var cascaded = (ParadoxCascaded) payloads.get(1);
         assertThat(cascaded.paradoxId()).isEqualTo(paradoxId);
+        assertThat(cascaded.paradoxIds())
+                .containsExactly(paradoxId, detected.paradoxes().getFirst().paradoxId());
         assertThat(cascaded.affectedEventId()).isEqualTo(affectedEventId);
 
-        var barrier = (EraResolutionCompleted) payloads.get(1);
+        var barrier = (EraResolutionCompleted) payloads.get(2);
         assertThat(barrier.terminalResolutions())
                 .containsExactly(
                         new TerminalResolution(affectedEventId, 0, TerminalResolution.TerminalState.CASCADED, null));
@@ -606,7 +615,7 @@ class ParadoxResolutionSagaImplTest {
     void handlePlayerSubmitted_clearingCardIntroducesANewUntrackedParadox_eventStillCascadesNotResolves() {
         // Regression: clearing the original IMPOSSIBLE_ERASURE must not resolve the event if the submitted
         // cards incidentally leave a different paradox in place — here a SEAL_BREACH triggered by one of the
-        // two submissions, which was never part of the original detection and so has no paradoxId of its own.
+        // two submissions, which was never part of the original detection.
         var sagaId = UUID.randomUUID();
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
@@ -656,15 +665,25 @@ class ParadoxResolutionSagaImplTest {
         then(stateManager).should().complete(phase);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(times(2)).publish(captor.capture());
+        then(publisher).should(times(4)).publish(captor.capture());
         var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .toList();
         // The original IMPOSSIBLE_ERASURE finding cleared...
         var resolved = (ParadoxResolved) payloads.get(0);
         assertThat(resolved.paradoxId()).isEqualTo(paradoxId);
-        // ...but the event must still cascade (no OutcomeApplied) because a SEAL_BREACH now exists.
-        var barrier = (EraResolutionCompleted) payloads.get(1);
+        // ...and the new finding is announced before the event cascades.
+        var detected = (ParadoxDetected) payloads.get(1);
+        assertThat(detected.paradoxes()).singleElement().satisfies(paradox -> {
+            assertThat(paradox.type()).isEqualTo(ParadoxType.SEAL_BREACH);
+            assertThat(paradox.affectedEventId()).isEqualTo(affectedEventId);
+        });
+        var cascaded = (ParadoxCascaded) payloads.get(2);
+        assertThat(cascaded.paradoxIds())
+                .containsExactly(detected.paradoxes().getFirst().paradoxId());
+        assertThat(cascaded.paradoxId()).isEqualTo(cascaded.paradoxIds().getFirst());
+        assertThat(payloads).noneMatch(OutcomeApplied.class::isInstance);
+        var barrier = (EraResolutionCompleted) payloads.get(3);
         assertThat(barrier.terminalResolutions())
                 .containsExactly(
                         new TerminalResolution(affectedEventId, 0, TerminalResolution.TerminalState.CASCADED, null));
@@ -843,13 +862,15 @@ class ParadoxResolutionSagaImplTest {
         then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(times(4)).publish(captor.capture());
+        then(publisher).should(times(2)).publish(captor.capture());
         var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .toList();
-        assertThat(payloads.subList(0, 3)).allSatisfy(p -> assertThat(p).isInstanceOf(ParadoxCascaded.class));
+        var cascaded = (ParadoxCascaded) payloads.get(0);
+        assertThat(cascaded.paradoxId()).isEqualTo(firstParadoxId);
+        assertThat(cascaded.paradoxIds()).containsExactly(firstParadoxId, secondParadoxId, thirdParadoxId);
         assertThat(payloads).noneMatch(ParadoxResolved.class::isInstance).noneMatch(OutcomeApplied.class::isInstance);
-        var barrier = (EraResolutionCompleted) payloads.get(3);
+        var barrier = (EraResolutionCompleted) payloads.get(1);
         assertThat(barrier.terminalResolutions())
                 .containsExactly(
                         new TerminalResolution(affectedEventId, 0, TerminalResolution.TerminalState.CASCADED, null));
