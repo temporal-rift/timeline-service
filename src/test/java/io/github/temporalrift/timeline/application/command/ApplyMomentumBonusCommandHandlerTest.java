@@ -54,7 +54,7 @@ class ApplyMomentumBonusCommandHandlerTest {
     }
 
     @Test
-    void apply_sealedDeclaredOutcome_setsSealBreachInsteadOfApplying() {
+    void apply_sealedDeclaredOutcome_isBlockedWithoutBreach() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
@@ -69,7 +69,7 @@ class ApplyMomentumBonusCommandHandlerTest {
         handler.apply(eventId, a);
 
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
-        assertThat(futureEvent.sealBreach()).isTrue();
+        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     private static FutureEvent drafted(UUID id, Outcome... outcomes) {

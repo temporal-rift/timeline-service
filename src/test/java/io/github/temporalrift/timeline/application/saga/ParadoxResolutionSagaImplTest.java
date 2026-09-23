@@ -612,17 +612,17 @@ class ParadoxResolutionSagaImplTest {
     }
 
     @Test
-    void handlePlayerSubmitted_clearingCardIntroducesANewUntrackedParadox_eventStillCascadesNotResolves() {
-        // Regression: clearing the original IMPOSSIBLE_ERASURE must not resolve the event if the submitted
-        // cards incidentally leave a different paradox in place — here a SEAL_BREACH triggered by one of the
-        // two submissions, which was never part of the original detection.
+    void handlePlayerSubmitted_pushAgainstSealedOutcomeIsBlockedWithoutBreach_eventResolves() {
+        // A PUSH naming a sealed outcome is declined with weights unchanged and records no breach, so it
+        // cannot keep the event from resolving once the tracked IMPOSSIBLE_ERASURE clears — the suppressed
+        // annihilated outcome's freed amount goes entirely to "third" since the sealed outcome absorbs none.
         var sagaId = UUID.randomUUID();
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
         var annihilatedId = UUID.randomUUID();
         var sealedOutcomeId = UUID.randomUUID();
         var thirdOutcomeId = UUID.randomUUID();
-        var breachingPlayerId = UUID.randomUUID();
+        var pushingPlayerId = UUID.randomUUID();
         var suppressingPlayerId = UUID.randomUUID();
         var futureEvent = FutureEvent.replay(
                 affectedEventId,
@@ -632,11 +632,10 @@ class ParadoxResolutionSagaImplTest {
                                 new Outcome(annihilatedId, "annihilated", 50, false, true),
                                 new Outcome(sealedOutcomeId, "sealed", 30, true, false),
                                 new Outcome(thirdOutcomeId, "third", 20)))));
-        // Breaches the seal (no probability change) — then clears the erasure by suppressing the annihilated
+        // Blocked by the seal (no probability change) — then clears the erasure by suppressing the annihilated
         // outcome; the sealed outcome is untouched by the redistribution since it's sealed, so the freed amount
         // goes entirely to "third".
-        var breachSubmission =
-                new Submission(breachingPlayerId, "PUSH", CardGrade.II, affectedEventId, sealedOutcomeId);
+        var blockedSubmission = new Submission(pushingPlayerId, "PUSH", CardGrade.II, affectedEventId, sealedOutcomeId);
         var suppressSubmission =
                 new Submission(suppressingPlayerId, "SUPPRESS", CardGrade.II, affectedEventId, annihilatedId);
         var phase = ParadoxResolutionPhase.withKnownRoster(
@@ -648,7 +647,7 @@ class ParadoxResolutionSagaImplTest {
                         paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
                 List.of(),
                 List.of(),
-                List.of(breachSubmission, suppressSubmission),
+                List.of(blockedSubmission, suppressSubmission),
                 clock.instant());
 
         given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, suppressSubmission))
@@ -661,21 +660,77 @@ class ParadoxResolutionSagaImplTest {
 
         saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, suppressSubmission);
 
-        then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
+        then(eraIndex).should(never()).add(any(), any(), anyInt(), anyInt());
         then(stateManager).should().complete(phase);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(times(4)).publish(captor.capture());
+        then(publisher).should(times(3)).publish(captor.capture());
         var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .toList();
         // The original IMPOSSIBLE_ERASURE finding cleared...
         var resolved = (ParadoxResolved) payloads.get(0);
         assertThat(resolved.paradoxId()).isEqualTo(paradoxId);
-        // ...and the new finding is announced before the event cascades.
+        // ...and with no SEAL_BREACH in its place, the event resolves normally (the weighted draw's winner
+        // is random, so only the terminal state and event are asserted, never the winning outcome).
+        assertThat(payloads.get(1)).isInstanceOf(OutcomeApplied.class);
+        var barrier = (EraResolutionCompleted) payloads.get(2);
+        assertThat(barrier.terminalResolutions()).singleElement().satisfies(terminal -> {
+            assertThat(terminal.eventId()).isEqualTo(affectedEventId);
+            assertThat(terminal.terminalState()).isEqualTo(TerminalResolution.TerminalState.OUTCOME_APPLIED);
+        });
+    }
+
+    @Test
+    void handlePlayerSubmitted_clearsOriginalFindingButCreatesDeadHeat_announcesAndCascades() {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
+        var sealedOutcomeId = UUID.randomUUID();
+        var thirdOutcomeId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                affectedEventId,
+                List.of(new FutureEventDrafted(
+                        affectedEventId,
+                        List.of(
+                                new Outcome(annihilatedId, "annihilated", 50, false, true),
+                                new Outcome(sealedOutcomeId, "sealed", 35, true, false),
+                                new Outcome(thirdOutcomeId, "third", 15)))));
+        // Suppressing the annihilated outcome to 30 clears its erasure; the sealed outcome stays at 35,
+        // and the other live outcome absorbs all 20 freed points to create a new dead heat at 35.
+        var submission = new Submission(playerId, "SUPPRESS", CardGrade.II, affectedEventId, annihilatedId);
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(submission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+        given(probabilityRules.suppressShift(CardGrade.II)).willReturn(-20);
+        given(probabilityRules.probabilityFloor()).willReturn(0);
+        given(probabilityRules.probabilityCeiling()).willReturn(90);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
+
+        then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(4)).publish(captor.capture());
+        var payloads = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .toList();
+        assertThat(((ParadoxResolved) payloads.get(0)).paradoxId()).isEqualTo(paradoxId);
         var detected = (ParadoxDetected) payloads.get(1);
         assertThat(detected.paradoxes()).singleElement().satisfies(paradox -> {
-            assertThat(paradox.type()).isEqualTo(ParadoxType.SEAL_BREACH);
+            assertThat(paradox.type()).isEqualTo(ParadoxType.DEAD_HEAT);
             assertThat(paradox.affectedEventId()).isEqualTo(affectedEventId);
         });
         var cascaded = (ParadoxCascaded) payloads.get(2);

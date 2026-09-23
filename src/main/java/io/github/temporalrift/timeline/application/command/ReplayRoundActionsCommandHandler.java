@@ -624,12 +624,24 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             int magnitude =
                     rallyAdjustedMagnitude(rallyDeclaredOutcomes, effectiveKind, targetOutcomeId, amplifiedMagnitude);
 
+            var before = probabilitiesByOutcome(futureEvent);
             var result = applyDirectShift(futureEvent, shift, magnitude, touchedEventIds);
 
-            if (result instanceof ProbabilityShifted) {
+            // Took effect means the probabilities actually moved — a seal-blocked or fully clamped shift
+            // returns unchanged outcomes and must not read as effective (corrupt-confirmation capability).
+            if (result instanceof ProbabilityShifted shifted
+                    && !probabilitiesByOutcome(shifted.outcomes()).equals(before)) {
                 tookEffectEnvelopeIds.add(a.envelopeEventId());
             }
         });
+    }
+
+    private static Map<UUID, Integer> probabilitiesByOutcome(FutureEvent futureEvent) {
+        return probabilitiesByOutcome(futureEvent.outcomes());
+    }
+
+    private static Map<UUID, Integer> probabilitiesByOutcome(List<Outcome> outcomes) {
+        return outcomes.stream().collect(Collectors.toMap(Outcome::outcomeId, Outcome::probability));
     }
 
     /** {@code null} unless this is a SWING or COLLIDE, the two shifters with a source outcome. */
