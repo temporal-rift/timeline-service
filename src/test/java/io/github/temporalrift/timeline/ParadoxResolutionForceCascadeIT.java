@@ -166,10 +166,6 @@ class ParadoxResolutionForceCascadeIT {
 
     @Test
     void carriedEventLosesAllEligibleOutcomes_stabilizeCannotForceResolution_cascadesAcrossRepeatedEras() {
-        // issue #115: an event that has repeated Eraser Annihilate plays against it across era boundaries can
-        // end up with all three outcomes annihilated — nothing left for the weighted draw to pick from. STABILIZE
-        // must not be able to force that draw; the resolution phase must still produce a defined ParadoxCascaded
-        // result instead of throwing.
         var gameId = UUID.randomUUID();
         var eventId = UUID.randomUUID();
         var outcomeA = UUID.randomUUID();
@@ -180,26 +176,20 @@ class ParadoxResolutionForceCascadeIT {
         publishEventsDrawnSingleThreeOutcomeEvent(gameId, 1, eventId, outcomeA, 50, outcomeB, 30, outcomeC, 20);
         awaitFutureEventsIndexed(gameId, 1, 1);
 
-        // Era 1: annihilating the highest-probability outcome (A, 50 >= 30 and >= 20) trips IMPOSSIBLE_ERASURE
-        // immediately; nobody submits a resolution card, so the timer force-cascades it into era 2.
+        // Annihilating the highest-probability outcome trips IMPOSSIBLE_ERASURE immediately.
         publishSpecialActionPlayed(gameId, 1, eventId, "ANNIHILATE", outcomeA);
         publishActionRoundClosed(gameId, 1, 1);
         publishResolutionStarted(gameId, 1, UUID.randomUUID());
         awaitEventCascaded(gameId, 1, eventId);
         awaitCarriedForwardToEra(gameId, eventId, 2);
 
-        // Era 2: annihilating the next-highest remaining outcome (B, 30 >= the sole remaining eligible C's 20)
-        // still trips IMPOSSIBLE_ERASURE (for both A and B, independently) — cascades again with no submission.
         publishSpecialActionPlayed(gameId, 2, eventId, "ANNIHILATE", outcomeB);
         publishActionRoundClosed(gameId, 2, 1);
         publishResolutionStarted(gameId, 2, UUID.randomUUID());
         awaitEventCascaded(gameId, 2, eventId);
         awaitCarriedForwardToEra(gameId, eventId, 3);
 
-        // Era 3: annihilating the event's last eligible outcome (C) leaves no eligible outcome at all. A player
-        // submits STABILIZE against it. Per the fix, STABILIZE cannot force an outcome selection that isn't
-        // possible — fresh detection still runs, still finds the persisting IMPOSSIBLE_ERASURE finding(s), and
-        // the event cascades cleanly instead of the resolution phase throwing.
+        // Annihilating C leaves no eligible outcome; STABILIZE against it must not force a draw.
         publishSpecialActionPlayed(gameId, 3, eventId, "ANNIHILATE", outcomeC);
         publishActionRoundClosed(gameId, 3, 1);
         publishResolutionStarted(gameId, 3, UUID.randomUUID());
@@ -210,17 +200,10 @@ class ParadoxResolutionForceCascadeIT {
         awaitEventCascaded(gameId, 3, eventId);
         awaitCarriedForwardToEra(gameId, eventId, 4);
 
-        // Era 4: no new Annihilate needed — the event is already at zero eligible outcomes and stays that way.
-        // Nobody submits; the timer force-cascades it again, proving the fix holds on a subsequent era too, not
-        // just the one where the last outcome was just annihilated.
         publishResolutionStarted(gameId, 4, UUID.randomUUID());
         awaitEventCascaded(gameId, 4, eventId);
         awaitCarriedForwardToEra(gameId, eventId, 5);
 
-        // Era 5 (GDD's 5-era "timeline stabilizes" boundary): STABILIZE is submitted again, confirming nothing
-        // about reaching this specific era count changes timeline-service's own handling of the event — it still
-        // cascades cleanly with no exception. (Whether the game as a whole ends via TimelineStabilized at this
-        // point is game-service's EraSaga concern, out of this repo's scope.)
         publishResolutionStarted(gameId, 5, UUID.randomUUID());
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(eventTypesForEra(gameId, 5))
