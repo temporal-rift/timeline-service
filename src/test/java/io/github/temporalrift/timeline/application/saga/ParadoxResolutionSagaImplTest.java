@@ -21,6 +21,8 @@ import java.util.random.RandomGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -855,12 +857,216 @@ class ParadoxResolutionSagaImplTest {
         var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .toList();
-        assertThat(payloads.get(0)).isInstanceOf(ParadoxResolved.class);
+        assertThat(((ParadoxResolved) payloads.get(0)).resolvedByPlayerId()).isEqualTo(stabilizingPlayerId);
         assertThat(payloads.get(1)).isInstanceOf(OutcomeApplied.class);
         var barrier = (EraResolutionCompleted) payloads.get(2);
         assertThat(barrier.terminalResolutions())
                 .extracting(TerminalResolution::terminalState)
                 .containsExactly(TerminalResolution.TerminalState.OUTCOME_APPLIED);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0, 0", "23, 0", "24, 1", "61, 1", "62, 2", "99, 2"})
+    void handlePlayerSubmitted_stabilizeLeavesDeadHeat_weightedDrawOverUnchangedWeightsPicksWinner(
+            long roll, int expectedWinnerIndex) {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        var stabilizingPlayerId = UUID.randomUUID();
+        var futureEvent = futureEventWithWeights(affectedEventId, outcomeIds, 24, 38, 38, false);
+        var submission = new Submission(stabilizingPlayerId, "STABILIZE", CardGrade.I, affectedEventId, null);
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId,
+                        ParadoxType.DEAD_HEAT,
+                        List.of(outcomeIds.get(1), outcomeIds.get(2)),
+                        affectedEventId,
+                        0)),
+                List.of(),
+                List.of(),
+                List.of(submission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+        given(random.nextLong()).willReturn(roll);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
+
+        var expectedWinnerId = outcomeIds.get(expectedWinnerIndex);
+        var payloads = publishedPayloads(3);
+        var resolved = (ParadoxResolved) payloads.get(0);
+        assertThat(resolved.paradoxId()).isEqualTo(paradoxId);
+        assertThat(resolved.resolvedByPlayerId()).isEqualTo(stabilizingPlayerId);
+        var outcomeApplied = (OutcomeApplied) payloads.get(1);
+        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(expectedWinnerId);
+        assertThat(outcomeApplied.finalOutcomes())
+                .extracting(Outcome::probability)
+                .containsExactly(24, 38, 38);
+        var barrier = (EraResolutionCompleted) payloads.get(2);
+        assertThat(barrier.terminalResolutions())
+                .containsExactly(new TerminalResolution(
+                        affectedEventId, 0, TerminalResolution.TerminalState.OUTCOME_APPLIED, expectedWinnerId));
+        then(weaverChainSaga).should().resolvePendingLink(GAME_ID, ERA_NUMBER, affectedEventId, expectedWinnerId);
+        then(eraIndex).should(never()).add(any(), any(), anyInt(), anyInt());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0, 1", "39, 1", "40, 2", "79, 2", "80, 1"})
+    void handlePlayerSubmitted_stabilizeLeavesDeadHeatBesideAnnihilatedOutcome_tiedLeadersSplitTheDraw(
+            long roll, int expectedWinnerIndex) {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        var futureEvent = futureEventWithWeights(affectedEventId, outcomeIds, 20, 40, 40, true);
+        var submission = new Submission(UUID.randomUUID(), "STABILIZE", CardGrade.I, affectedEventId, null);
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId,
+                        ParadoxType.DEAD_HEAT,
+                        List.of(outcomeIds.get(1), outcomeIds.get(2)),
+                        affectedEventId,
+                        0)),
+                List.of(),
+                List.of(),
+                List.of(submission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+        given(random.nextLong()).willReturn(roll);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
+
+        var outcomeApplied = (OutcomeApplied) publishedPayloads(3).get(1);
+        assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(outcomeIds.get(expectedWinnerIndex));
+    }
+
+    @Test
+    void handlePlayerSubmitted_twoDeadHeatEventsOnlyOneStabilized_stabilizedResolvesOtherCascades() {
+        var sagaId = UUID.randomUUID();
+        var stabilizedParadoxId = UUID.randomUUID();
+        var untouchedParadoxId = UUID.randomUUID();
+        var stabilizedEventId = UUID.randomUUID();
+        var untouchedEventId = UUID.randomUUID();
+        var stabilizedOutcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        var untouchedOutcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        var stabilizingPlayerId = UUID.randomUUID();
+        var submission = new Submission(stabilizingPlayerId, "STABILIZE", CardGrade.I, stabilizedEventId, null);
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(
+                        new PendingParadox(
+                                stabilizedParadoxId,
+                                ParadoxType.DEAD_HEAT,
+                                List.of(stabilizedOutcomeIds.get(1), stabilizedOutcomeIds.get(2)),
+                                stabilizedEventId,
+                                0),
+                        new PendingParadox(
+                                untouchedParadoxId,
+                                ParadoxType.DEAD_HEAT,
+                                List.of(untouchedOutcomeIds.get(1), untouchedOutcomeIds.get(2)),
+                                untouchedEventId,
+                                1)),
+                List.of(),
+                List.of(),
+                List.of(submission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(stabilizedEventId))
+                .willReturn(futureEventWithWeights(stabilizedEventId, stabilizedOutcomeIds, 24, 38, 38, false));
+        given(futureEvents.findById(untouchedEventId))
+                .willReturn(futureEventWithWeights(untouchedEventId, untouchedOutcomeIds, 24, 38, 38, false));
+        given(random.nextLong()).willReturn(70L);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
+
+        var payloads = publishedPayloads(4);
+        assertThat(((ParadoxResolved) payloads.get(0)).paradoxId()).isEqualTo(stabilizedParadoxId);
+        assertThat(((OutcomeApplied) payloads.get(1)).winningOutcomeId()).isEqualTo(stabilizedOutcomeIds.get(2));
+        assertThat(((ParadoxCascaded) payloads.get(2)).paradoxIds()).containsExactly(untouchedParadoxId);
+        assertThat(((EraResolutionCompleted) payloads.get(3)).terminalResolutions())
+                .containsExactly(
+                        new TerminalResolution(
+                                stabilizedEventId,
+                                0,
+                                TerminalResolution.TerminalState.OUTCOME_APPLIED,
+                                stabilizedOutcomeIds.get(2)),
+                        new TerminalResolution(untouchedEventId, 1, TerminalResolution.TerminalState.CASCADED, null));
+        then(eraIndex).should().add(untouchedEventId, GAME_ID, ERA_NUMBER + 1, 1);
+        then(eraIndex).should(never()).add(eq(stabilizedEventId), any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void handlePlayerSubmitted_stabilizeLeavesDeadHeatOnPendingChainLink_drawnWinnerConfirmsLink() {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        var pendingOutcomeId = outcomeIds.get(1);
+        var futureEvent = futureEventWithWeights(affectedEventId, outcomeIds, 24, 38, 38, false);
+        var submission = new Submission(UUID.randomUUID(), "STABILIZE", CardGrade.I, affectedEventId, null);
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId,
+                        ParadoxType.DEAD_HEAT,
+                        List.of(pendingOutcomeId, outcomeIds.get(2)),
+                        affectedEventId,
+                        0)),
+                List.of(),
+                List.of(),
+                List.of(submission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+        givenActiveChainWithPendingLink(affectedEventId, pendingOutcomeId);
+        given(random.nextLong()).willReturn(30L);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
+
+        then(weaverChainSaga).should().resolvePendingLink(GAME_ID, ERA_NUMBER, affectedEventId, pendingOutcomeId);
+        then(weaverChainSaga).should(never()).breakChainOnCascadedParadox(any(), anyInt(), any(), any(), any());
+        assertThat(((OutcomeApplied) publishedPayloads(3).get(1)).winningOutcomeId())
+                .isEqualTo(pendingOutcomeId);
+    }
+
+    private List<Object> publishedPayloads(int expectedCount) {
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(expectedCount)).publish(captor.capture());
+        return captor.getAllValues().stream()
+                .<Object>map(TimelineEventEnvelope::payload)
+                .toList();
+    }
+
+    private static FutureEvent futureEventWithWeights(
+            UUID eventId, List<UUID> outcomeIds, int first, int second, int third, boolean firstAnnihilated) {
+        return FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(outcomeIds.get(0), "first", first, false, firstAnnihilated),
+                                new Outcome(outcomeIds.get(1), "second", second),
+                                new Outcome(outcomeIds.get(2), "third", third)))));
     }
 
     @Test
