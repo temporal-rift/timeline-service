@@ -198,7 +198,8 @@ public final class FutureEvent {
      * PUSH/SUPPRESS target the named outcome; if it's sealed, breach. Otherwise its movement must be
      * redistributed into the other two outcomes — but a sealed "other" can't absorb any of it
      * either, so: both others sealed → nowhere to put the movement, breach; exactly one sealed → the sole
-     * unsealed other absorbs all of it; neither sealed → the existing proportional 3-way split.
+     * unsealed other absorbs all of it; neither sealed → the existing proportional 3-way split. A fully
+     * clamped zero move that touches no sealed weight is an ordinary no-op, not a breach.
      */
     private Object shiftSingleOrBreach(UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
         var target = outcomeById(targetOutcomeId);
@@ -319,7 +320,15 @@ public final class FutureEvent {
         return new SealBreachRecorded(id);
     }
 
-    /** Locks {@code outcomeId} ({@code SEAL}); a later shift against it records a breach instead of applying. */
+    /**
+     * Locks {@code outcomeId} ({@code SEAL}) through the end of the era: the sealed outcome's probability
+     * can no longer move, but any later shift that would have to move it is blocked with weights unchanged
+     * and records a seal breach instead of applying — the attempt itself is the breach. A shift that names
+     * a sealed outcome as source or destination breaches; so does one with nowhere to redistribute without
+     * touching a sealed weight (both other outcomes sealed), a {@code COLLIDE} remainder owed to a sealed
+     * third, and a snapshot {@code Restore} that disagrees with the frozen value. A shift that applies fully
+     * while leaving every sealed weight untouched reroutes around the seal and is not a breach.
+     */
     public OutcomeSealed sealOutcome(UUID outcomeId) {
         if (resolved) {
             throw new FutureEventAlreadyResolvedException(id);

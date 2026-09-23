@@ -495,6 +495,145 @@ class FutureEventTest {
     }
 
     @Test
+    void applyShift_suppress_oneOfTheOtherOutcomesSealed_freeOutcomeAbsorbsAllRedistribution() {
+        // SUPPRESS shares PUSH's sealed-neighbor routing: b is sealed, so only c absorbs a's movement.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(b.outcomeId());
+
+        var result = event.applyShift(new ProbabilityShift.Suppress(a.outcomeId()), -20, 0, 90);
+
+        assertThat(result).isInstanceOf(ProbabilityShifted.class);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(30);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(30);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(40);
+        assertThat(sum(event)).isEqualTo(100);
+        assertThat(event.sealBreach()).isFalse();
+    }
+
+    @Test
+    void applyShift_suppress_bothOtherOutcomesSealed_setsSealBreachWithoutChangingProbability() {
+        // Like PUSH with both neighbors sealed, the SUPPRESS cannot apply without moving a sealed
+        // weight — the blocked attempt is itself the breach.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(b.outcomeId());
+        event.sealOutcome(c.outcomeId());
+
+        var result = event.applyShift(new ProbabilityShift.Suppress(a.outcomeId()), -20, 0, 90);
+
+        assertThat(result).isInstanceOf(SealBreachRecorded.class);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(30);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(20);
+        assertThat(event.sealBreach()).isTrue();
+    }
+
+    @Test
+    void applyShift_push_clampedToNoOpWithSealedThird_appliesWithoutBreach() {
+        // a is already at the ceiling, so the PUSH moves nothing and no sealed weight is in the
+        // movement path — an ordinary no-op, not a blocked attempt.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 90);
+        var b = new Outcome(UUID.randomUUID(), "b", 5);
+        var c = new Outcome(UUID.randomUUID(), "c", 5);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(c.outcomeId());
+
+        var result = event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        assertThat(result).isInstanceOf(ProbabilityShifted.class);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(90);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(5);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(5);
+        assertThat(event.sealBreach()).isFalse();
+    }
+
+    @Test
+    void applyShift_push_targetSealedAtCeiling_stillBreaches() {
+        // Naming a sealed outcome trips the seal even when clamping would have zeroed the move anyway:
+        // deliberate targeting is the breach, not the resulting delta.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 90);
+        var b = new Outcome(UUID.randomUUID(), "b", 5);
+        var c = new Outcome(UUID.randomUUID(), "c", 5);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(a.outcomeId());
+
+        var result = event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        assertThat(result).isInstanceOf(SealBreachRecorded.class);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(90);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(5);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(5);
+        assertThat(event.sealBreach()).isTrue();
+    }
+
+    @Test
+    void applyShift_swing_betweenUnsealedWithSealedThird_appliesWithoutBreach() {
+        // SWING only moves weight between its two named outcomes, so a sealed third outcome is never
+        // in the movement path and the transfer applies normally around it.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(c.outcomeId());
+
+        var result = event.applyShift(new ProbabilityShift.Swing(a.outcomeId(), b.outcomeId()), 30, 0, 90);
+
+        assertThat(result).isInstanceOf(ProbabilityShifted.class);
+        assertThat(byId(event, a.outcomeId())).isEqualTo(20);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(60);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(20);
+        assertThat(sum(event)).isEqualTo(100);
+        assertThat(event.sealBreach()).isFalse();
+    }
+
+    @Test
+    void detect_sealedAndBlockedPush_reportsSealBreach() {
+        // Acceptance for the stated rule: sealed outcome plus blocked shift detects SEAL_BREACH.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(a.outcomeId());
+        event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        var paradoxes = ParadoxDetector.detect(event.outcomes(), event.sealBreach());
+
+        assertThat(paradoxes).singleElement().satisfies(paradox -> {
+            assertThat(paradox.type()).isEqualTo(ParadoxType.SEAL_BREACH);
+            assertThat(paradox.affectedOutcomeIds()).containsExactly(a.outcomeId());
+        });
+    }
+
+    @Test
+    void detect_sealedAndReroutedPush_reportsNoParadox() {
+        // The same Seal with a shift that applies fully around it (modified weights, sealed untouched)
+        // is not a breach and detects nothing.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(b.outcomeId());
+        event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(70);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(30);
+        assertThat(byId(event, c.outcomeId())).isZero();
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach())).isEmpty();
+    }
+
+    @Test
     void applyShift_collide_sealedThirdWithoutRemainder_stillEqualizes() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
