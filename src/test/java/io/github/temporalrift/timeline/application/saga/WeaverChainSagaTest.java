@@ -146,7 +146,7 @@ class WeaverChainSagaTest {
         // The pending link is opened regardless — only the reward's probability movement is blocked by the seal.
         var state = sagas.findOpenByGameAndPlayer(GAME_ID, PLAYER_ID).orElseThrow();
         assertThat(chains.findById(state.chainId()).pendingLink()).isNotNull();
-        assertThat(futureEvent.sealBreach()).isTrue();
+        assertThat(futureEvent.sealBreach()).isFalse();
         assertThat(futureEvent.outcomes().getFirst().probability()).isEqualTo(34);
     }
 

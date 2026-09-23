@@ -151,7 +151,7 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         assertThat(probabilityOf(futureEvent, target)).isEqualTo(50);
-        assertThat(futureEvent.sealBreach()).isTrue();
+        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     @Test
@@ -492,7 +492,7 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_mimicAgainstSealedTarget_setsSealBreachInsteadOfApplying() {
+    void replay_mimicAgainstSealedTarget_isBlockedWithoutBreach() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
@@ -513,7 +513,7 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
-        assertThat(futureEvent.sealBreach()).isTrue();
+        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     @Test
@@ -616,7 +616,7 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_rallyBoostedPushAgainstSealedTarget_setsSealBreachInsteadOfApplying() {
+    void replay_rallyBoostedPushAgainstSealedTarget_isBlockedWithoutBreach() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
@@ -633,7 +633,7 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
-        assertThat(futureEvent.sealBreach()).isTrue();
+        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     @Test
@@ -825,7 +825,7 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_redirectIntoSealedOutcome_recordsSealBreachWithoutChangingProbabilities() {
+    void replay_redirectIntoSealedOutcome_isBlockedWithoutBreach() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
@@ -845,7 +845,7 @@ class ReplayRoundActionsCommandHandlerTest {
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
         assertThat(probabilityOf(futureEvent, b)).isEqualTo(30);
         assertThat(probabilityOf(futureEvent, c)).isEqualTo(20);
-        assertThat(futureEvent.sealBreach()).isTrue();
+        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     @Test
@@ -872,7 +872,7 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_amplifiedShiftIntoSealedOutcome_recordsSealBreachWithoutChangingProbabilities() {
+    void replay_amplifiedShiftIntoSealedOutcome_isBlockedWithoutBreach() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
@@ -893,7 +893,7 @@ class ReplayRoundActionsCommandHandlerTest {
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
         assertThat(probabilityOf(futureEvent, b)).isEqualTo(30);
         assertThat(probabilityOf(futureEvent, c)).isEqualTo(20);
-        assertThat(futureEvent.sealBreach()).isTrue();
+        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     @Test

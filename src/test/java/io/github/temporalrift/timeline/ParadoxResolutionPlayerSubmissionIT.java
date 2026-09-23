@@ -128,7 +128,7 @@ class ParadoxResolutionPlayerSubmissionIT {
     }
 
     @Test
-    void multiParadoxEvent_impossibleErasureClearsButSealBreachPersists_cascadesEventExactlyOnce() {
+    void blockedPushAgainstSeal_recordsNoBreach_eventResolvesAfterErasureClears() {
         var gameId = UUID.randomUUID();
         var eraNumber = 1;
         var paradoxedEventId = UUID.randomUUID();
@@ -144,10 +144,11 @@ class ParadoxResolutionPlayerSubmissionIT {
         awaitFutureEventsIndexed(gameId, eraNumber, 1);
         awaitEraPlayersIndexed(gameId, eraNumber, players.size());
 
-        // Seal one outcome, then breach it with a PUSH — SEAL_BREACH is permanent (nothing ever clears it).
+        // Seal one outcome, then PUSH it — the blocked shift is an ordinary failure that records no
+        // SEAL_BREACH, so the only paradox below comes from the annihilation.
         publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "SEAL", sealedOutcomeId);
         publisher.cardPlayed(gameId, eraNumber, paradoxedEventId, "PUSH", null, sealedOutcomeId);
-        // Annihilate the highest-probability outcome too — IMPOSSIBLE_ERASURE, alongside the seal breach.
+        // Annihilate the highest-probability outcome too — IMPOSSIBLE_ERASURE, the event's sole paradox.
         publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
         publisher.actionRoundClosed(gameId, eraNumber, 1);
         publisher.resolutionStarted(gameId, eraNumber, UUID.randomUUID());
@@ -161,10 +162,10 @@ class ParadoxResolutionPlayerSubmissionIT {
                 .orElseThrow()
                 .payload();
         var paradoxes = (List<?>) paradoxDetected.get("paradoxes");
-        assertThat(paradoxes).hasSize(2);
+        assertThat(paradoxes).hasSize(1);
 
-        // Both players submit a card that only clears IMPOSSIBLE_ERASURE (suppressing the annihilated outcome
-        // does not touch the seal breach flag, which nothing can ever clear).
+        // Both players submit a card that clears IMPOSSIBLE_ERASURE — with no seal breach in the way, the
+        // event resolves normally instead of cascading.
         for (var playerId : players) {
             publisher.paradoxResolutionCardPlayed(
                     gameId, eraNumber, playerId, "SUPPRESS", paradoxedEventId, annihilatedOutcomeId);
@@ -172,7 +173,7 @@ class ParadoxResolutionPlayerSubmissionIT {
 
         await().atMost(Duration.ofSeconds(5))
                 .untilAsserted(() -> assertThat(eventTypesOf(messagesFor(gameId)))
-                        .contains(PARADOX_RESOLVED, PARADOX_CASCADED, ERA_RESOLUTION_COMPLETED));
+                        .contains(PARADOX_RESOLVED, OUTCOME_APPLIED, ERA_RESOLUTION_COMPLETED));
 
         var barrier = messagesFor(gameId).stream()
                 .filter(m -> ERA_RESOLUTION_COMPLETED.equals(m.eventType()))
@@ -180,12 +181,12 @@ class ParadoxResolutionPlayerSubmissionIT {
                 .orElseThrow()
                 .payload();
         var terminalResolutions = (List<?>) barrier.get("terminalResolutions");
-        // Exactly one terminal entry for the event, despite it having two paradoxes.
+        // Exactly one terminal entry for the event, resolving (not cascading) with a winning outcome.
         assertThat(terminalResolutions).hasSize(1);
         @SuppressWarnings("unchecked")
         var entry = (Map<String, Object>) terminalResolutions.getFirst();
         assertThat(entry)
-                .containsEntry("terminalState", "CASCADED")
+                .containsEntry("terminalState", "OUTCOME_APPLIED")
                 .containsEntry("eventId", paradoxedEventId.toString());
     }
 
