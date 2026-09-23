@@ -61,18 +61,18 @@ class WeaverChainSagaIT {
         var era4Event = UUID.randomUUID();
         var era4Winner = UUID.randomUUID();
 
-        draftEra(gameId, 2, era2Event, era2Winner);
+        draftDeterministicEra(gameId, 2, era2Event, era2Winner);
         publishThread(gameId, 2, weaver, era2Event, era2Winner, UUID.randomUUID());
         awaitChainLinkThreaded(gameId);
         resolveEra(gameId, 2, era2Event);
         awaitChainLinkAdded(gameId, 1);
 
-        draftEra(gameId, 3, era3Event, era3Winner);
+        draftDeterministicEra(gameId, 3, era3Event, era3Winner);
         publishThread(gameId, 3, weaver, era3Event, era3Winner, UUID.randomUUID());
         resolveEra(gameId, 3, era3Event);
         awaitChainLinkAdded(gameId, 2);
 
-        draftEra(gameId, 4, era4Event, era4Winner);
+        draftDeterministicEra(gameId, 4, era4Event, era4Winner);
         publishThread(gameId, 4, weaver, era4Event, era4Winner, UUID.randomUUID());
         resolveEra(gameId, 4, era4Event);
 
@@ -113,7 +113,7 @@ class WeaverChainSagaIT {
         var era2Event = UUID.randomUUID();
         var era2Winner = UUID.randomUUID();
 
-        draftEra(gameId, 1, era1Event, era1Winner);
+        draftDeterministicEra(gameId, 1, era1Event, era1Winner);
         publishThread(gameId, 1, weaver, era1Event, era1Winner, UUID.randomUUID());
         awaitChainLinkThreaded(gameId);
         resolveEra(gameId, 1, era1Event);
@@ -179,6 +179,25 @@ class WeaverChainSagaIT {
         publishEraStarted(gameId, eraNumber);
         publishEventsDrawn(gameId, eraNumber, eventId, winner);
         awaitFutureEventIndexed(gameId, eraNumber);
+    }
+
+    /**
+     * Drafts an era whose threaded outcome is the only eligible winner: the two losing outcomes are
+     * annihilated (round 1 closes before the THREAD is published, and the single consumer group replays
+     * the round strictly before applying the THREAD, so no awaiting of the replay itself is needed).
+     * Without this, the THREAD reward's ceiling-clamped push redistributes weight onto the losers
+     * (100 becomes 90/5/5) and the weighted draw only <i>likely</i> confirms the link — a 10% flake
+     * per era that bit {@code threadAcrossThreeEras_completesChainAndEndsSaga} on {@code main}.
+     */
+    private void draftDeterministicEra(UUID gameId, int eraNumber, UUID eventId, UUID winner) {
+        var second = UUID.randomUUID();
+        var third = UUID.randomUUID();
+        publishEraStarted(gameId, eraNumber);
+        publishEventsDrawn(gameId, eraNumber, eventId, winner, second, third);
+        awaitFutureEventIndexed(gameId, eraNumber);
+        publishSpecialActionPlayed(gameId, eraNumber, UUID.randomUUID(), "ANNIHILATE", eventId, second);
+        publishSpecialActionPlayed(gameId, eraNumber, UUID.randomUUID(), "ANNIHILATE", eventId, third);
+        publishActionRoundClosed(gameId, eraNumber, 1);
     }
 
     private void resolveEra(UUID gameId, int eraNumber, UUID eventId) {
@@ -291,6 +310,16 @@ class WeaverChainSagaIT {
      * when the other eligible outcomes carry zero weight).
      */
     private void publishEventsDrawn(UUID gameId, int eraNumber, UUID futureEventId, UUID winnerOutcomeId) {
+        publishEventsDrawn(gameId, eraNumber, futureEventId, winnerOutcomeId, UUID.randomUUID(), UUID.randomUUID());
+    }
+
+    private void publishEventsDrawn(
+            UUID gameId,
+            int eraNumber,
+            UUID futureEventId,
+            UUID winnerOutcomeId,
+            UUID secondOutcomeId,
+            UUID thirdOutcomeId) {
         publish(
                 gameId,
                 "EventsDrawn",
@@ -310,8 +339,8 @@ class WeaverChainSagaIT {
                                 "outcomes",
                                 List.of(
                                         outcome(winnerOutcomeId, "winner", 100),
-                                        outcome(UUID.randomUUID(), "second", 0),
-                                        outcome(UUID.randomUUID(), "third", 0))))));
+                                        outcome(secondOutcomeId, "second", 0),
+                                        outcome(thirdOutcomeId, "third", 0))))));
     }
 
     private static Map<String, Object> outcome(UUID outcomeId, String description, int initialProbability) {
