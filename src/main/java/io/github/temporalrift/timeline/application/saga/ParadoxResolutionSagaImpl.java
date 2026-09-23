@@ -356,14 +356,12 @@ class ParadoxResolutionSagaImpl {
             if (matchingFresh.isPresent()) {
                 unmatchedFresh.remove(matchingFresh.get());
                 persistingIds.add(pending.paradoxId());
-                if (pending.type() == ParadoxType.CHAIN_CONFLICT) {
-                    weaverChainSaga.breakChainOnCascadedParadox(
-                            phase.gameId(),
-                            phase.eraNumber(),
-                            affectedEventId,
-                            pending.affectedOutcomeIds().getFirst(),
-                            pending.paradoxId());
-                }
+                breakChainOnCascadeIfChainConflict(
+                        phase,
+                        affectedEventId,
+                        pending.type(),
+                        pending.affectedOutcomeIds().getFirst(),
+                        pending.paradoxId());
             } else {
                 publisher.publish(TimelineEventEnvelope.create(
                         affectedEventId,
@@ -389,14 +387,12 @@ class ParadoxResolutionSagaImpl {
                 persistingIds.add(paradoxId);
                 newFindings.add(new ParadoxDetected.Paradox(
                         paradoxId, fresh.type(), affectedEventId, fresh.affectedOutcomeIds(), fresh.description()));
-                if (fresh.type() == ParadoxType.CHAIN_CONFLICT) {
-                    weaverChainSaga.breakChainOnCascadedParadox(
-                            phase.gameId(),
-                            phase.eraNumber(),
-                            affectedEventId,
-                            fresh.affectedOutcomeIds().getFirst(),
-                            paradoxId);
-                }
+                breakChainOnCascadeIfChainConflict(
+                        phase,
+                        affectedEventId,
+                        fresh.type(),
+                        fresh.affectedOutcomeIds().getFirst(),
+                        paradoxId);
             }
             publisher.publish(TimelineEventEnvelope.create(
                     phase.gameId(),
@@ -407,6 +403,19 @@ class ParadoxResolutionSagaImpl {
                     clock));
         }
         return List.copyOf(persistingIds);
+    }
+
+    /** Breaks the weaver chain only for {@code CHAIN_CONFLICT} findings carried into the next era. */
+    private void breakChainOnCascadeIfChainConflict(
+            ParadoxResolutionPhase phase,
+            UUID affectedEventId,
+            ParadoxType type,
+            UUID affectedOutcomeId,
+            UUID paradoxId) {
+        if (type == ParadoxType.CHAIN_CONFLICT) {
+            weaverChainSaga.breakChainOnCascadedParadox(
+                    phase.gameId(), phase.eraNumber(), affectedEventId, affectedOutcomeId, paradoxId);
+        }
     }
 
     /** STABILIZE suppresses re-detection except against an event with no eligible outcome left to draw. */
