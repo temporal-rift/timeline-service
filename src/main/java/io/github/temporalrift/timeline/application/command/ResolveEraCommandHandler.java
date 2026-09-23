@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -33,8 +34,8 @@ import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
 /**
- * Resolves every {@code FutureEvent} drawn for an era: highest-probability wins, deterministic
- * {@code outcomeId} tie-break, no faction-special logic beyond the card-modifier effects
+ * Resolves every {@code FutureEvent} drawn for an era: the winning outcome is drawn at random, weighted by each
+ * non-annihilated outcome's current probability, no faction-special logic beyond the card-modifier effects
  * (AMPLIFY/NULLIFY/REDIRECT/STALL) already reflected in each {@code FutureEvent}'s current state. An event whose
  * final state trips {@link ParadoxDetector} is excluded from this era's {@code OutcomeApplied}/terminal-resolution
  * set instead — its resolution is deferred until {@code ParadoxResolutionSaga} clears it (force-cascade only this
@@ -58,6 +59,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     private final WeaverChainRepository chains;
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final Clock clock;
+    private final RandomGenerator random;
 
     ResolveEraCommandHandler(
             FutureEventEraIndexPort eraIndex,
@@ -68,7 +70,8 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             WeaverChainSagaRepository chainSagas,
             WeaverChainRepository chains,
             WeaverChainSagaUseCase weaverChainSaga,
-            Clock clock) {
+            Clock clock,
+            RandomGenerator random) {
         this.eraIndex = eraIndex;
         this.futureEvents = futureEvents;
         this.cascadeCarryForward = cascadeCarryForward;
@@ -78,6 +81,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
         this.chains = chains;
         this.weaverChainSaga = weaverChainSaga;
         this.clock = clock;
+        this.random = random;
     }
 
     @Override
@@ -316,7 +320,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     }
 
     private OutcomeApplied resolveOne(FutureEvent futureEvent, UUID gameId, int eraNumber) {
-        var outcomeApplied = futureEvent.resolve(gameId, eraNumber);
+        var outcomeApplied = futureEvent.resolve(gameId, eraNumber, random.nextLong());
         futureEvents.append(futureEvent.id(), outcomeApplied);
         return outcomeApplied;
     }

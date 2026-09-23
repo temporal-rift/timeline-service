@@ -1,6 +1,5 @@
 package io.github.temporalrift.timeline.domain.futureevent;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -97,27 +96,53 @@ public final class FutureEvent {
     }
 
     /**
-     * Resolves this event by selecting the highest-probability outcome among its non-annihilated outcomes,
-     * tie-broken by the smallest {@code outcomeId} (natural UUID ordering) — no card or paradox logic beyond
-     * honoring an {@code ANNIHILATE} special's exclusion: an annihilated outcome cannot win
-     * regardless of probability.
+     * Resolves this event by drawing the winning outcome at random from its non-annihilated outcomes, weighted by
+     * each one's current probability — no outcome is guaranteed regardless of its lead, matching the documented
+     * 0-90% probability model. {@code roll} is an already-generated random value supplied by the caller (this
+     * aggregate stays free of any randomness-port coupling, mirroring how {@link #applyShift} takes
+     * caller-resolved magnitude/floor/ceiling instead of a port reference); it is folded into {@code [0, total)}
+     * via {@link Math#floorMod} against the sum of eligible weights, then walked cumulatively. An annihilated
+     * outcome contributes no weight and can never win. A tie at the highest weight can never reach this method —
+     * {@code ParadoxDetector} reports that as a {@code DEAD_HEAT} paradox before resolution is attempted.
      */
-    public OutcomeApplied resolve(UUID gameId, int eraNumber) {
+    public OutcomeApplied resolve(UUID gameId, int eraNumber, long roll) {
         if (resolved) {
             throw new FutureEventAlreadyResolvedException(id);
         }
         if (stalled) {
             throw new FutureEventStalledException(id);
         }
-        var winner = outcomes.stream()
-                .filter(o -> !o.annihilated())
-                .max(Comparator.comparingInt(Outcome::probability)
-                        .thenComparing(Comparator.comparing(Outcome::outcomeId).reversed()))
-                .orElseThrow(() -> new IllegalStateException("FutureEvent " + id + " has no eligible outcomes"));
+        var winner = drawWeighted(roll);
         var event = new OutcomeApplied(gameId, eraNumber, id, winner.outcomeId(), outcomes);
         this.outcomes = event.finalOutcomes();
         this.resolved = true;
         return event;
+    }
+
+    /**
+     * Cumulative-weight walk over the non-annihilated outcomes: {@code total} is guaranteed positive whenever the
+     * eligible set is non-empty (the sum-to-100 invariant plus {@code IMPOSSIBLE_ERASURE}'s upstream guarantee that
+     * no annihilated outcome's weight is >= every eligible outcome's), so the defensive exception below is not an
+     * expected runtime path.
+     */
+    private Outcome drawWeighted(long roll) {
+        var eligible = outcomes.stream().filter(o -> !o.annihilated()).toList();
+        if (eligible.isEmpty()) {
+            throw new IllegalStateException("FutureEvent " + id + " has no eligible outcomes");
+        }
+        int total = eligible.stream().mapToInt(Outcome::probability).sum();
+        if (total <= 0) {
+            throw new IllegalStateException("FutureEvent " + id + " has no positive weight among eligible outcomes");
+        }
+        long normalizedRoll = Math.floorMod(roll, total);
+        int cumulative = 0;
+        for (var outcome : eligible) {
+            cumulative += outcome.probability();
+            if (normalizedRoll < cumulative) {
+                return outcome;
+            }
+        }
+        throw new IllegalStateException("FutureEvent " + id + " weighted draw did not resolve a winner");
     }
 
     /**

@@ -922,7 +922,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var outcomeId = UUID.randomUUID();
         var futureEvent = drafted(
                 eventId, outcome(outcomeId, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
-        futureEvent.resolve(GAME_ID, ERA_NUMBER);
+        futureEvent.resolve(GAME_ID, ERA_NUMBER, 0L);
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(specialAction("ANNIHILATE", eventId, outcomeId, at(0))));

@@ -80,9 +80,13 @@ class ResolutionWalkingSkeletonIT {
         assertThat(outcomeIndex).isLessThan(eraResolutionCompletedIndex);
 
         var outcomePayload = messages.get(outcomeIndex).payload();
-        assertThat(outcomePayload)
-                .containsEntry("winningOutcomeId", winnerOutcomeId.toString())
-                .containsEntry("eventId", futureEventId.toString());
+        // The winner is now drawn (weighted-outcome-resolution capability), not deterministically the
+        // higher-probability outcome — assert it's a valid outcome for this event, and that the same fact
+        // flows through to EraResolutionCompleted's terminal resolution below, rather than hard-coding which
+        // of the two actually won.
+        assertThat(outcomePayload).containsEntry("eventId", futureEventId.toString());
+        var winningOutcomeId = (String) outcomePayload.get("winningOutcomeId");
+        assertThat(winningOutcomeId).isIn(winnerOutcomeId.toString(), loserOutcomeId.toString());
 
         var eraResolutionCompletedPayload =
                 messages.get(eraResolutionCompletedIndex).payload();
@@ -95,7 +99,7 @@ class ResolutionWalkingSkeletonIT {
                             .containsEntry("eventId", futureEventId.toString())
                             .containsEntry("revealIndex", 0)
                             .containsEntry("terminalState", "OUTCOME_APPLIED")
-                            .containsEntry("winningOutcomeId", winnerOutcomeId.toString());
+                            .containsEntry("winningOutcomeId", winningOutcomeId);
                 });
     }
 
@@ -161,7 +165,12 @@ class ResolutionWalkingSkeletonIT {
         var messages = messagesFor(gameId);
         var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
         var outcomePayload = messages.get(outcomeIndex).payload();
-        assertThat(outcomePayload).containsEntry("winningOutcomeId", pushedOutcomeId.toString());
+        // The winner is now drawn (weighted-outcome-resolution capability), not deterministically whichever
+        // outcome leads — the PUSH mechanic itself is proven by the resulting probabilities: pushedOutcomeId
+        // overtakes at 55 (35 + 20), with the -20 redistributed proportionally across the other two.
+        assertThat(probabilityOf(outcomePayload, pushedOutcomeId)).isEqualTo(55);
+        assertThat(probabilityOf(outcomePayload, initialWinnerOutcomeId)).isEqualTo(35);
+        assertThat(probabilityOf(outcomePayload, thirdOutcomeId)).isEqualTo(10);
     }
 
     @Test
@@ -192,7 +201,12 @@ class ResolutionWalkingSkeletonIT {
         var messages = messagesFor(gameId);
         var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
         var outcomePayload = messages.get(outcomeIndex).payload();
-        assertThat(outcomePayload).containsEntry("winningOutcomeId", pushedOutcomeId.toString());
+        // The winner is now drawn (weighted-outcome-resolution capability) — grade III's larger magnitude is
+        // proven by the resulting probabilities: pushedOutcomeId overtakes at 65 (35 + 30), with the -30
+        // redistributed proportionally across the other two.
+        assertThat(probabilityOf(outcomePayload, pushedOutcomeId)).isEqualTo(65);
+        assertThat(probabilityOf(outcomePayload, initialWinnerOutcomeId)).isEqualTo(32);
+        assertThat(probabilityOf(outcomePayload, thirdOutcomeId)).isEqualTo(3);
     }
 
     @Test
@@ -235,7 +249,12 @@ class ResolutionWalkingSkeletonIT {
         var messages = messagesFor(gameId);
         var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
         var outcomePayload = messages.get(outcomeIndex).payload();
-        assertThat(outcomePayload).containsEntry("winningOutcomeId", risingOutcomeId.toString());
+        // The winner is now drawn (weighted-outcome-resolution capability) — AMPLIFY doubling SUPPRESS's
+        // magnitude is proven by the resulting probabilities: initialWinnerOutcomeId drops to 30 (70 - 40),
+        // below the 47 risingOutcomeId is redistributed up to.
+        assertThat(probabilityOf(outcomePayload, initialWinnerOutcomeId)).isEqualTo(30);
+        assertThat(probabilityOf(outcomePayload, risingOutcomeId)).isEqualTo(47);
+        assertThat(probabilityOf(outcomePayload, thirdOutcomeId)).isEqualTo(23);
     }
 
     @Test
@@ -284,9 +303,11 @@ class ResolutionWalkingSkeletonIT {
         var stalledEntry = terminalResolutionFor(terminalResolutions, stalledEventId);
         assertThat(stalledEntry).containsEntry("terminalState", "STALLED").doesNotContainKey("winningOutcomeId");
         var resolvedEntry = terminalResolutionFor(terminalResolutions, resolvedEventId);
-        assertThat(resolvedEntry)
-                .containsEntry("terminalState", "OUTCOME_APPLIED")
-                .containsEntry("winningOutcomeId", winnerOutcomeId.toString());
+        // The winner is now drawn (weighted-outcome-resolution capability), not deterministic — this test's
+        // focus is the stalled event's exclusion, so just confirm the resolved event got a valid winner.
+        assertThat(resolvedEntry).containsEntry("terminalState", "OUTCOME_APPLIED");
+        assertThat((String) resolvedEntry.get("winningOutcomeId"))
+                .isIn(winnerOutcomeId.toString(), loserOutcomeId.toString());
 
         assertThat(jdbcTemplate.queryForObject(
                         "SELECT COUNT(*) FROM future_event_era_index WHERE event_id = ? AND era_number = ?",
@@ -552,6 +573,17 @@ class ResolutionWalkingSkeletonIT {
 
     private static int indexOfEventType(List<TimelineEventsTestCollector.CollectedMessage> messages, String eventType) {
         return eventTypesOf(messages).indexOf(eventType);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static int probabilityOf(Map<String, Object> outcomePayload, UUID outcomeId) {
+        var finalProbabilities = (List<Map<String, Object>>) outcomePayload.get("finalProbabilities");
+        return finalProbabilities.stream()
+                .filter(o -> outcomeId.toString().equals(o.get("outcomeId")))
+                .findFirst()
+                .map(o -> (Number) o.get("probability"))
+                .orElseThrow()
+                .intValue();
     }
 
     @SuppressWarnings("unchecked")
