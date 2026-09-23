@@ -164,6 +164,184 @@ class ParadoxResolutionForceCascadeIT {
         });
     }
 
+    @Test
+    void carriedEventLosesAllEligibleOutcomes_stabilizeCannotForceResolution_cascadesAcrossRepeatedEras() {
+        // issue #115: an event that has repeated Eraser Annihilate plays against it across era boundaries can
+        // end up with all three outcomes annihilated — nothing left for the weighted draw to pick from. STABILIZE
+        // must not be able to force that draw; the resolution phase must still produce a defined ParadoxCascaded
+        // result instead of throwing.
+        var gameId = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        var outcomeA = UUID.randomUUID();
+        var outcomeB = UUID.randomUUID();
+        var outcomeC = UUID.randomUUID();
+
+        publishEraStarted(gameId, 1);
+        publishEventsDrawnSingleThreeOutcomeEvent(gameId, 1, eventId, outcomeA, 50, outcomeB, 30, outcomeC, 20);
+        awaitFutureEventsIndexed(gameId, 1, 1);
+
+        // Era 1: annihilating the highest-probability outcome (A, 50 >= 30 and >= 20) trips IMPOSSIBLE_ERASURE
+        // immediately; nobody submits a resolution card, so the timer force-cascades it into era 2.
+        publishSpecialActionPlayed(gameId, 1, eventId, "ANNIHILATE", outcomeA);
+        publishActionRoundClosed(gameId, 1, 1);
+        publishResolutionStarted(gameId, 1, UUID.randomUUID());
+        awaitEventCascaded(gameId, 1, eventId);
+        awaitCarriedForwardToEra(gameId, eventId, 2);
+
+        // Era 2: annihilating the next-highest remaining outcome (B, 30 >= the sole remaining eligible C's 20)
+        // still trips IMPOSSIBLE_ERASURE (for both A and B, independently) — cascades again with no submission.
+        publishSpecialActionPlayed(gameId, 2, eventId, "ANNIHILATE", outcomeB);
+        publishActionRoundClosed(gameId, 2, 1);
+        publishResolutionStarted(gameId, 2, UUID.randomUUID());
+        awaitEventCascaded(gameId, 2, eventId);
+        awaitCarriedForwardToEra(gameId, eventId, 3);
+
+        // Era 3: annihilating the event's last eligible outcome (C) leaves no eligible outcome at all. A player
+        // submits STABILIZE against it. Per the fix, STABILIZE cannot force an outcome selection that isn't
+        // possible — fresh detection still runs, still finds the persisting IMPOSSIBLE_ERASURE finding(s), and
+        // the event cascades cleanly instead of the resolution phase throwing.
+        publishSpecialActionPlayed(gameId, 3, eventId, "ANNIHILATE", outcomeC);
+        publishActionRoundClosed(gameId, 3, 1);
+        publishResolutionStarted(gameId, 3, UUID.randomUUID());
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(eventTypesForEra(gameId, 3))
+                        .contains(PARADOX_DETECTED, PARADOX_RESOLUTION_PHASE_STARTED));
+        publishParadoxResolutionCardPlayed(gameId, 3, eventId, "STABILIZE");
+        awaitEventCascaded(gameId, 3, eventId);
+        awaitCarriedForwardToEra(gameId, eventId, 4);
+
+        // Era 4: no new Annihilate needed — the event is already at zero eligible outcomes and stays that way.
+        // Nobody submits; the timer force-cascades it again, proving the fix holds on a subsequent era too, not
+        // just the one where the last outcome was just annihilated.
+        publishResolutionStarted(gameId, 4, UUID.randomUUID());
+        awaitEventCascaded(gameId, 4, eventId);
+        awaitCarriedForwardToEra(gameId, eventId, 5);
+
+        // Era 5 (GDD's 5-era "timeline stabilizes" boundary): STABILIZE is submitted again, confirming nothing
+        // about reaching this specific era count changes timeline-service's own handling of the event — it still
+        // cascades cleanly with no exception. (Whether the game as a whole ends via TimelineStabilized at this
+        // point is game-service's EraSaga concern, out of this repo's scope.)
+        publishResolutionStarted(gameId, 5, UUID.randomUUID());
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(eventTypesForEra(gameId, 5))
+                        .contains(PARADOX_DETECTED, PARADOX_RESOLUTION_PHASE_STARTED));
+        publishParadoxResolutionCardPlayed(gameId, 5, eventId, "STABILIZE");
+        awaitEventCascaded(gameId, 5, eventId);
+        awaitCarriedForwardToEra(gameId, eventId, 6);
+
+        // Across every era, this event never resolved to an outcome and never published ParadoxResolved.
+        assertThat(messagesFor(gameId))
+                .filteredOn(m -> "OutcomeApplied".equals(m.eventType())
+                        && eventId.toString().equals(m.payload().get("eventId")))
+                .isEmpty();
+        assertThat(messagesFor(gameId))
+                .filteredOn(m -> "ParadoxResolved".equals(m.eventType()))
+                .isEmpty();
+    }
+
+    private void awaitEventCascaded(UUID gameId, int eraNumber, UUID eventId) {
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+            var cascadedThisEra = messagesFor(gameId).stream()
+                    .filter(m -> PARADOX_CASCADED.equals(m.eventType()))
+                    .map(TimelineEventsTestCollector.CollectedMessage::payload)
+                    .filter(p -> Integer.valueOf(eraNumber).equals(p.get("eraNumber")))
+                    .filter(p -> eventId.toString().equals(p.get("affectedEventId")))
+                    .toList();
+            assertThat(cascadedThisEra).isNotEmpty();
+
+            var barrier = messagesFor(gameId).stream()
+                    .filter(m -> ERA_RESOLUTION_COMPLETED.equals(m.eventType()))
+                    .map(TimelineEventsTestCollector.CollectedMessage::payload)
+                    .filter(p -> Integer.valueOf(eraNumber).equals(p.get("eraNumber")))
+                    .findFirst();
+            assertThat(barrier).isPresent();
+            var terminalResolutions = (List<?>) barrier.get().get("terminalResolutions");
+            assertThat(terminalResolutionFor(terminalResolutions, eventId))
+                    .containsEntry("terminalState", "CASCADED")
+                    .doesNotContainKey("winningOutcomeId");
+        });
+    }
+
+    private void awaitCarriedForwardToEra(UUID gameId, UUID eventId, int eraNumber) {
+        var sql = "SELECT COUNT(*) FROM future_event_era_index "
+                + "WHERE game_id = ? AND event_id = ? AND era_number = ?";
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(
+                        () -> assertThat(jdbcTemplate.queryForObject(sql, Integer.class, gameId, eventId, eraNumber))
+                                .isEqualTo(1));
+    }
+
+    private List<String> eventTypesForEra(UUID gameId, int eraNumber) {
+        return messagesFor(gameId).stream()
+                .filter(m -> Integer.valueOf(eraNumber).equals(m.payload().get("eraNumber")))
+                .map(TimelineEventsTestCollector.CollectedMessage::eventType)
+                .toList();
+    }
+
+    private void publishEventsDrawnSingleThreeOutcomeEvent(
+            UUID gameId,
+            int eraNumber,
+            UUID eventId,
+            UUID outcomeIdA,
+            int probabilityA,
+            UUID outcomeIdB,
+            int probabilityB,
+            UUID outcomeIdC,
+            int probabilityC) {
+        publish(
+                gameId,
+                "EventsDrawn",
+                Map.of(
+                        "gameId",
+                        gameId,
+                        "eraNumber",
+                        eraNumber,
+                        "events",
+                        List.of(Map.of(
+                                "eventId",
+                                eventId,
+                                "title",
+                                "Test Future Event",
+                                "carryOverState",
+                                "FRESH",
+                                "outcomes",
+                                List.of(
+                                        Map.of(
+                                                "outcomeId",
+                                                outcomeIdA,
+                                                "description",
+                                                "a",
+                                                "initialProbability",
+                                                probabilityA),
+                                        Map.of(
+                                                "outcomeId",
+                                                outcomeIdB,
+                                                "description",
+                                                "b",
+                                                "initialProbability",
+                                                probabilityB),
+                                        Map.of(
+                                                "outcomeId",
+                                                outcomeIdC,
+                                                "description",
+                                                "c",
+                                                "initialProbability",
+                                                probabilityC))))));
+    }
+
+    private void publishParadoxResolutionCardPlayed(UUID gameId, int eraNumber, UUID targetEventId, String cardType) {
+        var payload = new HashMap<String, Object>();
+        payload.put("gameId", gameId);
+        payload.put("eraNumber", eraNumber);
+        payload.put("playerId", UUID.randomUUID());
+        payload.put("cardInstanceId", UUID.randomUUID());
+        payload.put("cardType", cardType);
+        payload.put("grade", "I");
+        payload.put("targetEventId", targetEventId);
+        payload.put("targetOutcomeId", UUID.randomUUID());
+        publish(gameId, "ParadoxResolutionCardPlayed", payload);
+    }
+
     private void awaitFutureEventsIndexed(UUID gameId, int eraNumber, int expectedCount) {
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(

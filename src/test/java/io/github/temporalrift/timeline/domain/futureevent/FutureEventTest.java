@@ -1155,6 +1155,89 @@ class FutureEventTest {
         assertThatThrownBy(() -> FutureEvent.replay(id, history)).isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void hasEligibleOutcome_noneAnnihilated_isTrue() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        assertThat(event.hasEligibleOutcome()).isTrue();
+    }
+
+    @Test
+    void hasEligibleOutcome_oneAnnihilated_isTrue() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(a.outcomeId());
+
+        assertThat(event.hasEligibleOutcome()).isTrue();
+    }
+
+    @Test
+    void hasEligibleOutcome_twoAnnihilated_isTrue() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(a.outcomeId());
+        event.annihilateOutcome(b.outcomeId());
+
+        assertThat(event.hasEligibleOutcome()).isTrue();
+    }
+
+    @Test
+    void hasEligibleOutcome_allThreeAnnihilatedInAscendingOrder_isFalse() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(a.outcomeId());
+        event.annihilateOutcome(b.outcomeId());
+        event.annihilateOutcome(c.outcomeId());
+
+        assertThat(event.hasEligibleOutcome()).isFalse();
+    }
+
+    @Test
+    void hasEligibleOutcome_allThreeAnnihilatedInDescendingOrder_isFalse() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(c.outcomeId());
+        event.annihilateOutcome(b.outcomeId());
+        event.annihilateOutcome(a.outcomeId());
+
+        assertThat(event.hasEligibleOutcome()).isFalse();
+    }
+
+    @Test
+    void hasEligibleOutcome_allThreeAnnihilatedInMixedOrder_isFalse() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(b.outcomeId());
+        event.annihilateOutcome(c.outcomeId());
+        event.annihilateOutcome(a.outcomeId());
+
+        assertThat(event.hasEligibleOutcome()).isFalse();
+    }
+
     private static int byId(FutureEvent event, UUID outcomeId) {
         return event.outcomes().stream()
                 .filter(o -> o.outcomeId().equals(outcomeId))

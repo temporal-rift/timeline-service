@@ -301,9 +301,13 @@ class ParadoxResolutionSagaImpl {
         // STABILIZE(affectedEventId) suppresses paradox re-detection entirely for this event — every
         // originally pending finding resolves regardless of what fresh detection on the post-close state
         // would otherwise find (the rule prevents a paradox from triggering, stronger than clearing only the
-        // originally-tracked finding). No fresh detection is even run in that case.
-        boolean stabilized = phase.submissions().stream()
-                .anyMatch(s -> "STABILIZE".equals(s.cardType()) && affectedEventId.equals(s.targetEventId()));
+        // originally-tracked finding). No fresh detection is even run in that case — UNLESS the event has no
+        // eligible outcome left: STABILIZE cannot force an outcome selection that isn't possible, so in that
+        // case fresh detection still runs, exactly as if STABILIZE had not been submitted (it will find the
+        // persisting IMPOSSIBLE_ERASURE finding(s) and the event cascades below, same as the non-STABILIZE path).
+        boolean stabilized = futureEvent.hasEligibleOutcome()
+                && phase.submissions().stream()
+                        .anyMatch(s -> "STABILIZE".equals(s.cardType()) && affectedEventId.equals(s.targetEventId()));
         var freshParadoxes = stabilized
                 ? List.<DetectedParadox>of()
                 : ParadoxDetector.detect(
