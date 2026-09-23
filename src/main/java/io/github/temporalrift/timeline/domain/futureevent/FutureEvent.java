@@ -102,8 +102,8 @@ public final class FutureEvent {
      * aggregate stays free of any randomness-port coupling, mirroring how {@link #applyShift} takes
      * caller-resolved magnitude/floor/ceiling instead of a port reference); it is folded into {@code [0, total)}
      * via {@link Math#floorMod} against the sum of eligible weights, then walked cumulatively. An annihilated
-     * outcome contributes no weight and can never win. A tie at the highest weight can never reach this method —
-     * {@code ParadoxDetector} reports that as a {@code DEAD_HEAT} paradox before resolution is attempted.
+     * outcome contributes no weight and can never win. Tied outcomes, including a Dead Heat cleared by Stabilize, are
+     * equally likely.
      */
     public OutcomeApplied resolve(UUID gameId, int eraNumber, long roll) {
         if (resolved) {

@@ -56,6 +56,7 @@ class ParadoxResolutionSagaImpl {
     private static final String FUTURE_EVENT_AGGREGATE_TYPE = "FutureEvent";
     private static final String CLOSE_REASON_TIMER_EXPIRED = "TIMER_EXPIRED";
     private static final String CLOSE_REASON_ALL_SUBMITTED = "ALL_SUBMITTED";
+    private static final String STABILIZE = "STABILIZE";
 
     private final ParadoxResolutionPhaseStateManager stateManager;
     private final FutureEventRepository futureEvents;
@@ -222,12 +223,16 @@ class ParadoxResolutionSagaImpl {
     /**
      * Applies every recorded submission's {@code PUSH}/{@code SUPPRESS} effect to its target event (Decision 4);
      * anything else (an unsupported card type, or a still-pending non-submitter — simply absent from
-     * {@code submissions}) is skipped. Returns the last submitting player per affected event, in submission-record
-     * order, for {@code ParadoxResolved.resolvedByPlayerId}.
+     * {@code submissions}) is skipped. Returns the last {@code PUSH}/{@code SUPPRESS}/{@code STABILIZE} submitter per
+     * affected event, in submission-record order, for {@code ParadoxResolved.resolvedByPlayerId}.
      */
     private Map<UUID, UUID> applySubmissions(ParadoxResolutionPhase phase) {
         var resolvedByPlayerIdByEvent = new HashMap<UUID, UUID>();
         for (var submission : phase.submissions()) {
+            if (STABILIZE.equals(submission.cardType())) {
+                resolvedByPlayerIdByEvent.put(submission.targetEventId(), submission.playerId());
+                continue;
+            }
             var shift = toProbabilityShift(submission);
             if (shift == null) {
                 continue;
@@ -418,11 +423,14 @@ class ParadoxResolutionSagaImpl {
         }
     }
 
-    /** STABILIZE suppresses re-detection except against an event with no eligible outcome left to draw. */
+    /**
+     * STABILIZE clears every finding without changing weights, so a remaining tie is settled by the ordinary weighted
+     * draw; it has no effect on an event with no eligible outcome left to draw.
+     */
     private static boolean isStabilized(ParadoxResolutionPhase phase, UUID affectedEventId, FutureEvent futureEvent) {
         return futureEvent.hasEligibleOutcome()
                 && phase.submissions().stream()
-                        .anyMatch(s -> "STABILIZE".equals(s.cardType()) && affectedEventId.equals(s.targetEventId()));
+                        .anyMatch(s -> STABILIZE.equals(s.cardType()) && affectedEventId.equals(s.targetEventId()));
     }
 
     /**
