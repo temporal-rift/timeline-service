@@ -229,24 +229,25 @@ class ParadoxResolutionSagaImpl {
     private Map<UUID, UUID> applySubmissions(ParadoxResolutionPhase phase) {
         var resolvedByPlayerIdByEvent = new HashMap<UUID, UUID>();
         for (var submission : phase.submissions()) {
-            if (STABILIZE.equals(submission.cardType())) {
-                resolvedByPlayerIdByEvent.put(submission.targetEventId(), submission.playerId());
-                continue;
-            }
             var shift = toProbabilityShift(submission);
-            if (shift == null) {
-                continue;
+            if (shift != null) {
+                applyShift(submission, shift);
             }
-            var futureEvent = futureEvents.findById(submission.targetEventId());
-            var event = futureEvent.applyShift(
-                    shift,
-                    magnitudeFor(submission),
-                    probabilityRules.probabilityFloor(),
-                    probabilityRules.probabilityCeiling());
-            futureEvents.append(submission.targetEventId(), event);
-            resolvedByPlayerIdByEvent.put(submission.targetEventId(), submission.playerId());
+            if (shift != null || STABILIZE.equals(submission.cardType())) {
+                resolvedByPlayerIdByEvent.put(submission.targetEventId(), submission.playerId());
+            }
         }
         return resolvedByPlayerIdByEvent;
+    }
+
+    private void applyShift(Submission submission, ProbabilityShift shift) {
+        var futureEvent = futureEvents.findById(submission.targetEventId());
+        var event = futureEvent.applyShift(
+                shift,
+                magnitudeFor(submission),
+                probabilityRules.probabilityFloor(),
+                probabilityRules.probabilityCeiling());
+        futureEvents.append(submission.targetEventId(), event);
     }
 
     private int magnitudeFor(Submission submission) {
