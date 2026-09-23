@@ -151,10 +151,10 @@ public final class FutureEvent {
      * {@link ProbabilityShift} variant, resolved by the caller via {@code ProbabilityRulesPort} — this
      * aggregate stays free of any config/port coupling.
      *
-     * <p>Returns a {@link ProbabilityShifted} when the shift applied, or a {@link SealBreachRecorded} when
-     * it targeted a sealed outcome instead (faction-specials capability) — {@code Object} because callers
-     * only need to persist whichever fact resulted, mirroring {@code FutureEventRepository#append}'s own
-     * {@code Object} domain-event parameter.
+     * <p>Always returns a {@link ProbabilityShifted} with the post-shift outcomes: a shift that would have
+     * to move a sealed outcome's probability is declined with weights unchanged as an ordinary failure (see
+     * {@link #sealOutcome}) — callers only need the persisted fact, mirroring
+     * {@code FutureEventRepository#append}'s own {@code Object} domain-event parameter.
      */
     public Object applyShift(ProbabilityShift shift, int magnitude, int floor, int ceiling) {
         if (resolved) {
@@ -174,10 +174,9 @@ public final class FutureEvent {
                 // silently overwrite a sealed outcome's now-frozen probability if the two disagree. Decline
                 // the whole restore rather than partially rebuild the other two around a value we're not
                 // allowed to change (undo/REDIRECT/CORRUPT all funnel through here, so this protects all
-                // three, not just CORRUPT), and record it as a breach — the same signal PUSH/SUPPRESS/SWING
-                // already record whenever a seal blocks their effect.
+                // three, not just CORRUPT) — an ordinary failure with weights unchanged and no breach.
                 if (conflictsWithSealedOutcome(targetProbabilities)) {
-                    yield recordSealBreach();
+                    yield unchanged();
                 }
                 var shiftedOutcomes = replaceProbabilities(targetProbabilities);
                 var event = new ProbabilityShifted(id, shiftedOutcomes);
@@ -195,16 +194,17 @@ public final class FutureEvent {
     }
 
     /**
-     * PUSH/SUPPRESS target the named outcome; if it's sealed, breach. Otherwise its movement must be
-     * redistributed into the other two outcomes — but a sealed "other" can't absorb any of it
-     * either, so: both others sealed → nowhere to put the movement, breach; exactly one sealed → the sole
-     * unsealed other absorbs all of it; neither sealed → the existing proportional 3-way split. A fully
-     * clamped zero move that touches no sealed weight is an ordinary no-op, not a breach.
+     * PUSH/SUPPRESS target the named outcome; if it's sealed, the shift is declined with weights unchanged
+     * as an ordinary failure. Otherwise its movement must be redistributed into the other two outcomes —
+     * but a sealed "other" can't absorb any of it either, so: both others sealed → nowhere to put the
+     * movement, declined unchanged; exactly one sealed → the sole unsealed other absorbs all of it;
+     * neither sealed → the existing proportional 3-way split. A fully clamped zero move that touches no
+     * sealed weight is likewise an ordinary no-op, not a breach.
      */
     private Object shiftSingleOrBreach(UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
         var target = outcomeById(targetOutcomeId);
         if (target.sealed()) {
-            return recordSealBreach();
+            return unchanged();
         }
         var others = outcomes.stream()
                 .filter(o -> !o.outcomeId().equals(targetOutcomeId))
@@ -222,7 +222,7 @@ public final class FutureEvent {
 
         List<Outcome> shiftedOutcomes;
         if (other1.sealed() && other2.sealed()) {
-            return recordSealBreach();
+            return unchanged();
         } else if (other1.sealed() || other2.sealed()) {
             var freeOther = other1.sealed() ? other2 : other1;
             var rebalanced = clampPairPreservingSum(
@@ -245,7 +245,7 @@ public final class FutureEvent {
         var source = outcomeById(sourceOutcomeId);
         var target = outcomeById(targetOutcomeId);
         if (source.sealed() || target.sealed()) {
-            return recordSealBreach();
+            return unchanged();
         }
         var shiftedOutcomes = swing(sourceOutcomeId, targetOutcomeId, magnitude, floor, ceiling);
         var event = new ProbabilityShifted(id, shiftedOutcomes);
@@ -256,8 +256,8 @@ public final class FutureEvent {
     /**
      * Sets both named outcomes to the integer floor of their combined midpoint and moves any one-point remainder
      * to the third outcome, preserving the 100 total within floor/ceiling; a sealed selection or a remainder owed
-     * to a sealed third records a breach instead, and a bound-overflow edge keeps total and bounds via a
-     * deterministic outcome-id-ordered fallback without guaranteeing equality.
+     * to a sealed third declines the shift with weights unchanged as an ordinary failure, and a bound-overflow
+     * edge keeps total and bounds via a deterministic outcome-id-ordered fallback without guaranteeing equality.
      */
     private Object collideOrBreach(UUID outcomeAId, UUID outcomeBId, int floor, int ceiling) {
         if (Objects.equals(outcomeAId, outcomeBId)) {
@@ -266,7 +266,7 @@ public final class FutureEvent {
         var a = outcomeById(outcomeAId);
         var b = outcomeById(outcomeBId);
         if (a.sealed() || b.sealed()) {
-            return recordSealBreach();
+            return unchanged();
         }
         var thirds = outcomes.stream()
                 .filter(o -> !o.outcomeId().equals(outcomeAId) && !o.outcomeId().equals(outcomeBId))
@@ -287,7 +287,7 @@ public final class FutureEvent {
         int mid = combined / 2;
         int remainder = combined % 2;
         if (remainder == 1 && third.sealed()) {
-            return recordSealBreach();
+            return unchanged();
         }
         int thirdIdeal = third.probability() + remainder;
         boolean pairFeasible = mid >= floor && mid <= ceiling;
@@ -315,19 +315,20 @@ public final class FutureEvent {
         return event;
     }
 
-    private SealBreachRecorded recordSealBreach() {
-        this.sealBreach = true;
-        return new SealBreachRecorded(id);
+    /**
+     * A shift declined for seal reasons returns the current outcomes unchanged (the same ordinary-failure
+     * shape as a fully clamped zero move), without recording a breach.
+     */
+    private ProbabilityShifted unchanged() {
+        return new ProbabilityShifted(id, outcomes());
     }
 
     /**
      * Locks {@code outcomeId} ({@code SEAL}) through the end of the era: the sealed outcome's probability
-     * can no longer move, but any later shift that would have to move it is blocked with weights unchanged
-     * and records a seal breach instead of applying — the attempt itself is the breach. A shift that names
-     * a sealed outcome as source or destination breaches; so does one with nowhere to redistribute without
-     * touching a sealed weight (both other outcomes sealed), a {@code COLLIDE} remainder owed to a sealed
-     * third, and a snapshot {@code Restore} that disagrees with the frozen value. A shift that applies fully
-     * while leaving every sealed weight untouched reroutes around the seal and is not a breach.
+     * cannot move. A later shift that would have to move it is declined with weights unchanged as an
+     * ordinary failure — no paradox. A Seal Breach is recorded only if a sealed outcome's probability
+     * actually changes; no current shift path does so (every path above declines instead), so the breach
+     * flag, its event, and its detection stay reserved for an explicit future seal-breaker.
      */
     public OutcomeSealed sealOutcome(UUID outcomeId) {
         if (resolved) {
