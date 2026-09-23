@@ -135,7 +135,9 @@ public final class ParadoxDetector {
 
     /**
      * Reports one {@link DetectedParadox} of type {@code SEAL_BREACH} when {@code sealBreach} is set,
-     * with {@code affectedOutcomeIds} containing the event's sealed outcome id(s).
+     * with {@code affectedOutcomeIds} containing the event's sealed outcome id(s). The breach is the
+     * blocked attempt itself — see {@link FutureEvent#sealOutcome}: sealed weights never move, so a set
+     * flag always means a shift was declined for naming (or being unable to avoid) a sealed outcome.
      */
     private static List<DetectedParadox> detectSealBreach(List<Outcome> outcomes, boolean sealBreach) {
         if (!sealBreach) {
