@@ -221,6 +221,7 @@ class ResolveEraCommandHandlerTest {
         assertThat(eraResolutionCompleted.terminalResolutions())
                 .containsExactly(new TerminalResolution(eventId, 0, TerminalResolution.TerminalState.STALLED, null));
         then(eraIndex).should().add(eventId, GAME_ID, ERA_NUMBER + 1, 0);
+        then(weaverChainSaga).should().stallPendingLink(GAME_ID, ERA_NUMBER, eventId);
     }
 
     @Test
@@ -314,6 +315,7 @@ class ResolveEraCommandHandlerTest {
         then(futureEvents).should(never()).findById(eventId);
         then(publisher).should(never()).publish(any());
         then(eraIndex).should(never()).add(any(), any(), org.mockito.ArgumentMatchers.eq(ERA_NUMBER + 1), anyInt());
+        then(weaverChainSaga).should(never()).stallPendingLink(any(), anyInt(), any());
     }
 
     @Test
@@ -344,6 +346,7 @@ class ResolveEraCommandHandlerTest {
 
         assertThat(futureEvent.resolved()).isFalse();
         then(publisher).should(times(1)).publish(any());
+        then(weaverChainSaga).should(times(1)).stallPendingLink(GAME_ID, ERA_NUMBER, eventId);
     }
 
     @Test
