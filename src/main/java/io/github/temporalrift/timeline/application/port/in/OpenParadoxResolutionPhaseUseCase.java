@@ -9,8 +9,7 @@ import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.Pendin
 /**
  * Opens a {@code ParadoxResolutionSaga} phase for the paradoxes a resolution cycle just detected. Idempotent by
  * {@code (gameId, eraNumber)} — a phase already open for that era is left untouched instead of a duplicate being
- * created (the governing design Decision: "persist saga state before emitting terminal facts so recovery cannot produce
- * duplicates").
+ * created, so recovery cannot produce duplicate terminal facts.
  */
 public interface OpenParadoxResolutionPhaseUseCase {
 

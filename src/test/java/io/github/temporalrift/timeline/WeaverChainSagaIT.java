@@ -310,7 +310,7 @@ class WeaverChainSagaIT {
     /**
      * {@code winnerOutcomeId} is weighted 100 against two 0-weight outcomes — this file tests Weaver chain
      * mechanics, not the weighted draw itself, so the resolved winner must stay deterministic (a nonzero-weight
-     * outcome is only guaranteed, not merely likely, to win the weighted-outcome-resolution capability's draw
+     * outcome is only guaranteed, not merely likely, to win the weighted draw
      * when the other eligible outcomes carry zero weight).
      */
     private void publishEventsDrawn(UUID gameId, int eraNumber, UUID futureEventId, UUID winnerOutcomeId) {

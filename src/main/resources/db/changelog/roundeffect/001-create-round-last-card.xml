@@ -6,8 +6,8 @@
             https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
 
   <!--
-      Round-scoped "what was the most recent card this round" pointer, read and cleared by NULLIFY
-      (the governing design Decision 1). Not event-sourced: operational coordination state, not domain history.
+      Round-scoped "what was the most recent card this round" pointer, read and cleared by NULLIFY.
+      Not event-sourced: operational coordination state, not domain history.
   -->
   <changeSet id="001-create-round-last-card" author="timeline-service">
     <createTable tableName="round_last_card">

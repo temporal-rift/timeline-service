@@ -53,7 +53,7 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
  * remaining cards by submission timestamp}, all in one in-process pass. Folds in what
  * {@code ApplyProbabilityShiftUseCase},
  * {@code PlayCardModifierUseCase}, {@code PlaySpecialActionUseCase}, and {@code ResolvePendingCorruptUseCase}
- * did as standalone per-message handlers (the governing design Decision 7) — every "last card"/"pending" concept those
+ * did as standalone per-message handlers — every "last card"/"pending" concept those
  * needed a durable cross-transaction port for is now resolved once up front from the complete round buffer by
  * named player ({@code NULLIFY}, {@code AMPLIFY}, {@code REDIRECT}, and {@code CORRUPT}).
  */
@@ -79,13 +79,13 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final Set<String> AMPLIFIABLE_SHIFTER_TYPES =
             Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING, CARD_TYPE_COLLIDE);
 
-    /** CORRUPT correlates only to these (faction-specials capability) — COLLIDE is never invertible by it. */
+    /** CORRUPT correlates only to these — COLLIDE is never invertible by it. */
     private static final Set<String> CORRUPT_INVERTIBLE_TYPES =
             Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING);
 
     /**
-     * MIMIC correlates only to these (faction-specials capability) — the same "direct transfer" vocabulary Rally
-     * boosts (activist-declaration-effects capability), though Rally's own eligibility additionally excludes
+     * MIMIC correlates only to these — the same "direct transfer" vocabulary Rally
+     * boosts, though Rally's own eligibility additionally excludes
      * SUPPRESS and a SWING's source side because Rally and Momentum share the same direct-transfer eligibility.
      */
     private static final Set<String> DIRECT_TRANSFER_TYPES =
@@ -159,8 +159,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var redirectDestinations = resolveRedirectDestinations(sorted, selectedActionByPlayer, cancelled);
         var mimicCorrelations = resolveMimicTargets(sorted, cancelled);
         // Defensive, not just relying on the producer-side invariant that RALLY is only ever buffered into
-        // round 1 (activist-declaration-effects capability requirement: "Round 1 ActionRoundClosed replay
-        // only") — even if a RALLY entry somehow reached another round's buffer, it would not be consulted.
+        // round 1 — even if a RALLY entry somehow reached another round's buffer, it would not be consulted.
         var rallyDeclaredOutcomes = roundNumber == 1 ? resolveRallyDeclaredOutcomes(sorted, cancelled) : Set.<UUID>of();
 
         var touchedEventIds = new LinkedHashSet<UUID>();
@@ -257,7 +256,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     /**
-     * Band-correction capability: after Round 2's priority-ordered replay completes, band every active
+     * After Round 2's priority-ordered replay completes, band every active
      * (non-stalled, non-resolved) {@code FutureEvent}'s outcomes from the fully-applied replayed state, superseding
      * the game-owned preview for the same game and era.
      */
@@ -346,11 +345,11 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     /**
-     * Records each still-live CASCADE as an armed carry-forward intent for this era (eraser-cascade-erasure
-     * capability). No immediate {@code FutureEvent} effect: whether the named outcome is actually erased can
-     * only be known once this era's erasures are all applied, so confirmation happens at era resolution
-     * instead of here — this only needs to survive same-round NULLIFY cancellation. A CASCADE missing its
-     * target coordinate is rejected immediately instead of silently arming nothing.
+     * Records each still-live CASCADE as an armed carry-forward intent for this era. No immediate
+     * {@code FutureEvent} effect: whether the named outcome is erased and its event carries is only known once
+     * the event reaches a terminal state, so settlement happens then instead of here — this only needs to survive
+     * same-round NULLIFY cancellation. A CASCADE missing its target coordinate is rejected immediately instead of
+     * silently arming nothing.
      */
     private void applyCascadeTier(UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
         for (var a : sorted) {
@@ -409,7 +408,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     /**
      * Maps each correlated shifter card's {@code envelopeEventId} to the corrupting player — a {@code CORRUPT}
      * with no matching {@code PUSH}/{@code SUPPRESS}/{@code SWING} by its target player this round has no
-     * effect (faction-specials capability).
+     * effect.
      */
     private static Map<UUID, CorruptCorrelation> resolveCorruptTargets(
             List<BufferedAction> sorted, Set<UUID> cancelled) {
@@ -628,7 +627,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             var result = applyDirectShift(futureEvent, shift, magnitude, touchedEventIds);
 
             // Took effect means the probabilities actually moved — a seal-blocked or fully clamped shift
-            // returns unchanged outcomes and must not read as effective (corrupt-confirmation capability).
+            // returns unchanged outcomes and must not read as effective.
             if (result instanceof ProbabilityShifted shifted
                     && !probabilitiesByOutcome(shifted.outcomes()).equals(before)) {
                 tookEffectEnvelopeIds.add(a.envelopeEventId());
@@ -779,7 +778,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     /**
      * NULLIFY/AMPLIFY have no tier-6 effect of their own; SEAL/ANNIHILATE/CORRUPT/MIMIC already ran in their
      * tiers; RALLY has no effect of its own at all — it is only ever consulted as a magnitude modifier for other
-     * transfers (activist-declaration-effects capability).
+     * transfers.
      */
     private static boolean isPriorityTierAction(BufferedAction a) {
         return isCardType(a, "NULLIFY")

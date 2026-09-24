@@ -648,7 +648,7 @@ class ResolveEraCommandHandlerTest {
     /**
      * Simulates a newly-created phase that keeps exactly the proposed pending paradoxes — the common case these
      * tests care about. {@link OpenParadoxResolutionPhaseUseCase#open} always returns the phase's authoritative
-     * ids (the governing design), so a test must stub it before any assertion that relies on {@code ParadoxDetected}'s
+     * ids, so a test must stub it before any assertion that relies on {@code ParadoxDetected}'s
      * published paradoxIds.
      */
     private void givenOpenEchoesBackItsPendingParadoxes() {

@@ -25,7 +25,7 @@ import org.springframework.messaging.support.MessageBuilder;
  * hand-rolled body-envelope shape used elsewhere for {@code timeline.events} placeholders) onto
  * {@code game.events}, and asserts {@code OutcomeApplied} — preceded by {@code ProbabilityStateCalculated}
  * — lands on {@code timeline.events}. Also confirms the {@code eventType}
- * header round-trips end-to-end (the governing design Decision 2).
+ * header round-trips end-to-end.
  */
 @TimelineServiceIntegrationTest
 class ResolutionWalkingSkeletonIT {
@@ -80,7 +80,7 @@ class ResolutionWalkingSkeletonIT {
         assertThat(outcomeIndex).isLessThan(eraResolutionCompletedIndex);
 
         var outcomePayload = messages.get(outcomeIndex).payload();
-        // The winner is now drawn (weighted-outcome-resolution capability), not deterministically the
+        // The winner is now drawn, not deterministically the
         // higher-probability outcome — assert it's a valid outcome for this event, and that the same fact
         // flows through to EraResolutionCompleted's terminal resolution below, rather than hard-coding which
         // of the two actually won.
@@ -152,8 +152,7 @@ class ResolutionWalkingSkeletonIT {
         // ActionRoundClosed triggers the priority-ordered replay that actually applies it — then
         // ResolutionStarted follows with no synchronization in between: CardPlayedAndResolutionKafkaConsumer
         // handles all three event types on the same consumer group/partition, so Kafka's in-partition
-        // ordering alone (not a test-only wait) guarantees the shift is applied before resolution runs
-        // (the governing design Decision 1, the round-action ordering design).
+        // ordering alone (not a test-only wait) guarantees the shift is applied before resolution runs.
         publishCardPlayed(gameId, eraNumber, futureEventId, "PUSH", null, pushedOutcomeId);
         publishActionRoundClosed(gameId, eraNumber, 1);
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
@@ -165,7 +164,7 @@ class ResolutionWalkingSkeletonIT {
         var messages = messagesFor(gameId);
         var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
         var outcomePayload = messages.get(outcomeIndex).payload();
-        // The winner is now drawn (weighted-outcome-resolution capability), not deterministically whichever
+        // The winner is now drawn, not deterministically whichever
         // outcome leads — the PUSH mechanic itself is proven by the resulting probabilities: pushedOutcomeId
         // overtakes at 55 (35 + 20), with the -20 redistributed proportionally across the other two.
         assertThat(probabilityOf(outcomePayload, pushedOutcomeId)).isEqualTo(55);
@@ -185,7 +184,7 @@ class ResolutionWalkingSkeletonIT {
         publishEraStarted(gameId, eraNumber);
         // Grade II's configured push-shift (+20) would only reach 55, not enough to overtake the 60-probability
         // winner — only grade III's configured +30 (35 + 30 = 65) flips it. Proves the grade on the wire
-        // event, not a flat baseline, determines the applied magnitude (graded-magnitude-resolution capability).
+        // event, not a flat baseline, determines the applied magnitude.
         publishEventsDrawnThreeOutcomes(
                 gameId, eraNumber, futureEventId, initialWinnerOutcomeId, 60, pushedOutcomeId, 35, thirdOutcomeId, 5);
         awaitFutureEventIndexed(gameId, eraNumber);
@@ -201,7 +200,7 @@ class ResolutionWalkingSkeletonIT {
         var messages = messagesFor(gameId);
         var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
         var outcomePayload = messages.get(outcomeIndex).payload();
-        // The winner is now drawn (weighted-outcome-resolution capability) — grade III's larger magnitude is
+        // The winner is now drawn — grade III's larger magnitude is
         // proven by the resulting probabilities: pushedOutcomeId overtakes at 65 (35 + 30), with the -30
         // redistributed proportionally across the other two.
         assertThat(probabilityOf(outcomePayload, pushedOutcomeId)).isEqualTo(65);
@@ -249,7 +248,7 @@ class ResolutionWalkingSkeletonIT {
         var messages = messagesFor(gameId);
         var outcomeIndex = indexOfEventType(messages, OUTCOME_APPLIED);
         var outcomePayload = messages.get(outcomeIndex).payload();
-        // The winner is now drawn (weighted-outcome-resolution capability) — AMPLIFY doubling SUPPRESS's
+        // The winner is now drawn — AMPLIFY doubling SUPPRESS's
         // magnitude is proven by the resulting probabilities: initialWinnerOutcomeId drops to 30 (70 - 40),
         // below the 47 risingOutcomeId is redistributed up to.
         assertThat(probabilityOf(outcomePayload, initialWinnerOutcomeId)).isEqualTo(30);
@@ -303,7 +302,7 @@ class ResolutionWalkingSkeletonIT {
         var stalledEntry = terminalResolutionFor(terminalResolutions, stalledEventId);
         assertThat(stalledEntry).containsEntry("terminalState", "STALLED").doesNotContainKey("winningOutcomeId");
         var resolvedEntry = terminalResolutionFor(terminalResolutions, resolvedEventId);
-        // The winner is now drawn (weighted-outcome-resolution capability), not deterministic — this test's
+        // The winner is now drawn, not deterministic — this test's
         // focus is the stalled event's exclusion, so just confirm the resolved event got a valid winner.
         assertThat(resolvedEntry).containsEntry("terminalState", "OUTCOME_APPLIED");
         assertThat((String) resolvedEntry.get("winningOutcomeId"))

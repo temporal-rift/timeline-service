@@ -48,7 +48,7 @@ class OutboxRelay {
                 } else {
                     // Revert so the next sweep retries, instead of leaving the row stuck SENDING on a
                     // send failure Kafka itself reported (as opposed to a relay crash mid-flight, which
-                    // is the still-accepted stuck-row risk in the governing design). Stop this sweep here rather
+                    // is an accepted stuck-row risk). Stop this sweep here rather
                     // than continuing to later rows: seq order is the only thing that keeps
                     // ProbabilityStateCalculated ahead of its OutcomeApplied, and publishing a later row
                     // while an earlier one is queued for retry would violate that.

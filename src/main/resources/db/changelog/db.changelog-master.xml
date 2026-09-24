@@ -26,8 +26,7 @@
 
     <!--
         Round-scoped card-modifier coordination state (AMPLIFY/NULLIFY/REDIRECT). Superseded by
-        round_action_buffer below (the governing design Decision 7, the round-action ordering design) —
-        left in place, unwritten, rather than dropped; see that change's Migration Plan.
+        round_action_buffer below — left in place, unwritten, rather than dropped.
     -->
     <include file="db/changelog/roundeffect/001-create-round-last-card.xml"/>
     <include file="db/changelog/roundeffect/002-create-round-amplify-pending.xml"/>

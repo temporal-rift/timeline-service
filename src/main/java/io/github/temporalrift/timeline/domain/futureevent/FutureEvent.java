@@ -347,7 +347,7 @@ public final class FutureEvent {
 
     /**
      * Clears this event's per-era state — every outcome's sealed/annihilated flag and the seal-breach flag —
-     * when it carries into a new era (era-scoped-event-state capability). Identity, outcome set, and
+     * when it carries into a new era. Identity, outcome set, and
      * probabilities are preserved; only the flags a new era must not inherit are cleared.
      */
     public EraStateCleared clearEraState() {

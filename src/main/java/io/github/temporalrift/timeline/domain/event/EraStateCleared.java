@@ -8,7 +8,7 @@ import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 /**
  * Internal, event-sourced fact — not published externally. A carried-forward {@code FutureEvent} re-entered
  * a new era: every outcome's sealed/annihilated flag and the event's seal-breach flag are cleared, since both
- * are per-era state (era-scoped-event-state capability). Identity, outcome set, and probabilities are
+ * are per-era state. Identity, outcome set, and probabilities are
  * unaffected — {@code outcomes} carries the same probabilities, only the flags cleared.
  */
 public record EraStateCleared(UUID eventId, List<Outcome> outcomes) {
