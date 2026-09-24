@@ -396,7 +396,7 @@ class WeaverChainSagaTest {
     }
 
     @Test
-    void annihilate_oldEraPendingLink_expiresWithoutConsumingProtectionOrScoring() {
+    void annihilate_oldEraPendingLink_preservesNewEraProtection() {
         var chainId = openChainWithConfirmedLinks(2);
         var pendingEvent = UUID.randomUUID();
         var pendingOutcome = UUID.randomUUID();
@@ -409,11 +409,21 @@ class WeaverChainSagaTest {
         assertThat(chain.pendingLink()).isNull();
         assertThat(chain.length()).isEqualTo(2);
         assertThat(sagas.findByChainId(chainId).orElseThrow().tapestryProtected())
-                .isFalse();
+                .isTrue();
         published(ChainLinkInvalidatedEvent.class);
         publishedNever(ChainProtectionConsumedEvent.class);
         publishedNever(ChainLinkAddedEvent.class);
         publishedNever(ChainCompletedEvent.class);
+
+        var newEvent = UUID.randomUUID();
+        var newOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, newEvent, newOutcome, ERA + 1));
+        saga.annihilateOutcome(GAME_ID, ERA + 1, newEvent, newOutcome);
+
+        assertThat(chains.findById(chainId).length()).isEqualTo(3);
+        published(ChainProtectionConsumedEvent.class);
+        published(ChainLinkAddedEvent.class);
+        published(ChainCompletedEvent.class);
     }
 
     @Test
