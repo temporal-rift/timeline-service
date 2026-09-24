@@ -20,8 +20,8 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 
 /**
- * End-to-end proof of {@code ParadoxResolutionSaga}'s force-cascade branch
- * (the paradox-resolution design): a detected paradox opens a resolution phase whose timer
+ * End-to-end proof of {@code ParadoxResolutionSaga}'s force-cascade branch: a detected paradox opens a resolution
+ * phase whose timer
  * (2s in {@code application-test.yml}) expires with no submissions, force-cascading it into a
  * {@code ParadoxCascaded} and a single, deferred {@code EraResolutionCompleted} in reveal order.
  */
@@ -125,7 +125,7 @@ class ParadoxResolutionForceCascadeIT {
                 .containsEntry("terminalState", "CASCADED")
                 .containsEntry("revealIndex", 0)
                 .doesNotContainKey("winningOutcomeId");
-        // The winner is now drawn (weighted-outcome-resolution capability), not deterministically whichever
+        // The winner is now drawn, not deterministically whichever
         // outcome leads — this test's focus is the barrier ordering around the paradoxed event, so just confirm
         // each clean event resolved to one of its own valid outcomes.
         var entry1 = terminalResolutionFor(terminalResolutions, eventId1);

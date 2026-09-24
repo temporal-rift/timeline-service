@@ -194,7 +194,7 @@ class ParadoxResolutionSagaImpl {
      * publishing, marking {@code COMPLETED} — inside the transaction that holds {@code phase}'s row lock
      * (acquired by the caller). A phase not {@code WAITING} here is the loser of a race against the other close
      * trigger: it already lost the lock to whichever transaction closed the phase first, and on acquiring it now
-     * sees that committed, terminal status, so there is nothing left to do (the governing design Decision 2).
+     * sees that committed, terminal status, so there is nothing left to do.
      */
     private void tryClose(ParadoxResolutionPhase phase, String closeReason) {
         if (phase.status() != ParadoxResolutionPhaseStatus.WAITING) {
@@ -226,7 +226,7 @@ class ParadoxResolutionSagaImpl {
     }
 
     /**
-     * Applies every recorded submission's {@code PUSH}/{@code SUPPRESS} effect to its target event (Decision 4);
+     * Applies every recorded submission's {@code PUSH}/{@code SUPPRESS} effect to its target event;
      * anything else (an unsupported card type, or a still-pending non-submitter — simply absent from
      * {@code submissions}) is skipped. Returns the last {@code PUSH}/{@code SUPPRESS}/{@code STABILIZE} submitter per
      * affected event, in submission-record order, for {@code ParadoxResolved.resolvedByPlayerId}.
@@ -455,8 +455,7 @@ class ParadoxResolutionSagaImpl {
 
     /**
      * A finding "persists" only when a fresh detection reports the same type against the same set of affected
-     * outcome ids — comparing {@code type} alone would conflate two distinct same-type findings on one event
-     * (Decision 2 / review finding).
+     * outcome ids — comparing {@code type} alone would conflate two distinct same-type findings on one event.
      */
     private static boolean sameFinding(PendingParadox pending, DetectedParadox fresh) {
         var pendingOutcomeIds = Set.copyOf(pending.affectedOutcomeIds());

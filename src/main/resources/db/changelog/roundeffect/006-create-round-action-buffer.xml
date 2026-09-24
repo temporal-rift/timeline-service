@@ -6,11 +6,11 @@
             https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
 
   <!--
-      Round-scoped buffer of not-yet-applied CardPlayed/SpecialActionPlayed actions (the governing design Decision 1,
-      the round-action ordering design). Written once per consumed message, read back once at
+      Round-scoped buffer of not-yet-applied CardPlayed/SpecialActionPlayed actions.
+      Written once per consumed message, read back once at
       ActionRoundClosed and replayed in priority-tier order in a single pass — never updated in place. Replaces
-      round_last_card/round_amplify_pending/round_event_last_shift/round_pending_corrupt/round_card_by_player
-      (the governing design Decision 7), which are left in place unwritten rather than dropped here.
+      round_last_card/round_amplify_pending/round_event_last_shift/round_pending_corrupt/round_card_by_player,
+      which are left in place unwritten rather than dropped here.
   -->
   <changeSet id="006-create-round-action-buffer" author="timeline-service">
     <createTable tableName="round_action_buffer">
@@ -34,7 +34,7 @@
       <column name="card_type" type="VARCHAR(32)"/>
       <!-- populated for SPECIAL_ACTION_PLAYED only -->
       <column name="special_action" type="VARCHAR(32)"/>
-      <!-- populated for CARD_PLAYED only (graded-magnitude-resolution capability) -->
+      <!-- populated for CARD_PLAYED only -->
       <column name="grade" type="VARCHAR(8)"/>
       <column name="player_id" type="UUID">
         <constraints nullable="false"/>

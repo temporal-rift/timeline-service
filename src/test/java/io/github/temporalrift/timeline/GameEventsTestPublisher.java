@@ -142,7 +142,7 @@ class GameEventsTestPublisher {
         cardPlayed(gameId, eraNumber, targetEventId, cardType, "II", sourceOutcomeId, targetOutcomeId);
     }
 
-    /** Overload allowing a scenario to exercise a non-baseline grade (graded-magnitude-resolution capability). */
+    /** Overload allowing a scenario to exercise a non-baseline grade. */
     void cardPlayed(
             UUID gameId,
             int eraNumber,
@@ -170,7 +170,7 @@ class GameEventsTestPublisher {
         return paradoxResolutionCardPlayed(gameId, eraNumber, playerId, cardType, "II", targetEventId, targetOutcomeId);
     }
 
-    /** Overload allowing a scenario to exercise a non-baseline grade (graded-magnitude-resolution capability). */
+    /** Overload allowing a scenario to exercise a non-baseline grade. */
     UUID paradoxResolutionCardPlayed(
             UUID gameId,
             int eraNumber,

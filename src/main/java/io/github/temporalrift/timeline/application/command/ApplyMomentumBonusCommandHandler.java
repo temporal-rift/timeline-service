@@ -10,10 +10,10 @@ import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 
 /**
- * Applies Momentum's one-time declaration-time bonus (activist-declaration-effects capability)
+ * Applies Momentum's one-time declaration-time bonus
  * immediately on consumption — outside the per-round buffering/replay model {@code ReplayRoundActionsCommandHandler}
- * uses for {@code CardPlayed}/{@code SpecialActionPlayed} (the governing design "MOMENTUM applies immediately on
- * consumption..."). Reuses the same {@code PUSH}-shaped {@code FutureEvent.applyShift} floor/ceiling/redistribution
+ * uses for {@code CardPlayed}/{@code SpecialActionPlayed} as its own step. Reuses the same {@code PUSH}-shaped
+ * {@code FutureEvent.applyShift} floor/ceiling/redistribution
  * and sealed-outcome handling every other direct transfer goes through.
  */
 @Service

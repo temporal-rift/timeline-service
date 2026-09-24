@@ -188,8 +188,8 @@ public record ParadoxResolutionPhase(
     /**
      * One paradox still open in this phase, carrying the {@code revealIndex} its affected event was drawn at and
      * its originally detected {@code type} plus {@code affectedOutcomeIds} — needed at close time to tell whether
-     * re-detection on the affected event still reports this same finding (persists) or not (resolved),
-     * the paradox-completion design Decision 2. {@code affectedOutcomeIds} disambiguates two findings of the
+     * re-detection on the affected event still reports this same finding (persists) or not (resolved).
+     * {@code affectedOutcomeIds} disambiguates two findings of the
      * same {@code type} on one event (e.g. two independently annihilated outcomes each tripping
      * {@code IMPOSSIBLE_ERASURE}) — matching on {@code type} alone would treat clearing either one as clearing
      * both.
@@ -204,10 +204,9 @@ public record ParadoxResolutionPhase(
 
     /**
      * One player's recorded resolution-card submission, not yet applied to its target {@code FutureEvent}
-     * (the governing design Decision 2/4) — {@code cardType} is one of the wire {@code ParadoxResolutionCardPlayed}
+     * — {@code cardType} is one of the wire {@code ParadoxResolutionCardPlayed}
      * payload's values (only {@code PUSH}/{@code SUPPRESS}/{@code SWING} are applied; anything else is a no-op at
-     * close, the paradox-completion design Non-Goals). {@code grade} is the submitted card's own grade
-     * (graded-magnitude-resolution capability), consulted only for {@code PUSH}/{@code SUPPRESS}.
+     * close). {@code grade} is the submitted card's own grade, consulted only for {@code PUSH}/{@code SUPPRESS}.
      */
     public record Submission(
             UUID playerId, String cardType, CardGrade grade, UUID targetEventId, UUID targetOutcomeId) {}

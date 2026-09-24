@@ -8,8 +8,7 @@ import java.util.UUID;
  * -> MIMIC -> AMPLIFY -> remaining cards by submission timestamp}). Player-targeted modifiers correlate from the
  * complete round, so their effect does not depend on relative submission order. Replaces
  * {@code ApplyProbabilityShiftUseCase}, {@code PlayCardModifierUseCase}, {@code PlaySpecialActionUseCase}, and
- * {@code ResolvePendingCorruptUseCase}
- * (the governing design Decision 7, the round-action ordering design) — those applied each action
+ * {@code ResolvePendingCorruptUseCase} — those applied each action
  * immediately on consumption; this instead reads the whole round back once its {@code ActionRoundClosed}
  * arrives and applies it in one pass.
  */

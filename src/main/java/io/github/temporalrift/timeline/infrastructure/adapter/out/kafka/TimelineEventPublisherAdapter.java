@@ -42,7 +42,7 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
  *
  * <p>Maps the local payload to its generated wire type and publishes a {@link Message} directly. Unlike
  * game-service, nothing wires Spring Modulith to that call here — {@code OutboxEventListener}
- * (infrastructure.adapter.out.outbox) captures it instead (the governing design Decision 4).
+ * (infrastructure.adapter.out.outbox) captures it instead.
  */
 @Component
 class TimelineEventPublisherAdapter implements TimelineEventPublisher {
