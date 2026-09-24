@@ -23,7 +23,7 @@ import org.springframework.messaging.support.MessageBuilder;
  * Kafka-level proof of the Weaver chain saga: THREAD opens a pending link on a not-yet-resolved current-era
  * outcome; the pending link confirms (ChainLinkAdded) when its era resolves as predicted, growing the same chain
  * across era boundaries until the third link completes it; a redelivered THREAD emits only one ChainLinkThreaded;
- * GameEnded closes an incomplete chain without further chain events; and an Annihilate naming an already-resolved,
+ * GameEnded invalidates an incomplete chain's pending link; and an Annihilate naming an already-resolved,
  * confirmed-linked outcome is a no-op (only the chain's open pending link, if any, can ever be invalidated).
  */
 @TimelineServiceIntegrationTest
@@ -150,7 +150,7 @@ class WeaverChainSagaIT {
     }
 
     @Test
-    void gameEnded_closesIncompleteChainWithoutFurtherChainEvents() {
+    void gameEnded_invalidatesPendingLinkWithoutFurtherChainEvents() {
         var gameId = UUID.randomUUID();
         var weaver = UUID.randomUUID();
         var era2Event = UUID.randomUUID();
@@ -160,21 +160,23 @@ class WeaverChainSagaIT {
         publishThread(gameId, 2, weaver, era2Event, era2Winner, UUID.randomUUID());
         awaitChainLinkThreaded(gameId, 1);
         publishGameEnded(gameId);
-        // Wait until GameEnded actually closed the saga before the ANNIHILATE arrives; a still-open saga would
-        // answer it with ChainLinkInvalidated within the assertion window below.
+        // Wait until GameEnded closes the saga and invalidates its pending link before ANNIHILATE arrives.
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
                                 "SELECT COUNT(*) FROM weaver_chain_saga WHERE game_id = ? AND status = 'OPEN'",
                                 Integer.class,
                                 gameId))
                         .isZero());
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_LINK_INVALIDATED))
+                        .hasSize(1));
         publishSpecialActionPlayed(gameId, 2, UUID.randomUUID(), "ANNIHILATE", era2Event, era2Winner);
         publishActionRoundClosed(gameId, 2, 1);
 
         await().pollDelay(Duration.ofSeconds(3))
                 .atMost(Duration.ofSeconds(10))
-                .untilAsserted(
-                        () -> assertThat(eventTypesOf(messagesFor(gameId))).doesNotContain(CHAIN_LINK_INVALIDATED));
+                .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_LINK_INVALIDATED))
+                        .hasSize(1));
     }
 
     private void draftEra(UUID gameId, int eraNumber, UUID eventId, UUID winner) {

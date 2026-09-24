@@ -29,12 +29,18 @@ public interface WeaverChainSagaUseCase {
      */
     void resolvePendingLink(UUID gameId, int eraNumber, UUID eventId, UUID winningOutcomeId);
 
+    /**
+     * Expires the matching pending link when its event Stalls in {@code eraNumber}. Publishes one link
+     * invalidation without a penalty; repeated calls leave confirmed links unchanged.
+     */
+    void stallPendingLink(UUID gameId, int eraNumber, UUID eventId);
+
     /** Confirms the game's pending chain link whose {@code CHAIN_CONFLICT} paradox resolved without cascading. */
     void confirmParadoxResolvedLink(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId);
 
     /** Breaks the game's chain whose pending link's {@code CHAIN_CONFLICT} paradox cascaded unresolved. */
     void breakChainOnCascadedParadox(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId, UUID paradoxId);
 
-    /** Ends every open chain in the game with no completion bonus. */
+    /** Ends every open chain in the game, expiring any pending link without a completion bonus. */
     void endGame(UUID gameId);
 }
