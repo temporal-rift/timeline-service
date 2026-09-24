@@ -114,6 +114,20 @@ class SettleCascadeCarryForwardCommandHandlerTest {
         assertRejected("TARGET_NOT_IN_ERA");
     }
 
+    @Test
+    void settle_stalledEventAlreadyIndexedIntoNextEra_stillConfirmsCarryForward() {
+        given(cascadeCarryForward.findByGameAndEra(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new CascadeCarryForward(playerId, eventId, outcomeId)));
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).willReturn(List.of());
+        given(futureEvents.findById(eventId)).willReturn(futureEvent(true));
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER + 1))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+
+        handler().settle(GAME_ID, ERA_NUMBER, List.of(terminal(TerminalState.STALLED)));
+
+        then(cascadeCarryForward).should().confirm(GAME_ID, ERA_NUMBER, eventId, outcomeId, ERA_NUMBER + 1);
+    }
+
     private SettleCascadeCarryForwardCommandHandler handler() {
         return new SettleCascadeCarryForwardCommandHandler(
                 cascadeCarryForward, futureEvents, eraIndex, publisher, clock);

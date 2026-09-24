@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
 
@@ -58,7 +59,10 @@ class SettleCascadeCarryForwardCommandHandler implements SettleCascadeCarryForwa
     public void settle(UUID gameId, int eraNumber, List<TerminalResolution> terminalResolutions) {
         var terminalStateByEvent = terminalResolutions.stream()
                 .collect(Collectors.toMap(TerminalResolution::eventId, TerminalResolution::terminalState, (a, _) -> a));
-        var eraEventIds = eraIndex.findByGameIdAndEraNumber(gameId, eraNumber).stream()
+        // The index keeps one row per event, so an event that carried now sits under the next era.
+        var eraEventIds = Stream.concat(
+                        eraIndex.findByGameIdAndEraNumber(gameId, eraNumber).stream(),
+                        eraIndex.findByGameIdAndEraNumber(gameId, eraNumber + 1).stream())
                 .map(IndexedEventId::eventId)
                 .collect(Collectors.toSet());
         for (var armed : cascadeCarryForward.findByGameAndEra(gameId, eraNumber)) {
