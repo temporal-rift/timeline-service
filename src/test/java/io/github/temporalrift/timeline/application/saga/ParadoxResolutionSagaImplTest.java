@@ -94,6 +94,9 @@ class ParadoxResolutionSagaImplTest {
     io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase weaverChainSaga;
 
     @Mock
+    io.github.temporalrift.timeline.application.port.in.SettleCascadeCarryForwardUseCase settleCascades;
+
+    @Mock
     RandomGenerator random;
 
     private final Clock clock = Clock.fixed(Instant.parse("2026-08-09T00:00:00Z"), ZoneOffset.UTC);
@@ -113,6 +116,7 @@ class ParadoxResolutionSagaImplTest {
                 chainSagas,
                 chains,
                 weaverChainSaga,
+                settleCascades,
                 clock,
                 random);
         lenient().when(chainSagas.findOpenByGame(any())).thenReturn(List.of());
@@ -261,6 +265,7 @@ class ParadoxResolutionSagaImplTest {
                 .containsExactly(
                         new TerminalResolution(affectedEventId, 0, TerminalResolution.TerminalState.CASCADED, null),
                         resolvedTerminalResolutions.getFirst());
+        then(settleCascades).should().settle(GAME_ID, ERA_NUMBER, barrier.terminalResolutions());
     }
 
     @Test
@@ -527,6 +532,7 @@ class ParadoxResolutionSagaImplTest {
         assertThat(barrier.terminalResolutions())
                 .extracting(TerminalResolution::terminalState)
                 .containsExactly(TerminalResolution.TerminalState.OUTCOME_APPLIED);
+        then(settleCascades).should().settle(GAME_ID, ERA_NUMBER, barrier.terminalResolutions());
     }
 
     @Test
