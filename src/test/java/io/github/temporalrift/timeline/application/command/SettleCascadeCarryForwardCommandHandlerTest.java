@@ -29,6 +29,8 @@ import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort.CascadeCarryForward;
+import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
+import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
@@ -49,6 +51,9 @@ class SettleCascadeCarryForwardCommandHandlerTest {
 
     @Mock
     FutureEventRepository futureEvents;
+
+    @Mock
+    FutureEventEraIndexPort eraIndex;
 
     @Mock
     TimelineEventPublisher publisher;
@@ -89,6 +94,7 @@ class SettleCascadeCarryForwardCommandHandlerTest {
     void settle_eventWithoutTerminalYet_leavesTheArmedCascadeUntouched() {
         given(cascadeCarryForward.findByGameAndEra(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new CascadeCarryForward(playerId, eventId, outcomeId)));
+        givenEventInEra();
 
         handler().settle(GAME_ID, ERA_NUMBER, List.of());
 
@@ -97,14 +103,32 @@ class SettleCascadeCarryForwardCommandHandlerTest {
         then(publisher).should(never()).publish(any());
     }
 
+    @Test
+    void settle_targetEventOutsideTheEra_rejectsAsNotInEra() {
+        given(cascadeCarryForward.findByGameAndEra(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new CascadeCarryForward(playerId, eventId, outcomeId)));
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).willReturn(List.of());
+
+        handler().settle(GAME_ID, ERA_NUMBER, List.of());
+
+        assertRejected("TARGET_NOT_IN_ERA");
+    }
+
     private SettleCascadeCarryForwardCommandHandler handler() {
-        return new SettleCascadeCarryForwardCommandHandler(cascadeCarryForward, futureEvents, publisher, clock);
+        return new SettleCascadeCarryForwardCommandHandler(
+                cascadeCarryForward, futureEvents, eraIndex, publisher, clock);
     }
 
     private void givenArmedCascade(FutureEvent futureEvent) {
         given(cascadeCarryForward.findByGameAndEra(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new CascadeCarryForward(playerId, eventId, outcomeId)));
+        givenEventInEra();
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
+    }
+
+    private void givenEventInEra() {
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
     }
 
     private FutureEvent futureEvent(boolean erased) {
