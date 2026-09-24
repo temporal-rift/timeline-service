@@ -26,8 +26,8 @@ import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.eventstore.AggregateSnapshot;
 import io.github.temporalrift.timeline.domain.port.out.AggregateSnapshotPort;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
+import io.github.temporalrift.timeline.domain.weaverchain.ChainLink;
 import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
-import io.github.temporalrift.timeline.domain.weaverchain.ResolvedOutcome;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChainNotFoundException;
 
 @DataJpaTest
@@ -118,9 +118,8 @@ class JpaWeaverChainRepositoryTest {
         assertThat(chain.length()).isEqualTo(2);
         assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
         assertThat(chain.links())
-                .extracting(link -> new ResolvedOutcome(link.eventId(), link.outcomeId()))
                 .containsExactly(
-                        new ResolvedOutcome(firstEvent, firstOutcome), new ResolvedOutcome(secondEvent, secondOutcome));
+                        new ChainLink(firstEvent, firstOutcome, 1), new ChainLink(secondEvent, secondOutcome, 2));
     }
 
     @Test

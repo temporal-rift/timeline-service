@@ -61,7 +61,8 @@ class WeaverChainSagaTest {
 
     private static final UUID GAME_ID = UUID.randomUUID();
     private static final UUID PLAYER_ID = UUID.randomUUID();
-    private static final int ERA = 2;
+    // Late enough that openChainWithConfirmedLinks' eras (1..n) all precede it.
+    private static final int ERA = 4;
 
     @Mock
     FutureEventRepository futureEvents;
@@ -432,6 +433,7 @@ class WeaverChainSagaTest {
         assertThat(chain.length()).isEqualTo(2);
         assertThat(chain.links().getLast().eventId()).isEqualTo(targetEvent);
         assertThat(chain.links().getLast().outcomeId()).isEqualTo(targetOutcome);
+        assertThat(chain.links().getLast().eraNumber()).isEqualTo(ERA - 1);
         var reAnchored = published(ChainReAnchoredEvent.class);
         assertThat(reAnchored.chainLength()).isEqualTo(2);
         assertThat(reAnchored.linkedEventId()).isEqualTo(targetEvent);
@@ -541,6 +543,87 @@ class WeaverChainSagaTest {
     }
 
     @Test
+    void reweave_targetIsDrawnLowProbabilityWinner_accepted() {
+        var chainId = openChainWithConfirmedLinks(1);
+        var targetEvent = UUID.randomUUID();
+        var drawnWinner = UUID.randomUUID();
+        var favourite = UUID.randomUUID();
+        given(futureEvents.findById(targetEvent))
+                .willReturn(resolvedEventWithUnderdogWinner(targetEvent, drawnWinner, favourite));
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, targetEvent, drawnWinner);
+
+        assertThat(chains.findById(chainId).links().getLast().outcomeId()).isEqualTo(drawnWinner);
+        published(ChainReAnchoredEvent.class);
+    }
+
+    @Test
+    void reweave_targetIsHighestProbabilityLoser_rejectedAsNotResolved() {
+        var chainId = openChainWithConfirmedLinks(1);
+        var targetEvent = UUID.randomUUID();
+        var drawnWinner = UUID.randomUUID();
+        var favourite = UUID.randomUUID();
+        given(futureEvents.findById(targetEvent))
+                .willReturn(resolvedEventWithUnderdogWinner(targetEvent, drawnWinner, favourite));
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, targetEvent, favourite);
+
+        assertThat(chains.findById(chainId).links().getLast().eventId()).isNotEqualTo(targetEvent);
+        var rejected = published(SpecialRejectedEvent.class);
+        assertThat(rejected.reason()).isEqualTo("TARGET_NOT_RESOLVED");
+    }
+
+    @Test
+    void reweave_targetEraNotAfterPrecedingLink_rejectedWithoutChange() {
+        var chainId = openChainWithConfirmedLinks(2);
+        var before = chains.findById(chainId).links();
+        var targetEvent = UUID.randomUUID();
+        var targetOutcome = UUID.randomUUID();
+        given(futureEvents.findById(targetEvent)).willReturn(resolvedEvent(targetEvent, targetOutcome, 1));
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, targetEvent, targetOutcome);
+
+        assertThat(chains.findById(chainId).links()).isEqualTo(before);
+        var rejected = published(SpecialRejectedEvent.class);
+        assertThat(rejected.reason()).isEqualTo("LINK_ERA_NOT_SUCCESSIVE");
+        assertThat(sagas.findByChainId(chainId).orElseThrow().reweaveUsedEra()).isNull();
+    }
+
+    @Test
+    void reweave_chainWithNoLinks_rejectedAsNoLinkToReplace() {
+        var chainId = openChainWithPendingLink();
+        var pending = chains.findById(chainId).pendingLink();
+        saga.resolvePendingLink(GAME_ID, ERA, pending.eventId(), UUID.randomUUID());
+        var targetEvent = UUID.randomUUID();
+        var targetOutcome = UUID.randomUUID();
+        given(futureEvents.findById(targetEvent)).willReturn(resolvedEvent(targetEvent, targetOutcome));
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, targetEvent, targetOutcome);
+
+        var rejected = published(SpecialRejectedEvent.class);
+        assertThat(rejected.reason()).isEqualTo("NO_LINK_TO_REPLACE");
+    }
+
+    @Test
+    void thread_sameEraAsTapestryConfirmedLink_rejectedAsNotSuccessive() {
+        var chainId = openChainWithConfirmedLinks(1);
+        var protectedEvent = UUID.randomUUID();
+        var protectedOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, protectedEvent, protectedOutcome, ERA));
+        chains.append(chainId, new ChainLinkAdded(chainId, protectedEvent, protectedOutcome, ERA));
+        var coordinate = stubValidCoordinate();
+
+        saga.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
+
+        var chain = chains.findById(chainId);
+        assertThat(chain.pendingLink()).isNull();
+        assertThat(chain.length()).isEqualTo(2);
+        var rejected = published(ThreadRejectedEvent.class);
+        assertThat(rejected.reason()).isEqualTo("LINK_ERA_NOT_SUCCESSIVE");
+        then(futureEvents).should(never()).append(eq(coordinate.eventId()), any());
+    }
+
+    @Test
     void tapestry_belowTwoLinks_rejected() {
         var chainId = openChainWithConfirmedLinks(1);
 
@@ -628,6 +711,10 @@ class WeaverChainSagaTest {
     }
 
     private FutureEvent resolvedEvent(UUID eventId, UUID winnerId) {
+        return resolvedEvent(eventId, winnerId, ERA - 1);
+    }
+
+    private FutureEvent resolvedEvent(UUID eventId, UUID winnerId, int eraNumber) {
         var first = UUID.randomUUID();
         var second = UUID.randomUUID();
         var outcomes = List.of(
@@ -636,11 +723,22 @@ class WeaverChainSagaTest {
                 new Outcome(second, "second", 15));
         return FutureEvent.replay(
                 eventId,
-                List.of(new FutureEventDrafted(eventId, outcomes), appliedWinner(eventId, winnerId, outcomes)));
+                List.of(
+                        new FutureEventDrafted(eventId, outcomes),
+                        new OutcomeApplied(GAME_ID, eraNumber, eventId, winnerId, outcomes)));
     }
 
-    private OutcomeApplied appliedWinner(UUID eventId, UUID winnerId, List<Outcome> outcomes) {
-        return new OutcomeApplied(GAME_ID, ERA - 1, eventId, winnerId, outcomes);
+    /** A resolved event whose weighted draw picked its least likely outcome over the favourite. */
+    private FutureEvent resolvedEventWithUnderdogWinner(UUID eventId, UUID winnerId, UUID favouriteId) {
+        var outcomes = List.of(
+                new Outcome(favouriteId, "favourite", 70),
+                new Outcome(UUID.randomUUID(), "middle", 20),
+                new Outcome(winnerId, "underdog", 10));
+        return FutureEvent.replay(
+                eventId,
+                List.of(
+                        new FutureEventDrafted(eventId, outcomes),
+                        new OutcomeApplied(GAME_ID, ERA - 1, eventId, winnerId, outcomes)));
     }
 
     private FutureEvent unresolvedEventWithOutcome(UUID eventId, UUID outcomeId) {
