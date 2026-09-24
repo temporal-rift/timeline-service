@@ -327,17 +327,24 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     }
 
     /**
-     * When the chain's open pending link names the just-annihilated outcome: if Tapestry protection is armed
-     * for this era, consumes it and confirms the link anyway; otherwise leaves the pending link as-is —
-     * {@code ParadoxDetector} picks up the annihilated-and-unprotected pending link at era resolution.
+     * An older-era pending link expires before matching the annihilated outcome. For a current-era match,
+     * Tapestry consumes protection and confirms the link; otherwise the link remains pending for
+     * {@code ParadoxDetector} at era resolution.
      */
     private void protectPendingLinkIfArmed(
             WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID eventId, UUID outcomeId) {
         var chain = chains.findById(saga.chainId());
         var pending = chain.pendingLink();
-        if (pending == null
-                || !pending.eventId().equals(eventId)
-                || !pending.outcomeId().equals(outcomeId)) {
+        if (pending == null) {
+            return;
+        }
+        if (pending.eraNumber() != eraNumber) {
+            if (pending.eraNumber() < eraNumber) {
+                expirePendingLink(gameId, eraNumber, saga, chain);
+            }
+            return;
+        }
+        if (!pending.eventId().equals(eventId) || !pending.outcomeId().equals(outcomeId)) {
             return;
         }
         // Protection is scoped to the era it was armed in — an unconsumed TAPESTRY from an earlier era
