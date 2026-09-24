@@ -28,12 +28,11 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
 /**
- * Consumes {@code EventsDrawn} from {@code game.events}, drafting each event unless a {@code STALL} carried it into
- * this era. A carried event already has its aggregate and era-index entry, so drafting it again would corrupt its
- * event stream and conflict with the era index; instead its per-era state (seal, annihilation, seal-breach) is
- * cleared for the new era (era-scoped-event-state capability) before anything else in this era touches it — then
- * any CASCADE armed against this era re-applies its erasure on top of that clearing (eraser-cascade-erasure
- * capability).
+ * Consumes {@code EventsDrawn} from {@code game.events}, drafting each event unless a {@code STALL} or paradox
+ * cascade carried it into this era. A carried event already has its aggregate and era-index entry, so drafting it
+ * again would corrupt its event stream and conflict with the era index; instead its per-era state (seal,
+ * annihilation, seal-breach) is cleared for the new era before anything else in this era touches it — then any
+ * CASCADE pending for this era re-applies its erasure on top of that clearing.
  */
 @Component
 class EventsDrawnKafkaConsumer {
@@ -101,8 +100,8 @@ class EventsDrawnKafkaConsumer {
 
     /**
      * Applies every CASCADE confirmed for this era, after every carried event's clearing above so the carried
-     * erasure lands on top of the fresh state rather than being wiped by it. A pending row whose event never
-     * carried into this era (it simply resolved, so nothing to re-erase) is dropped and reported instead.
+     * erasure lands on top of the fresh state rather than being wiped by it. Settlement already rejects a
+     * CASCADE whose event did not carry, so a pending row whose event is absent here is only a defensive drop.
      */
     private void applyPendingCascades(UUID gameId, int eraNumber, Set<UUID> carriedEventIds) {
         for (var pending : cascadeCarryForward.findByGameAndEra(gameId, eraNumber)) {

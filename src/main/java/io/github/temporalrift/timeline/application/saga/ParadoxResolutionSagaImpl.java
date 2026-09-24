@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import io.github.temporalrift.timeline.application.port.in.SettleCascadeCarryForwardUseCase;
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.ParadoxCascaded;
@@ -68,6 +69,7 @@ class ParadoxResolutionSagaImpl {
     private final WeaverChainSagaRepository chainSagas;
     private final WeaverChainRepository chains;
     private final WeaverChainSagaUseCase weaverChainSaga;
+    private final SettleCascadeCarryForwardUseCase settleCascades;
     private final Clock clock;
     private final RandomGenerator random;
 
@@ -82,6 +84,7 @@ class ParadoxResolutionSagaImpl {
             WeaverChainSagaRepository chainSagas,
             WeaverChainRepository chains,
             WeaverChainSagaUseCase weaverChainSaga,
+            SettleCascadeCarryForwardUseCase settleCascades,
             Clock clock,
             RandomGenerator random) {
         this.stateManager = stateManager;
@@ -94,6 +97,7 @@ class ParadoxResolutionSagaImpl {
         this.chainSagas = chainSagas;
         this.chains = chains;
         this.weaverChainSaga = weaverChainSaga;
+        this.settleCascades = settleCascades;
         this.clock = clock;
         this.random = random;
     }
@@ -211,6 +215,7 @@ class ParadoxResolutionSagaImpl {
         var allTerminalResolutions = new ArrayList<>(phase.resolvedTerminalResolutions());
         allTerminalResolutions.addAll(terminalResolutions);
         allTerminalResolutions.sort(Comparator.comparingInt(TerminalResolution::revealIndex));
+        settleCascades.settle(phase.gameId(), phase.eraNumber(), allTerminalResolutions);
         publisher.publish(TimelineEventEnvelope.create(
                 phase.gameId(),
                 ERA_AGGREGATE_TYPE,
