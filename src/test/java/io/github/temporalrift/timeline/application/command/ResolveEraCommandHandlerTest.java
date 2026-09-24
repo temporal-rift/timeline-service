@@ -27,20 +27,18 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.github.temporalrift.timeline.application.port.in.OpenParadoxResolutionPhaseUseCase;
+import io.github.temporalrift.timeline.application.port.in.SettleCascadeCarryForwardUseCase;
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
-import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
-import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
-import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort.CascadeCarryForward;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -66,7 +64,7 @@ class ResolveEraCommandHandlerTest {
     FutureEventRepository futureEvents;
 
     @Mock
-    CascadeCarryForwardPort cascadeCarryForward;
+    SettleCascadeCarryForwardUseCase settleCascades;
 
     @Mock
     TimelineEventPublisher publisher;
@@ -95,7 +93,7 @@ class ResolveEraCommandHandlerTest {
         handler = new ResolveEraCommandHandler(
                 eraIndex,
                 futureEvents,
-                cascadeCarryForward,
+                settleCascades,
                 publisher,
                 openParadoxResolutionPhase,
                 chainSagas,
@@ -150,52 +148,45 @@ class ResolveEraCommandHandlerTest {
     }
 
     @Test
-    void resolve_cascadeArmedAgainstErasedOutcome_confirmedIntoNextEra() {
+    void resolve_stalledEvent_settlesArmedCascadesAgainstItsStalledTerminal() {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
-        var otherOutcomeId = UUID.randomUUID();
-        var player = UUID.randomUUID();
-        var futureEvent = FutureEvent.replay(
-                eventId,
-                List.of(new FutureEventDrafted(
-                        eventId, List.of(new Outcome(outcomeId, "erased", 50), new Outcome(otherOutcomeId, "d", 50)))));
-        futureEvent.annihilateOutcome(outcomeId);
 
-        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).willReturn(List.of());
-        given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(cascadeCarryForward.findByGameAndEra(GAME_ID, ERA_NUMBER))
-                .willReturn(List.of(new CascadeCarryForward(player, eventId, outcomeId)));
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(stalledFutureEvent(eventId, outcomeId));
 
         handler.resolve(GAME_ID, ERA_NUMBER);
 
-        then(cascadeCarryForward).should().confirm(GAME_ID, ERA_NUMBER, eventId, outcomeId, ERA_NUMBER + 1);
-        then(cascadeCarryForward).should(never()).delete(any(), anyInt(), any(), any());
-        then(publisher).should(never()).publish(any());
+        then(settleCascades)
+                .should()
+                .settle(
+                        GAME_ID,
+                        ERA_NUMBER,
+                        List.of(new TerminalResolution(eventId, 0, TerminalResolution.TerminalState.STALLED, null)));
     }
 
     @Test
-    void resolve_cascadeArmedAgainstUnerasedOutcome_rejectedAndReported() {
+    void resolve_paradoxedEvent_leavesItsArmedCascadesForThePhaseClose() {
         var eventId = UUID.randomUUID();
-        var outcomeId = UUID.randomUUID();
-        var player = UUID.randomUUID();
-        var futureEvent = draftedFutureEvent(eventId, outcomeId);
+        var annihilatedHighest = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(annihilatedHighest, "highest", 60),
+                                new Outcome(UUID.randomUUID(), "second", 40)))));
+        futureEvent.annihilateOutcome(annihilatedHighest);
 
-        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).willReturn(List.of());
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(cascadeCarryForward.findByGameAndEra(GAME_ID, ERA_NUMBER))
-                .willReturn(List.of(new CascadeCarryForward(player, eventId, outcomeId)));
+        givenOpenEchoesBackItsPendingParadoxes();
 
         handler.resolve(GAME_ID, ERA_NUMBER);
 
-        then(cascadeCarryForward).should().delete(GAME_ID, ERA_NUMBER, eventId, outcomeId);
-        then(cascadeCarryForward).should(never()).confirm(any(), anyInt(), any(), any(), anyInt());
-        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should().publish(captor.capture());
-        var rejected = (SpecialRejectedEvent) captor.getValue().payload();
-        assertThat(rejected.specialAction()).isEqualTo("CASCADE");
-        assertThat(rejected.targetEventId()).isEqualTo(eventId);
-        assertThat(rejected.targetOutcomeId()).isEqualTo(outcomeId);
-        assertThat(rejected.reason()).isEqualTo("TARGET_NOT_ERASED");
+        then(settleCascades).should().settle(GAME_ID, ERA_NUMBER, List.of());
     }
 
     @Test
@@ -660,7 +651,7 @@ class ResolveEraCommandHandlerTest {
     /**
      * Simulates a newly-created phase that keeps exactly the proposed pending paradoxes — the common case these
      * tests care about. {@link OpenParadoxResolutionPhaseUseCase#open} always returns the phase's authoritative
-     * ids (the governing design), so a test must stub it before any assertion that relies on {@code ParadoxDetected}'s
+     * ids, so a test must stub it before any assertion that relies on {@code ParadoxDetected}'s
      * published paradoxIds.
      */
     private void givenOpenEchoesBackItsPendingParadoxes() {

@@ -369,7 +369,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 .willReturn(true);
 
         // A single consumer instance processing records sequentially, one KafkaListener invocation at a
-        // time — this is what actually prevents the cross-consumer-group race (the governing design revision):
+        // time — this is what actually prevents the cross-consumer-group race:
         // there is no second thread/group that could observe pre-buffer state.
         consumer.handle(KafkaTestMessages.withHeaders(
                 cardPlayed(targetEventId, CardType.PUSH, null, targetOutcomeId),
@@ -440,7 +440,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     }
 
     @Test
-    @DisplayName("permanent no-op specialActions — claimed but buffer nothing (faction-specials capability)")
+    @DisplayName("permanent no-op specialActions — claimed but buffer nothing")
     void handle_permanentNoOpSpecialActions_buffersNothing() {
         // FORESIGHT/FULFILLMENT/REWRITE/OBSCURE/EXPOSE have no probability effect by design; RALLY/MOMENTUM
         // are handled only via the separate ActivistDeclarationRecorded consumer, never via this event.

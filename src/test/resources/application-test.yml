@@ -1,6 +1,6 @@
 game:
   # Self-contained copy so the test suite never depends on a live Config Server; also demonstrates the
-  # "profile config overrides the Config Server" requirement (timeline-probability-config-client capability).
+  # that profile config overrides the Config Server.
   timers:
     paradox-resolution-sweep-interval: 1s
   rules:

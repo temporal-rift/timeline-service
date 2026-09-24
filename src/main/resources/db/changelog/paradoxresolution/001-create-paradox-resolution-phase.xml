@@ -8,8 +8,7 @@
   <!--
       Persisted state for the paradox-resolution saga (ParadoxResolutionSaga): force-cascade (timer expiry) and
       player-submission (all-submitted) close branches. One row per (game_id, era_number), covering every
-      paradox detected in that era's resolution cycle behind a single shared timer. See the governing design
-      (the paradox-resolution design Decision 1, the paradox-completion design Decision 2).
+      paradox detected in that era's resolution cycle behind a single shared timer.
   -->
   <changeSet id="001-create-paradox-resolution-phase" author="timeline-service">
     <createTable tableName="paradox_resolution_phase">

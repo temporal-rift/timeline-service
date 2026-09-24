@@ -11,17 +11,15 @@ import org.springframework.stereotype.Service;
 
 import io.github.temporalrift.timeline.application.port.in.OpenParadoxResolutionPhaseUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
+import io.github.temporalrift.timeline.application.port.in.SettleCascadeCarryForwardUseCase;
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
-import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
-import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxDetector;
-import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -52,7 +50,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
 
     private final FutureEventEraIndexPort eraIndex;
     private final FutureEventRepository futureEvents;
-    private final CascadeCarryForwardPort cascadeCarryForward;
+    private final SettleCascadeCarryForwardUseCase settleCascades;
     private final TimelineEventPublisher publisher;
     private final OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase;
     private final WeaverChainSagaRepository chainSagas;
@@ -64,7 +62,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     ResolveEraCommandHandler(
             FutureEventEraIndexPort eraIndex,
             FutureEventRepository futureEvents,
-            CascadeCarryForwardPort cascadeCarryForward,
+            SettleCascadeCarryForwardUseCase settleCascades,
             TimelineEventPublisher publisher,
             OpenParadoxResolutionPhaseUseCase openParadoxResolutionPhase,
             WeaverChainSagaRepository chainSagas,
@@ -74,7 +72,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             RandomGenerator random) {
         this.eraIndex = eraIndex;
         this.futureEvents = futureEvents;
-        this.cascadeCarryForward = cascadeCarryForward;
+        this.settleCascades = settleCascades;
         this.publisher = publisher;
         this.openParadoxResolutionPhase = openParadoxResolutionPhase;
         this.chainSagas = chainSagas;
@@ -105,49 +103,8 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                 resolveEvent(gameId, eraNumber, indexedEventId, futureEvent, activeChains, accumulator);
             }
         }
-        confirmCascades(gameId, eraNumber);
+        settleCascades.settle(gameId, eraNumber, accumulator.terminalResolutions());
         publishResolution(gameId, eraNumber, accumulator);
-    }
-
-    /**
-     * Confirms each CASCADE armed this era against final erasure state (eraser-cascade-erasure capability):
-     * an annihilated named outcome becomes a pending carry-forward for the next era; one that never erased is
-     * rejected and reported. Erasure state is already final here regardless of any paradox this era still has
-     * pending — ANNIHILATE is applied during round replay, before this method ever runs, and a paradox
-     * resolution submission never un-annihilates an outcome.
-     */
-    private void confirmCascades(UUID gameId, int eraNumber) {
-        for (var armed : cascadeCarryForward.findByGameAndEra(gameId, eraNumber)) {
-            if (isErased(armed.eventId(), armed.outcomeId())) {
-                cascadeCarryForward.confirm(gameId, eraNumber, armed.eventId(), armed.outcomeId(), eraNumber + 1);
-            } else {
-                cascadeCarryForward.delete(gameId, eraNumber, armed.eventId(), armed.outcomeId());
-                publisher.publish(TimelineEventEnvelope.create(
-                        armed.eventId(),
-                        FUTURE_EVENT_AGGREGATE_TYPE,
-                        gameId,
-                        TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                        new SpecialRejectedEvent(
-                                gameId,
-                                eraNumber,
-                                armed.playerId(),
-                                "CASCADE",
-                                null,
-                                armed.eventId(),
-                                armed.outcomeId(),
-                                "TARGET_NOT_ERASED"),
-                        clock));
-            }
-        }
-    }
-
-    private boolean isErased(UUID eventId, UUID outcomeId) {
-        try {
-            return futureEvents.findById(eventId).outcomes().stream()
-                    .anyMatch(o -> o.outcomeId().equals(outcomeId) && o.annihilated());
-        } catch (FutureEventNotFoundException _) {
-            return false;
-        }
     }
 
     private List<WeaverChain> loadActiveChains(UUID gameId) {
@@ -192,7 +149,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                             outcomeApplied.winningOutcomeId()));
         } else {
             // Left neither resolved() nor stalled(): a future resolution attempt for this same
-            // gameId/eraNumber (paradox-resolution capability) re-evaluates it from scratch instead
+            // gameId/eraNumber re-evaluates it from scratch instead
             // of skipping it as already-handled. Each finding's paradoxId is shared between the
             // ParadoxDetected fact and the ParadoxResolutionSaga's pending-paradox entry so the saga's
             // later ParadoxCascaded references the same paradoxId this cycle announced.
@@ -222,8 +179,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
         var paradoxes = accumulator.paradoxes();
         if (!accumulator.pendingParadoxes().isEmpty()) {
             // Deferred: the barrier now waits for ParadoxResolutionSaga to force-cascade every paradox
-            // detected this cycle before EraResolutionCompleted can be published (resolution-walking-skeleton
-            // MODIFIED requirement, the paradox-resolution design). Opened before ParadoxDetected is
+            // detected this cycle before EraResolutionCompleted can be published. Opened before ParadoxDetected is
             // published, and its authoritative pendingParadoxes (not our own freshly-generated ids) are what
             // gets announced: if a phase already existed for this era (a duplicate/redelivered resolution
             // attempt), our ids belong to nothing the saga will ever cascade — only the existing phase's ids

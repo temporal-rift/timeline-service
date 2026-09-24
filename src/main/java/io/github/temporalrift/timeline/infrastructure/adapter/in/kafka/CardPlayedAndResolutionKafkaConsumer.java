@@ -104,7 +104,7 @@ class CardPlayedAndResolutionKafkaConsumer {
             SpecialAction.MIMIC,
             SpecialAction.CASCADE);
 
-    // Only these CardPlayed types ever consult grade in resolution (graded-magnitude-resolution capability) —
+    // Only these CardPlayed types ever consult grade in resolution —
     // an unrecognized/missing wire grade must not block buffering every other known card type too.
     private static final Set<CardType> GRADE_BEARING_CARD_TYPES =
             Set.of(CardType.PUSH, CardType.SUPPRESS, CardType.SWING, CardType.AMPLIFY);
@@ -219,9 +219,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                 .ifPresent(envelope -> {
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), ActivistDeclarationRecordedPayload.class);
-                    // Handled in this same consumer group, not a standalone one (the governing design
-                    // "ActivistDeclarationRecorded is consumed by the existing
-                    // CardPlayedAndResolutionKafkaConsumer, not a new class"): a lagging separate group could
+                    // Handled in this same consumer group, not a standalone one: a lagging separate group could
                     // let this era's Round 1 ActionRoundClosed replay run before a RALLY declaration is
                     // durably buffered, or before a MOMENTUM bonus is applied.
                     if (payload.mode() == ActivistDeclarationMode.MOMENTUM) {

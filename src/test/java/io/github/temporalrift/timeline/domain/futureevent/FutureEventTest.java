@@ -321,7 +321,7 @@ class FutureEventTest {
     void applyShift_redistribution_clampExchangeEdgeCase() {
         // Target is suppressed to the floor while one of the other two outcomes is already at the
         // ceiling — its naive proportional share would push it past 90, so the exchange must redirect
-        // the overflow to the third outcome (the governing design Risks).
+        // the overflow to the third outcome.
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 5);
         var b = new Outcome(UUID.randomUUID(), "b", 90);

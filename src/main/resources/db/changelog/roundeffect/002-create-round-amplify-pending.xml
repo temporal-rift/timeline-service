@@ -7,7 +7,7 @@
 
   <!--
       Whether AMPLIFY's doubling is armed for a round — tracked independently of round_last_card
-      because an intervening no-op card must not clear it (the governing design Decision 3).
+      because an intervening no-op card must not clear it.
   -->
   <changeSet id="002-create-round-amplify-pending" author="timeline-service">
     <createTable tableName="round_amplify_pending">

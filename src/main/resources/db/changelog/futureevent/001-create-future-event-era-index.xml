@@ -8,7 +8,7 @@
   <!--
       Write-side lookup so ResolutionStarted (gameId, eraNumber only) can find which FutureEvent
       aggregates to resolve. Not a read-model/projection — event_store remains the only source of
-      truth for FutureEvent state. See the governing design Decision 1.
+      truth for FutureEvent state.
   -->
   <changeSet id="001-create-future-event-era-index" author="timeline-service">
     <createTable tableName="future_event_era_index">
@@ -24,7 +24,6 @@
       <!--
           0-based position in the source EventsDrawn.events list — the game-rule reveal order.
           EraResolutionCompleted must be built from this, never from query/Kafka delivery order.
-          See the governing design (the era-resolution design) Decision 1.
       -->
       <column name="reveal_index" type="INT">
         <constraints nullable="false"/>

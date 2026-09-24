@@ -14,15 +14,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * End-to-end proof of the eraser-cascade-erasure capability: an outcome erased and CASCADE-armed in one era,
- * whose event independently carries into the next era, is re-erased there exactly once when that era's redraw
- * is consumed.
+ * End-to-end proof that an outcome erased and CASCADE-armed in one era is re-erased exactly once in the next era
+ * when its event carries there, and that the CASCADE is rejected in its own era when the event resolves normally.
  */
 @TimelineServiceIntegrationTest
 class CascadeCarryForwardIT {
 
     private static final String CASCADE_CARRIED_FORWARD = "CascadeCarriedForward";
     private static final String ERA_RESOLUTION_COMPLETED = "EraResolutionCompleted";
+    private static final String SPECIAL_REJECTED = "SpecialRejected";
 
     @Autowired
     GameEventsTestPublisher publisher;
@@ -98,18 +98,40 @@ class CascadeCarryForwardIT {
                         .isEqualTo(1));
     }
 
+    @Test
+    void cascadeOnAnEventThatResolvesNormally_isRejectedInTheSameEraWithNothingPending() {
+        var gameId = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        var erasedOutcomeId = UUID.randomUUID();
+
+        publisher.threeOutcomeEventDrawn(
+                gameId, 1, eventId, UUID.randomUUID(), 40, UUID.randomUUID(), 35, erasedOutcomeId, 25);
+        awaitEraIndexed(gameId);
+        publisher.specialActionPlayed(gameId, 1, eventId, "ANNIHILATE", erasedOutcomeId);
+        publisher.specialActionPlayed(gameId, 1, eventId, "CASCADE", erasedOutcomeId);
+        publisher.actionRoundClosed(gameId, 1, 1);
+        publisher.resolutionStarted(gameId, 1, UUID.randomUUID());
+
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(collector.eventTypesFor(gameId)).contains(SPECIAL_REJECTED));
+        var rejected = collector.messagesFor(gameId).stream()
+                .filter(m -> SPECIAL_REJECTED.equals(m.eventType()))
+                .findFirst()
+                .orElseThrow()
+                .payload();
+        assertThat(rejected).containsEntry("eraNumber", 1).containsEntry("reason", "EVENT_NOT_CARRIED");
+        assertThat(rejected.get("targetOutcomeId")).hasToString(erasedOutcomeId.toString());
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM cascade_carry_forward WHERE event_id = ?", Integer.class, eventId))
+                .isZero();
+    }
+
     /** Drafts one event, arms a CASCADE against an outcome ANNIHILATEd in the same round, and STALLs the event
      * so it carries into era 2 — the only way anything is left for the carry-forward to apply to. */
     private void driveEra1ToStallWithAnArmedCascade(UUID gameId, UUID eventId, UUID erasedOutcomeId) {
         publisher.threeOutcomeEventDrawn(
                 gameId, 1, eventId, erasedOutcomeId, 40, UUID.randomUUID(), 35, UUID.randomUUID(), 25);
-        await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
-                                "SELECT COUNT(*) FROM future_event_era_index WHERE game_id = ? AND era_number = ?",
-                                Integer.class,
-                                gameId,
-                                1))
-                        .isEqualTo(1));
+        awaitEraIndexed(gameId);
 
         publisher.specialActionPlayed(gameId, 1, eventId, "ANNIHILATE", erasedOutcomeId);
         publisher.specialActionPlayed(gameId, 1, eventId, "CASCADE", erasedOutcomeId);
@@ -119,6 +141,16 @@ class CascadeCarryForwardIT {
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(collector.eventTypesFor(gameId)).contains(ERA_RESOLUTION_COMPLETED));
+    }
+
+    private void awaitEraIndexed(UUID gameId) {
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
+                                "SELECT COUNT(*) FROM future_event_era_index WHERE game_id = ? AND era_number = ?",
+                                Integer.class,
+                                gameId,
+                                1))
+                        .isEqualTo(1));
     }
 
     private static Map<String, Object> eraTwoRedrawPayload(UUID gameId, UUID eventId, UUID erasedOutcomeId) {

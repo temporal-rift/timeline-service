@@ -7,8 +7,8 @@
 
   <!--
       Durable per-(game, era, event, outcome) CASCADE carry-forward row. era_number starts as the era an
-      intent survived NULLIFY cancellation in; era resolution moves it to era_number + 1 once confirmed
-      erased, or deletes it if never erased. The next era's draw applies and deletes the row.
+      intent survived NULLIFY cancellation in; once its event reaches a terminal state it moves to
+      era_number + 1 if the event carries with the outcome erased, or is deleted otherwise. The next era's draw applies and deletes the row.
   -->
   <changeSet id="001-create-cascade-carry-forward" author="timeline-service">
     <createTable tableName="cascade_carry_forward">

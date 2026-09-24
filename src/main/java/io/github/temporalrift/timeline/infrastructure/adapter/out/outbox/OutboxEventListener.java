@@ -17,8 +17,8 @@ import tools.jackson.databind.ObjectMapper;
  * and turns it into a durable {@code outbox_events} row, in the same transaction as the mutation that
  * triggered it ({@code phase = BEFORE_COMMIT}).
  *
- * <p>{@code timeline-service} has no Spring Modulith event-publication registry to do this for it — see
- * the governing design Decision 4. {@link OutboxRelay} is the separate process that actually publishes to Kafka.
+ * <p>{@code timeline-service} has no Spring Modulith event-publication registry to do this for it.
+ * {@link OutboxRelay} is the separate process that actually publishes to Kafka.
  *
  * <p>Every generated producer method stamps {@code spring.cloud.stream.sendto.destination} on the
  * message before publishing (mirroring game-service's {@code KafkaExternalizationConfig}); its presence

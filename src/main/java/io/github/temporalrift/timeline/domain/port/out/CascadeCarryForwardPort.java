@@ -6,9 +6,9 @@ import java.util.UUID;
 /**
  * Driven port for durable CASCADE carry-forward rows, keyed by {@code (gameId, eraNumber, eventId, outcomeId)}
  * where {@code eraNumber} is the era the row currently applies to: the era a surviving submission was armed in
- * (intent), or — once confirmed against final erasure state at era resolution — the following era it will be
- * applied at (pending). One mutable row spans both phases so era resolution simply moves it forward instead of
- * copying between two tables.
+ * (intent), or — once its event carries with the named outcome erased — the following era it will be applied at
+ * (pending). One mutable row spans both phases so settlement simply moves it forward instead of copying between
+ * two tables.
  */
 public interface CascadeCarryForwardPort {
 
@@ -18,10 +18,10 @@ public interface CascadeCarryForwardPort {
     /** Rows currently associated with {@code (gameId, eraNumber)} — either armed intents or pending applications. */
     List<CascadeCarryForward> findByGameAndEra(UUID gameId, int eraNumber);
 
-    /** Moves an armed row forward to the era it will be applied at, once confirmed erased. */
+    /** Moves an armed row forward to the era it will be applied at. */
     void confirm(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId, int targetEraNumber);
 
-    /** Removes one row — a rejected (never-erased) intent, or a pending row once applied. */
+    /** Removes one row — a rejected intent, or a pending row once applied. */
     void delete(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId);
 
     /** Idempotent: harmless when no rows exist for {@code gameId}. */
