@@ -375,11 +375,30 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             if (pending == null || !pending.eventId().equals(eventId)) {
                 continue;
             }
+            if (pending.eraNumber() != eraNumber) {
+                if (pending.eraNumber() < eraNumber) {
+                    expirePendingLink(gameId, eraNumber, saga, chain);
+                }
+                continue;
+            }
             if (pending.outcomeId().equals(winningOutcomeId)) {
                 confirmPendingLink(gameId, eraNumber, saga);
             } else {
                 clearPendingLink(gameId, eraNumber, saga, chain);
             }
+        }
+    }
+
+    @Override
+    @Transactional
+    public void stallPendingLink(UUID gameId, int eraNumber, UUID eventId) {
+        for (var saga : sagas.findOpenByGame(gameId)) {
+            var chain = chains.findById(saga.chainId());
+            var pending = chain.pendingLink();
+            if (pending == null || !pending.eventId().equals(eventId) || pending.eraNumber() != eraNumber) {
+                continue;
+            }
+            expirePendingLink(gameId, eraNumber, saga, chain);
         }
     }
 
@@ -392,7 +411,11 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             if (pending != null
                     && pending.eventId().equals(eventId)
                     && pending.outcomeId().equals(outcomeId)) {
-                confirmPendingLink(gameId, eraNumber, saga);
+                if (pending.eraNumber() == eraNumber) {
+                    confirmPendingLink(gameId, eraNumber, saga);
+                } else if (pending.eraNumber() < eraNumber) {
+                    expirePendingLink(gameId, eraNumber, saga, chain);
+                }
             }
         }
     }
@@ -406,6 +429,12 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             if (pending == null
                     || !pending.eventId().equals(eventId)
                     || !pending.outcomeId().equals(outcomeId)) {
+                continue;
+            }
+            if (pending.eraNumber() != eraNumber) {
+                if (pending.eraNumber() < eraNumber) {
+                    expirePendingLink(gameId, eraNumber, saga, chain);
+                }
                 continue;
             }
             var chainLengthAtBreak = chain.length();
@@ -495,10 +524,29 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 clock));
     }
 
+    /** Expires a pending prediction and disarms its protection. */
+    private void expirePendingLink(UUID gameId, int eraNumber, WeaverChainSagaState saga, WeaverChain chain) {
+        clearPendingLink(gameId, eraNumber, saga, chain);
+        if (saga.tapestryProtected()) {
+            sagas.save(new WeaverChainSagaState(
+                    saga.chainId(),
+                    gameId,
+                    saga.playerId(),
+                    WeaverChainSagaStatus.OPEN,
+                    false,
+                    saga.tapestryUsedEra(),
+                    saga.reweaveUsedEra()));
+        }
+    }
+
     @Override
     @Transactional
     public void endGame(UUID gameId) {
         for (var saga : sagas.findOpenByGame(gameId)) {
+            var chain = chains.findById(saga.chainId());
+            if (chain.pendingLink() != null) {
+                clearPendingLink(gameId, chain.pendingLink().eraNumber(), saga, chain);
+            }
             sagas.save(new WeaverChainSagaState(
                     saga.chainId(),
                     gameId,
