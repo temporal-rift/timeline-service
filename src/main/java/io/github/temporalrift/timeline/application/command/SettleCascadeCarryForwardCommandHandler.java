@@ -14,35 +14,42 @@ import io.github.temporalrift.timeline.domain.event.TerminalResolution.TerminalS
 import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort.CascadeCarryForward;
+import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
+import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
 /**
  * Confirms an armed CASCADE into a pending carry-forward for the next era when its named outcome is erased and its
- * event carries ({@code STALLED} or {@code CASCADED}); otherwise rejects it privately in the same era. Erasure state
- * is final whenever this runs: ANNIHILATE applies during round replay and paradox resolution never un-annihilates.
+ * event carries ({@code STALLED} or {@code CASCADED}); otherwise, or when its target event is not part of the era
+ * at all, rejects it privately in the same era. Erasure state is final whenever this runs: ANNIHILATE applies during
+ * round replay and paradox resolution never un-annihilates.
  */
 @Service
 class SettleCascadeCarryForwardCommandHandler implements SettleCascadeCarryForwardUseCase {
 
     static final String REASON_TARGET_NOT_ERASED = "TARGET_NOT_ERASED";
     static final String REASON_EVENT_NOT_CARRIED = "EVENT_NOT_CARRIED";
+    static final String REASON_TARGET_NOT_IN_ERA = "TARGET_NOT_IN_ERA";
 
     private static final String FUTURE_EVENT_AGGREGATE_TYPE = "FutureEvent";
 
     private final CascadeCarryForwardPort cascadeCarryForward;
     private final FutureEventRepository futureEvents;
+    private final FutureEventEraIndexPort eraIndex;
     private final TimelineEventPublisher publisher;
     private final Clock clock;
 
     SettleCascadeCarryForwardCommandHandler(
             CascadeCarryForwardPort cascadeCarryForward,
             FutureEventRepository futureEvents,
+            FutureEventEraIndexPort eraIndex,
             TimelineEventPublisher publisher,
             Clock clock) {
         this.cascadeCarryForward = cascadeCarryForward;
         this.futureEvents = futureEvents;
+        this.eraIndex = eraIndex;
         this.publisher = publisher;
         this.clock = clock;
     }
@@ -51,9 +58,14 @@ class SettleCascadeCarryForwardCommandHandler implements SettleCascadeCarryForwa
     public void settle(UUID gameId, int eraNumber, List<TerminalResolution> terminalResolutions) {
         var terminalStateByEvent = terminalResolutions.stream()
                 .collect(Collectors.toMap(TerminalResolution::eventId, TerminalResolution::terminalState, (a, _) -> a));
+        var eraEventIds = eraIndex.findByGameIdAndEraNumber(gameId, eraNumber).stream()
+                .map(IndexedEventId::eventId)
+                .collect(Collectors.toSet());
         for (var armed : cascadeCarryForward.findByGameAndEra(gameId, eraNumber)) {
             var terminalState = terminalStateByEvent.get(armed.eventId());
-            if (terminalState != null) {
+            if (!eraEventIds.contains(armed.eventId())) {
+                reject(gameId, eraNumber, armed, REASON_TARGET_NOT_IN_ERA);
+            } else if (terminalState != null) {
                 settleOne(gameId, eraNumber, armed, terminalState);
             }
         }
