@@ -332,7 +332,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 gameId,
                 playerId,
                 completed ? WeaverChainSagaStatus.COMPLETED : WeaverChainSagaStatus.OPEN,
-                completed ? false : saga.tapestryProtected(),
+                !completed && saga.tapestryProtected(),
                 saga.tapestryUsedEra(),
                 eraNumber));
         publisher.publish(TimelineEventEnvelope.create(
