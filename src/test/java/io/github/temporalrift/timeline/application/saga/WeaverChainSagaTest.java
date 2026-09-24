@@ -559,6 +559,81 @@ class WeaverChainSagaTest {
     }
 
     @Test
+    void reweave_pendingReplacementWithOneConfirmedLink_keepsChainOpenAtTwo() {
+        var chainId = openChainWithConfirmedLinks(1);
+        var chain = chains.findById(chainId);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, chain.threadPendingLink(pendingEvent, pendingOutcome, ERA));
+        var replacementEvent = UUID.randomUUID();
+        var replacementOutcome = UUID.randomUUID();
+        given(futureEvents.findById(replacementEvent)).willReturn(resolvedEvent(replacementEvent, replacementOutcome));
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, replacementEvent, replacementOutcome);
+
+        assertThat(chains.findById(chainId).length()).isEqualTo(2);
+        assertThat(sagas.findByChainId(chainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.OPEN);
+        published(ChainReAnchoredEvent.class);
+        publishedNever(ChainCompletedEvent.class);
+    }
+
+    @Test
+    void reweave_pendingReplacementWithTwoConfirmedLinks_completesExactlyOnce() {
+        var chainId = openChainWithConfirmedLinks(2);
+        var chain = chains.findById(chainId);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, chain.threadPendingLink(pendingEvent, pendingOutcome, ERA));
+        var replacementEvent = UUID.randomUUID();
+        var replacementOutcome = UUID.randomUUID();
+        given(futureEvents.findById(replacementEvent)).willReturn(resolvedEvent(replacementEvent, replacementOutcome));
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, replacementEvent, replacementOutcome);
+
+        var completedChain = chains.findById(chainId);
+        assertThat(completedChain.length()).isEqualTo(3);
+        assertThat(completedChain.status())
+                .isEqualTo(io.github.temporalrift.timeline.domain.weaverchain.ChainStatus.COMPLETED);
+        assertThat(completedChain.links().getLast().eventId()).isEqualTo(replacementEvent);
+        var completedSaga = sagas.findByChainId(chainId).orElseThrow();
+        assertThat(completedSaga.status()).isEqualTo(WeaverChainSagaStatus.COMPLETED);
+        assertThat(completedSaga.reweaveUsedEra()).isEqualTo(ERA);
+        var reAnchored = published(ChainReAnchoredEvent.class);
+        var completed = published(ChainCompletedEvent.class);
+        assertThat(reAnchored.chainLength()).isEqualTo(3);
+        assertThat(completed.links()).hasSize(3);
+        assertThat(completed.eraNumber()).isEqualTo(ERA - 1);
+        then(publisher)
+                .should(times(1))
+                .publish(argThat(envelope -> envelope != null && envelope.payload() instanceof ChainCompletedEvent));
+    }
+
+    @Test
+    void thread_afterReweaveCompletion_isRejectedWithoutOpeningAnotherChain() {
+        var chainId = openChainWithConfirmedLinks(2);
+        var chain = chains.findById(chainId);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, chain.threadPendingLink(pendingEvent, pendingOutcome, ERA));
+        var replacementEvent = UUID.randomUUID();
+        var replacementOutcome = UUID.randomUUID();
+        given(futureEvents.findById(replacementEvent)).willReturn(resolvedEvent(replacementEvent, replacementOutcome));
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, replacementEvent, replacementOutcome);
+        var threadEvent = UUID.randomUUID();
+        var threadOutcome = UUID.randomUUID();
+
+        saga.playThread(GAME_ID, ERA + 1, PLAYER_ID, threadEvent, threadOutcome);
+
+        var rejected = published(ThreadRejectedEvent.class);
+        assertThat(rejected.reason()).isEqualTo("CHAIN_ALREADY_COMPLETED");
+        assertThat(sagas.findAllByGameAndPlayer(GAME_ID, PLAYER_ID)).hasSize(1);
+        assertThat(chains.findById(chainId).length()).isEqualTo(3);
+        then(publisher)
+                .should(times(1))
+                .publish(argThat(envelope -> envelope != null && envelope.payload() instanceof ChainCompletedEvent));
+    }
+
+    @Test
     void reweave_success_replacesNewestConfirmedLinkAndKeepsLength() {
         var chainId = openChainWithConfirmedLinks(2);
         var targetEvent = UUID.randomUUID();

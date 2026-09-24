@@ -10,6 +10,6 @@ public record ChainCompletedEvent(UUID gameId, int eraNumber, UUID chainId, UUID
         links = List.copyOf(links);
     }
 
-    /** One completed link with the era its THREAD landed in. */
+    /** One completed link with the era of its linked resolved outcome. */
     public record ChainLinkEntry(UUID eventId, UUID outcomeId, int eraNumber) {}
 }
