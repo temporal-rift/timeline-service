@@ -380,7 +380,10 @@ class WeaverChainTest {
         chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 2);
         chain.confirmPendingLink();
 
-        assertThatThrownBy(() -> chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 2))
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> chain.threadPendingLink(eventId, outcomeId, 2))
                 .isInstanceOf(LinkEraNotSuccessiveException.class);
         assertThat(chain.pendingLink()).isNull();
         assertThat(chain.length()).isEqualTo(1);
@@ -420,8 +423,9 @@ class WeaverChainTest {
         chain.confirmPendingLink();
         var before = chain.links();
 
-        assertThatThrownBy(() -> chain.reAnchor(new ResolvedOutcome(UUID.randomUUID(), UUID.randomUUID(), 1)))
-                .isInstanceOf(LinkEraNotSuccessiveException.class);
+        var target = new ResolvedOutcome(UUID.randomUUID(), UUID.randomUUID(), 1);
+
+        assertThatThrownBy(() -> chain.reAnchor(target)).isInstanceOf(LinkEraNotSuccessiveException.class);
         assertThat(chain.links()).isEqualTo(before);
     }
 
@@ -447,8 +451,9 @@ class WeaverChainTest {
         chain.confirmPendingLink();
         chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 3);
 
-        assertThatThrownBy(() -> chain.reAnchor(new ResolvedOutcome(UUID.randomUUID(), UUID.randomUUID(), 2)))
-                .isInstanceOf(LinkEraNotSuccessiveException.class);
+        var target = new ResolvedOutcome(UUID.randomUUID(), UUID.randomUUID(), 2);
+
+        assertThatThrownBy(() -> chain.reAnchor(target)).isInstanceOf(LinkEraNotSuccessiveException.class);
         assertThat(chain.pendingLink()).isNotNull();
     }
 

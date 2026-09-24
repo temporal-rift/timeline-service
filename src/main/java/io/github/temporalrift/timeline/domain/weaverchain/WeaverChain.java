@@ -119,31 +119,36 @@ public final class WeaverChain {
         if (status != ChainStatus.ACTIVE) {
             throw new IllegalStateException("Event replayed outside the started and active state for " + chainId);
         }
-        if (event instanceof ChainLinkThreaded threaded
-                && (pendingLink != null
-                        || links.stream().anyMatch(link -> link.eventId().equals(threaded.eventId()))
-                        || !isAfter(threaded.eraNumber(), newestConfirmedLink()))) {
-            throw new IllegalStateException("Invalid pending link for " + threaded.eventId());
-        }
-        if (event instanceof ChainLinkAdded added && !pendingLinkMatches(added.eventId(), added.outcomeId())) {
-            throw new IllegalStateException("No matching pending link to confirm for " + added.eventId());
-        }
-        if (event instanceof ChainLinkInvalidated invalidated
-                && !pendingLinkMatches(invalidated.eventId(), invalidated.outcomeId())) {
-            throw new IllegalStateException("No matching pending link to invalidate for " + invalidated.eventId());
-        }
-        if (event instanceof ChainReAnchored reAnchored
-                && !newestLinkMatches(reAnchored.discardedEventId(), reAnchored.discardedOutcomeId())) {
-            throw new IllegalStateException("Re-anchored link was never appended for " + reAnchored.discardedEventId());
-        }
-        if (event instanceof ChainReAnchored reAnchored && !isAfter(reAnchored.eraNumber(), linkBeforeNewest())) {
-            throw new IllegalStateException(
-                    "Re-anchored link is not after its previous link for " + reAnchored.eventId());
-        }
-        if (event instanceof ChainCompleted && links.size() != COMPLETION_LENGTH) {
-            throw new IllegalStateException("ChainCompleted requires " + COMPLETION_LENGTH + " links");
+        var violation = replayViolation(event);
+        if (violation != null) {
+            throw new IllegalStateException(violation);
         }
         apply(event);
+    }
+
+    /** Why {@code event} is inconsistent with the current links, or {@code null} when it may be applied. */
+    private String replayViolation(ChainFact event) {
+        return switch (event) {
+            case ChainLinkThreaded e
+            when pendingLink != null
+                    || links.stream().anyMatch(link -> link.eventId().equals(e.eventId()))
+                    || !isAfter(e.eraNumber(), newestConfirmedLink()) -> "Invalid pending link for " + e.eventId();
+            case ChainLinkAdded e
+            when !pendingLinkMatches(e.eventId(), e.outcomeId()) ->
+                "No matching pending link to confirm for " + e.eventId();
+            case ChainLinkInvalidated e
+            when !pendingLinkMatches(e.eventId(), e.outcomeId()) ->
+                "No matching pending link to invalidate for " + e.eventId();
+            case ChainReAnchored e
+            when !newestLinkMatches(e.discardedEventId(), e.discardedOutcomeId()) ->
+                "Re-anchored link was never appended for " + e.discardedEventId();
+            case ChainReAnchored e
+            when !isAfter(e.eraNumber(), linkBeforeNewest()) ->
+                "Re-anchored link is not after its previous link for " + e.eventId();
+            case ChainCompleted _
+            when links.size() != COMPLETION_LENGTH -> "ChainCompleted requires " + COMPLETION_LENGTH + " links";
+            default -> null;
+        };
     }
 
     private boolean pendingLinkMatches(UUID eventId, UUID outcomeId) {
