@@ -396,6 +396,27 @@ class WeaverChainSagaTest {
     }
 
     @Test
+    void annihilate_oldEraPendingLink_expiresWithoutConsumingProtectionOrScoring() {
+        var chainId = openChainWithConfirmedLinks(2);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, pendingEvent, pendingOutcome, ERA));
+        saga.playTapestry(GAME_ID, ERA + 1, PLAYER_ID);
+
+        saga.annihilateOutcome(GAME_ID, ERA + 1, pendingEvent, pendingOutcome);
+
+        var chain = chains.findById(chainId);
+        assertThat(chain.pendingLink()).isNull();
+        assertThat(chain.length()).isEqualTo(2);
+        assertThat(sagas.findByChainId(chainId).orElseThrow().tapestryProtected())
+                .isFalse();
+        published(ChainLinkInvalidatedEvent.class);
+        publishedNever(ChainProtectionConsumedEvent.class);
+        publishedNever(ChainLinkAddedEvent.class);
+        publishedNever(ChainCompletedEvent.class);
+    }
+
+    @Test
     void annihilate_unprotectedPendingLink_leftPendingForParadoxDetection() {
         var chainId = openChainWithPendingLink();
         var pending = chains.findById(chainId).pendingLink();
