@@ -544,10 +544,11 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 clock));
     }
 
-    /** Expires a pending prediction and disarms its protection. */
+    /** Expires a pending prediction and disarms protection armed in its era. */
     private void expirePendingLink(UUID gameId, int eraNumber, WeaverChainSagaState saga, WeaverChain chain) {
+        var pendingEra = chain.pendingLink().eraNumber();
         clearPendingLink(gameId, eraNumber, saga, chain);
-        if (saga.tapestryProtected()) {
+        if (saga.tapestryProtected() && Integer.valueOf(pendingEra).equals(saga.tapestryUsedEra())) {
             sagas.save(new WeaverChainSagaState(
                     saga.chainId(),
                     gameId,
