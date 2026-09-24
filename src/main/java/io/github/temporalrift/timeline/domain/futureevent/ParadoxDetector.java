@@ -3,9 +3,11 @@ package io.github.temporalrift.timeline.domain.futureevent;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import io.github.temporalrift.timeline.domain.weaverchain.ChainLink;
 import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
@@ -111,26 +113,24 @@ public final class ParadoxDetector {
         }
         var paradoxes = new ArrayList<DetectedParadox>();
         for (var chain : chains) {
-            if (hasAnnihilatedPendingLink(chain, eventId, annihilatedOutcomeIds)) {
-                var pending = chain.pendingLink();
-                paradoxes.add(new DetectedParadox(
-                        ParadoxType.CHAIN_CONFLICT,
-                        List.of(pending.outcomeId()),
-                        "Weaver chain's pending link requires outcome " + pending.outcomeId() + " for event " + eventId
-                                + ", which was annihilated"));
-            }
+            annihilatedPendingLink(chain, eventId, annihilatedOutcomeIds)
+                    .ifPresent(pending -> paradoxes.add(new DetectedParadox(
+                            ParadoxType.CHAIN_CONFLICT,
+                            List.of(pending.outcomeId()),
+                            "Weaver chain's pending link requires outcome " + pending.outcomeId() + " for event "
+                                    + eventId + ", which was annihilated")));
         }
         return paradoxes;
     }
 
-    private static boolean hasAnnihilatedPendingLink(WeaverChain chain, UUID eventId, Set<UUID> annihilatedOutcomeIds) {
+    private static Optional<ChainLink> annihilatedPendingLink(
+            WeaverChain chain, UUID eventId, Set<UUID> annihilatedOutcomeIds) {
         if (chain == null || chain.status() != ChainStatus.ACTIVE) {
-            return false;
+            return Optional.empty();
         }
-        var pending = chain.pendingLink();
-        return pending != null
-                && eventId.equals(pending.eventId())
-                && annihilatedOutcomeIds.contains(pending.outcomeId());
+        return chain.pendingLink()
+                .filter(pending ->
+                        eventId.equals(pending.eventId()) && annihilatedOutcomeIds.contains(pending.outcomeId()));
     }
 
     /**

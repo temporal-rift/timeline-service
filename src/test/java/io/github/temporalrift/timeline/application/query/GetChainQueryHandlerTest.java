@@ -78,7 +78,7 @@ class GetChainQueryHandlerTest {
         assertThat(result.links().getFirst().eventId()).isEqualTo(eventId);
         assertThat(result.links().getFirst().outcomeId()).isEqualTo(outcomeId);
         assertThat(result.links().getFirst().eraNumber()).isEqualTo(1);
-        assertThat(result.pendingLink()).isNull();
+        assertThat(result.pendingLink()).isEmpty();
     }
 
     @Test
@@ -102,8 +102,8 @@ class GetChainQueryHandlerTest {
 
         assertThat(result.chainLength()).isZero();
         assertThat(result.links()).isEmpty();
-        assertThat(result.pendingLink().eventId()).isEqualTo(eventId);
-        assertThat(result.pendingLink().outcomeId()).isEqualTo(outcomeId);
+        assertThat(result.pendingLink().orElseThrow().eventId()).isEqualTo(eventId);
+        assertThat(result.pendingLink().orElseThrow().outcomeId()).isEqualTo(outcomeId);
     }
 
     @Test

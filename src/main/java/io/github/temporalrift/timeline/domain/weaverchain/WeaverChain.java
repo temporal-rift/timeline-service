@@ -3,7 +3,9 @@ package io.github.temporalrift.timeline.domain.weaverchain;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 import io.github.temporalrift.timeline.domain.event.ChainBroken;
 import io.github.temporalrift.timeline.domain.event.ChainCompleted;
@@ -119,35 +121,36 @@ public final class WeaverChain {
         if (status != ChainStatus.ACTIVE) {
             throw new IllegalStateException("Event replayed outside the started and active state for " + chainId);
         }
-        var violation = replayViolation(event);
-        if (violation != null) {
+        replayViolation(event).ifPresent(violation -> {
             throw new IllegalStateException(violation);
-        }
+        });
         apply(event);
     }
 
-    /** Why {@code event} is inconsistent with the current links, or {@code null} when it may be applied. */
-    private String replayViolation(ChainFact event) {
+    /** Why {@code event} is inconsistent with the current links; empty when it may be applied. */
+    private Optional<String> replayViolation(ChainFact event) {
         return switch (event) {
             case ChainLinkThreaded e
             when pendingLink != null
                     || links.stream().anyMatch(link -> link.eventId().equals(e.eventId()))
-                    || !isAfter(e.eraNumber(), newestConfirmedLink()) -> "Invalid pending link for " + e.eventId();
+                    || newestConfirmedLink().filter(notBefore(e.eraNumber())).isPresent() ->
+                Optional.of("Invalid pending link for " + e.eventId());
             case ChainLinkAdded e
             when !pendingLinkMatches(e.eventId(), e.outcomeId()) ->
-                "No matching pending link to confirm for " + e.eventId();
+                Optional.of("No matching pending link to confirm for " + e.eventId());
             case ChainLinkInvalidated e
             when !pendingLinkMatches(e.eventId(), e.outcomeId()) ->
-                "No matching pending link to invalidate for " + e.eventId();
+                Optional.of("No matching pending link to invalidate for " + e.eventId());
             case ChainReAnchored e
             when !newestLinkMatches(e.discardedEventId(), e.discardedOutcomeId()) ->
-                "Re-anchored link was never appended for " + e.discardedEventId();
+                Optional.of("Re-anchored link was never appended for " + e.discardedEventId());
             case ChainReAnchored e
-            when !isAfter(e.eraNumber(), linkBeforeNewest()) ->
-                "Re-anchored link is not after its previous link for " + e.eventId();
+            when linkBeforeNewest().filter(notBefore(e.eraNumber())).isPresent() ->
+                Optional.of("Re-anchored link is not after its previous link for " + e.eventId());
             case ChainCompleted _
-            when links.size() != COMPLETION_LENGTH -> "ChainCompleted requires " + COMPLETION_LENGTH + " links";
-            default -> null;
+            when links.size() != COMPLETION_LENGTH ->
+                Optional.of("ChainCompleted requires " + COMPLETION_LENGTH + " links");
+            default -> Optional.empty();
         };
     }
 
@@ -168,26 +171,26 @@ public final class WeaverChain {
         return newest.eventId().equals(eventId) && newest.outcomeId().equals(outcomeId);
     }
 
-    private ChainLink newestConfirmedLink() {
-        return links.isEmpty() ? null : links.getLast();
+    private Optional<ChainLink> newestConfirmedLink() {
+        return links.isEmpty() ? Optional.empty() : Optional.of(links.getLast());
     }
 
-    /** The link a replacement of the newest link — pending or confirmed — must follow, or {@code null}. */
-    private ChainLink linkBeforeNewest() {
+    /** The link a replacement of the newest link — pending or confirmed — must follow, if any. */
+    private Optional<ChainLink> linkBeforeNewest() {
         if (pendingLink != null) {
             return newestConfirmedLink();
         }
-        return links.size() < 2 ? null : links.get(links.size() - 2);
+        return links.size() < 2 ? Optional.empty() : Optional.of(links.get(links.size() - 2));
     }
 
-    private static boolean isAfter(int eraNumber, ChainLink previous) {
-        return previous == null || eraNumber > previous.eraNumber();
+    /** Matches a previous link that a link in {@code eraNumber} would not come after. */
+    private static Predicate<ChainLink> notBefore(int eraNumber) {
+        return previous -> previous.eraNumber() >= eraNumber;
     }
 
-    private void requireAfter(UUID eventId, UUID outcomeId, int eraNumber, ChainLink previous) {
-        if (!isAfter(eraNumber, previous)) {
-            throw new LinkEraNotSuccessiveException(chainId, eventId, outcomeId, eraNumber, previous.eraNumber());
-        }
+    private LinkEraNotSuccessiveException eraNotSuccessive(
+            UUID eventId, UUID outcomeId, int eraNumber, ChainLink previous) {
+        return new LinkEraNotSuccessiveException(chainId, eventId, outcomeId, eraNumber, previous.eraNumber());
     }
 
     private void apply(ChainFact event) {
@@ -237,7 +240,9 @@ public final class WeaverChain {
         if (links.stream().anyMatch(link -> link.eventId().equals(eventId))) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "event already linked");
         }
-        requireAfter(eventId, outcomeId, eraNumber, newestConfirmedLink());
+        newestConfirmedLink().filter(notBefore(eraNumber)).ifPresent(previous -> {
+            throw eraNotSuccessive(eventId, outcomeId, eraNumber, previous);
+        });
         var fact = new ChainLinkThreaded(chainId, eventId, outcomeId, eraNumber);
         pendingLink = new ChainLink(eventId, outcomeId, eraNumber);
         return fact;
@@ -298,7 +303,9 @@ public final class WeaverChain {
         if (links.stream().anyMatch(link -> link.eventId().equals(eventId))) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "event already linked");
         }
-        requireAfter(eventId, outcomeId, eraNumber, linkBeforeNewest());
+        linkBeforeNewest().filter(notBefore(eraNumber)).ifPresent(previous -> {
+            throw eraNotSuccessive(eventId, outcomeId, eraNumber, previous);
+        });
         var discarded = pendingLink != null ? pendingLink : links.getLast();
         var reAnchored =
                 new ChainReAnchored(chainId, discarded.eventId(), discarded.outcomeId(), eventId, outcomeId, eraNumber);
@@ -354,8 +361,8 @@ public final class WeaverChain {
         return List.copyOf(links);
     }
 
-    /** The chain's open pending link — a not-yet-resolved current-era THREAD prediction — or {@code null}. */
-    public ChainLink pendingLink() {
-        return pendingLink;
+    /** The chain's open pending link — a not-yet-resolved current-era THREAD prediction — if any. */
+    public Optional<ChainLink> pendingLink() {
+        return Optional.ofNullable(pendingLink);
     }
 }

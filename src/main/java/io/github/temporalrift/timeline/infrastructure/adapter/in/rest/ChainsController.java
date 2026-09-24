@@ -28,13 +28,12 @@ class ChainsController implements ChainsApi {
         var links = result.links().stream()
                 .map(link -> new ChainLink(link.eventId(), link.outcomeId(), link.eraNumber()))
                 .toList();
-        var pendingLink = result.pendingLink() == null
-                ? null
-                : new PendingChainLink(
-                        result.pendingLink().eventId(), result.pendingLink().outcomeId());
-        return ResponseEntity.ok(new ChainResponse(
+        var response = new ChainResponse(
                         result.chainId(), ChainStatus.valueOf(result.status().name()), result.chainLength(), links)
-                .pendingLink(pendingLink)
-                .protectionArmed(result.protectionArmed()));
+                .protectionArmed(result.protectionArmed());
+        result.pendingLink()
+                .ifPresent(
+                        pending -> response.pendingLink(new PendingChainLink(pending.eventId(), pending.outcomeId())));
+        return ResponseEntity.ok(response);
     }
 }

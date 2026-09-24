@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline.application.port.in;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import io.github.temporalrift.timeline.domain.weaverchain.ChainLink;
@@ -24,6 +25,6 @@ public interface GetChainUseCase {
             ChainStatus status,
             int chainLength,
             List<ChainLink> links,
-            ChainLink pendingLink,
+            Optional<ChainLink> pendingLink,
             boolean protectionArmed) {}
 }

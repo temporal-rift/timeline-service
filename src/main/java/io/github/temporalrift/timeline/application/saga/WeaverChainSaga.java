@@ -4,6 +4,8 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -97,37 +99,40 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     @Override
     @Transactional
     public void playThread(UUID gameId, int eraNumber, UUID playerId, UUID eventId, UUID outcomeId) {
-        var saga = sagas.findOpenByGameAndPlayer(gameId, playerId).orElse(null);
+        var openChainId = sagas.findOpenByGameAndPlayer(gameId, playerId).map(WeaverChainSagaState::chainId);
         var coordinate = new OutcomeCoordinate(eventId, outcomeId);
-        var rejectionReason = validateThread(gameId, eraNumber, coordinate);
-        if (rejectionReason != null) {
-            publishThreadRejected(
-                    gameId, eraNumber, saga == null ? null : saga.chainId(), playerId, coordinate, rejectionReason);
-            return;
-        }
-        acceptThread(gameId, eraNumber, playerId, saga, coordinate);
+        validateThread(gameId, eraNumber, coordinate)
+                .ifPresentOrElse(
+                        reason -> publishThreadRejected(
+                                gameId, eraNumber, openChainId.orElse(null), playerId, coordinate, reason),
+                        () -> acceptThread(
+                                gameId,
+                                eraNumber,
+                                playerId,
+                                openChainId.orElseGet(() -> startChain(gameId, playerId)),
+                                coordinate));
     }
 
     /** The causal-link validity rules THREAD alone can check before touching the chain aggregate. */
-    private String validateThread(UUID gameId, int eraNumber, OutcomeCoordinate coordinate) {
+    private Optional<String> validateThread(UUID gameId, int eraNumber, OutcomeCoordinate coordinate) {
         if (coordinate.eventId() == null || coordinate.outcomeId() == null) {
-            return REASON_MISSING_COORDINATE;
+            return Optional.of(REASON_MISSING_COORDINATE);
         }
         if (!isValidCurrentEraCoordinate(gameId, eraNumber, coordinate.eventId(), coordinate.outcomeId())) {
-            return REASON_INVALID_COORDINATE;
+            return Optional.of(REASON_INVALID_COORDINATE);
         }
-        return null;
+        return Optional.empty();
     }
 
-    /** Opens (or starts) a pending link once THREAD's coordinate is known valid. */
-    private void acceptThread(
-            UUID gameId, int eraNumber, UUID playerId, WeaverChainSagaState saga, OutcomeCoordinate coordinate) {
-        UUID chainId = saga == null ? UUID.randomUUID() : saga.chainId();
-        if (saga == null) {
-            chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
-            sagas.save(
-                    new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null));
-        }
+    private UUID startChain(UUID gameId, UUID playerId) {
+        var chainId = UUID.randomUUID();
+        chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
+        sagas.save(new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null));
+        return chainId;
+    }
+
+    /** Opens a pending link on the Weaver's chain once THREAD's coordinate is known valid. */
+    private void acceptThread(UUID gameId, int eraNumber, UUID playerId, UUID chainId, OutcomeCoordinate coordinate) {
         var chain = chains.findById(chainId);
         try {
             var fact = chain.threadPendingLink(coordinate.eventId(), coordinate.outcomeId(), eraNumber);
@@ -152,7 +157,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         if (rejection instanceof LinkEraNotSuccessiveException) {
             return REASON_LINK_ERA_NOT_SUCCESSIVE;
         }
-        return chain.pendingLink() != null ? REASON_ALREADY_PENDING : REASON_ALREADY_LINKED;
+        return chain.pendingLink().isPresent() ? REASON_ALREADY_PENDING : REASON_ALREADY_LINKED;
     }
 
     /**
@@ -197,18 +202,20 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     @Override
     @Transactional
     public void playTapestry(UUID gameId, int eraNumber, UUID playerId) {
-        var saga = sagas.findOpenByGameAndPlayer(gameId, playerId).orElse(null);
-        if (saga == null) {
-            publishSpecialRejected(
-                    gameId,
-                    eraNumber,
-                    playerId,
-                    SPECIAL_TAPESTRY,
-                    null,
-                    OutcomeCoordinate.NONE,
-                    REASON_NO_ACTIVE_CHAIN);
-            return;
-        }
+        sagas.findOpenByGameAndPlayer(gameId, playerId)
+                .ifPresentOrElse(
+                        saga -> armTapestry(gameId, eraNumber, playerId, saga),
+                        () -> publishSpecialRejected(
+                                gameId,
+                                eraNumber,
+                                playerId,
+                                SPECIAL_TAPESTRY,
+                                null,
+                                OutcomeCoordinate.NONE,
+                                REASON_NO_ACTIVE_CHAIN));
+    }
+
+    private void armTapestry(UUID gameId, int eraNumber, UUID playerId, WeaverChainSagaState saga) {
         if (Integer.valueOf(eraNumber).equals(saga.tapestryUsedEra())) {
             publishSpecialRejected(
                     gameId,
@@ -246,40 +253,51 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     @Override
     @Transactional
     public void playReweave(UUID gameId, int eraNumber, UUID playerId, UUID targetEventId, UUID targetOutcomeId) {
-        var saga = sagas.findOpenByGameAndPlayer(gameId, playerId).orElse(null);
         var target = new OutcomeCoordinate(targetEventId, targetOutcomeId);
-        if (saga == null) {
-            publishSpecialRejected(gameId, eraNumber, playerId, SPECIAL_REWEAVE, null, target, REASON_NO_ACTIVE_CHAIN);
-            return;
-        }
-        var rejectionReason = validateReweave(saga, eraNumber, target);
-        if (rejectionReason != null) {
-            publishSpecialRejected(
-                    gameId, eraNumber, playerId, SPECIAL_REWEAVE, saga.chainId(), target, rejectionReason);
-            return;
-        }
-        resolvedTarget(target)
+        sagas.findOpenByGameAndPlayer(gameId, playerId)
                 .ifPresentOrElse(
-                        resolved -> acceptReweave(gameId, eraNumber, playerId, saga, target, resolved),
+                        saga -> reweave(gameId, eraNumber, playerId, saga, target),
                         () -> publishSpecialRejected(
-                                gameId,
-                                eraNumber,
-                                playerId,
-                                SPECIAL_REWEAVE,
-                                saga.chainId(),
-                                target,
-                                REASON_TARGET_NOT_RESOLVED));
+                                gameId, eraNumber, playerId, SPECIAL_REWEAVE, null, target, REASON_NO_ACTIVE_CHAIN));
+    }
+
+    private void reweave(
+            UUID gameId, int eraNumber, UUID playerId, WeaverChainSagaState saga, OutcomeCoordinate target) {
+        validateReweave(saga, eraNumber, target)
+                .ifPresentOrElse(
+                        reason -> rejectReweave(gameId, eraNumber, playerId, saga, target, reason),
+                        () -> resolvedTarget(target)
+                                .ifPresentOrElse(
+                                        resolved -> acceptReweave(gameId, eraNumber, playerId, saga, target, resolved),
+                                        () -> rejectReweave(
+                                                gameId,
+                                                eraNumber,
+                                                playerId,
+                                                saga,
+                                                target,
+                                                REASON_TARGET_NOT_RESOLVED)));
+    }
+
+    private void rejectReweave(
+            UUID gameId,
+            int eraNumber,
+            UUID playerId,
+            WeaverChainSagaState saga,
+            OutcomeCoordinate target,
+            String reason) {
+        publishSpecialRejected(gameId, eraNumber, playerId, SPECIAL_REWEAVE, saga.chainId(), target, reason);
     }
 
     /** The rules REWEAVE alone can check before touching the chain aggregate. */
-    private static String validateReweave(WeaverChainSagaState saga, int eraNumber, OutcomeCoordinate target) {
+    private static Optional<String> validateReweave(
+            WeaverChainSagaState saga, int eraNumber, OutcomeCoordinate target) {
         if (Integer.valueOf(eraNumber).equals(saga.reweaveUsedEra())) {
-            return REASON_ALREADY_USED_THIS_ERA;
+            return Optional.of(REASON_ALREADY_USED_THIS_ERA);
         }
         if (target.eventId() == null || target.outcomeId() == null) {
-            return REASON_MISSING_COORDINATE;
+            return Optional.of(REASON_MISSING_COORDINATE);
         }
-        return null;
+        return Optional.empty();
     }
 
     /** Re-anchors the chain's newest link once REWEAVE's target is known to have won its event. */
@@ -337,7 +355,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         if (rejection instanceof LinkEraNotSuccessiveException) {
             return REASON_LINK_ERA_NOT_SUCCESSIVE;
         }
-        if (chain.pendingLink() == null && chain.length() == 0) {
+        if (chain.pendingLink().isEmpty() && chain.length() == 0) {
             return REASON_NO_LINK_TO_REPLACE;
         }
         return REASON_TARGET_ALREADY_LINKED;
@@ -358,27 +376,19 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
      */
     private void protectPendingLinkIfArmed(
             WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID eventId, UUID outcomeId) {
-        var chain = chains.findById(saga.chainId());
-        var pending = chain.pendingLink();
-        if (pending == null) {
-            return;
-        }
-        if (pending.eraNumber() != eraNumber) {
-            if (pending.eraNumber() < eraNumber) {
-                expirePendingLink(gameId, eraNumber, saga, chain);
+        handlePendingLink(gameId, eraNumber, saga, _ -> true, (_, pending) -> {
+            // Protection is scoped to the era it was armed in — an unconsumed TAPESTRY from an earlier era
+            // must not still be treated as active protection.
+            if (names(pending, eventId, outcomeId)
+                    && saga.tapestryProtected()
+                    && Integer.valueOf(eraNumber).equals(saga.tapestryUsedEra())) {
+                consumeProtection(saga, gameId, eraNumber, eventId, outcomeId);
             }
-            return;
-        }
-        if (!pending.eventId().equals(eventId) || !pending.outcomeId().equals(outcomeId)) {
-            return;
-        }
-        // Protection is scoped to the era it was armed in — an unconsumed TAPESTRY from an earlier era
-        // must not still be treated as active protection.
-        boolean protectedNow =
-                saga.tapestryProtected() && Integer.valueOf(eraNumber).equals(saga.tapestryUsedEra());
-        if (!protectedNow) {
-            return;
-        }
+        });
+    }
+
+    private void consumeProtection(
+            WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID eventId, UUID outcomeId) {
         sagas.save(new WeaverChainSagaState(
                 saga.chainId(),
                 gameId,
@@ -408,22 +418,37 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
 
     private void resolvePendingLinkForSaga(
             WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID eventId, UUID winningOutcomeId) {
+        handlePendingLink(gameId, eraNumber, saga, pending -> pending.eventId().equals(eventId), (chain, pending) -> {
+            if (pending.outcomeId().equals(winningOutcomeId)) {
+                confirmPendingLink(gameId, eraNumber, saga);
+            } else {
+                clearPendingLink(gameId, eraNumber, saga, chain);
+            }
+        });
+    }
+
+    /**
+     * Acts on the saga's pending link when it matches: one from an earlier era expires, one from {@code eraNumber}
+     * goes to {@code currentEraAction}, and a later one is left alone.
+     */
+    private void handlePendingLink(
+            UUID gameId,
+            int eraNumber,
+            WeaverChainSagaState saga,
+            Predicate<ChainLink> matches,
+            BiConsumer<WeaverChain, ChainLink> currentEraAction) {
         var chain = chains.findById(saga.chainId());
-        var pending = chain.pendingLink();
-        if (pending == null || !pending.eventId().equals(eventId)) {
-            return;
-        }
-        if (pending.eraNumber() != eraNumber) {
+        chain.pendingLink().filter(matches).ifPresent(pending -> {
             if (pending.eraNumber() < eraNumber) {
                 expirePendingLink(gameId, eraNumber, saga, chain);
+            } else if (pending.eraNumber() == eraNumber) {
+                currentEraAction.accept(chain, pending);
             }
-            return;
-        }
-        if (pending.outcomeId().equals(winningOutcomeId)) {
-            confirmPendingLink(gameId, eraNumber, saga);
-        } else {
-            clearPendingLink(gameId, eraNumber, saga, chain);
-        }
+        });
+    }
+
+    private static boolean names(ChainLink pending, UUID eventId, UUID outcomeId) {
+        return pending.eventId().equals(eventId) && pending.outcomeId().equals(outcomeId);
     }
 
     @Override
@@ -431,11 +456,9 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     public void stallPendingLink(UUID gameId, int eraNumber, UUID eventId) {
         for (var saga : sagas.findOpenByGame(gameId)) {
             var chain = chains.findById(saga.chainId());
-            var pending = chain.pendingLink();
-            if (pending == null || !pending.eventId().equals(eventId) || pending.eraNumber() != eraNumber) {
-                continue;
-            }
-            expirePendingLink(gameId, eraNumber, saga, chain);
+            chain.pendingLink()
+                    .filter(pending -> pending.eventId().equals(eventId) && pending.eraNumber() == eraNumber)
+                    .ifPresent(_ -> expirePendingLink(gameId, eraNumber, saga, chain));
         }
     }
 
@@ -443,17 +466,12 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     @Transactional
     public void confirmParadoxResolvedLink(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId) {
         for (var saga : sagas.findOpenByGame(gameId)) {
-            var chain = chains.findById(saga.chainId());
-            var pending = chain.pendingLink();
-            if (pending != null
-                    && pending.eventId().equals(eventId)
-                    && pending.outcomeId().equals(outcomeId)) {
-                if (pending.eraNumber() == eraNumber) {
-                    confirmPendingLink(gameId, eraNumber, saga);
-                } else if (pending.eraNumber() < eraNumber) {
-                    expirePendingLink(gameId, eraNumber, saga, chain);
-                }
-            }
+            handlePendingLink(
+                    gameId,
+                    eraNumber,
+                    saga,
+                    pending -> names(pending, eventId, outcomeId),
+                    (_, _) -> confirmPendingLink(gameId, eraNumber, saga));
         }
     }
 
@@ -467,20 +485,12 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
 
     private void breakChainForSaga(
             WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID eventId, UUID outcomeId, UUID paradoxId) {
-        var chain = chains.findById(saga.chainId());
-        var pending = chain.pendingLink();
-        if (pending == null
-                || !pending.eventId().equals(eventId)
-                || !pending.outcomeId().equals(outcomeId)) {
-            return;
-        }
-        if (pending.eraNumber() != eraNumber) {
-            if (pending.eraNumber() < eraNumber) {
-                expirePendingLink(gameId, eraNumber, saga, chain);
-            }
-            return;
-        }
-        breakChain(saga, gameId, eraNumber, paradoxId, chain);
+        handlePendingLink(
+                gameId,
+                eraNumber,
+                saga,
+                pending -> names(pending, eventId, outcomeId),
+                (chain, _) -> breakChain(saga, gameId, eraNumber, paradoxId, chain));
     }
 
     private void breakChain(WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID paradoxId, WeaverChain chain) {
@@ -507,7 +517,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     /** Confirms the given saga's chain's pending link, publishing {@code ChainLinkAdded} (+ {@code ChainCompleted}). */
     private void confirmPendingLink(UUID gameId, int eraNumber, WeaverChainSagaState saga) {
         var chain = chains.findById(saga.chainId());
-        var pending = chain.pendingLink();
+        var pending = chain.pendingLink().orElseThrow();
         var beforeLength = chain.length();
         List<WeaverChainEvent> facts = chain.confirmPendingLink();
         chains.appendAll(saga.chainId(), facts);
@@ -571,7 +581,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
 
     /** Expires a pending prediction and disarms protection armed in its era. */
     private void expirePendingLink(UUID gameId, int eraNumber, WeaverChainSagaState saga, WeaverChain chain) {
-        var pendingEra = chain.pendingLink().eraNumber();
+        var pendingEra = chain.pendingLink().orElseThrow().eraNumber();
         clearPendingLink(gameId, eraNumber, saga, chain);
         if (saga.tapestryProtected() && Integer.valueOf(pendingEra).equals(saga.tapestryUsedEra())) {
             sagas.save(new WeaverChainSagaState(
@@ -590,9 +600,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     public void endGame(UUID gameId) {
         for (var saga : sagas.findOpenByGame(gameId)) {
             var chain = chains.findById(saga.chainId());
-            if (chain.pendingLink() != null) {
-                clearPendingLink(gameId, chain.pendingLink().eraNumber(), saga, chain);
-            }
+            chain.pendingLink().ifPresent(pending -> clearPendingLink(gameId, pending.eraNumber(), saga, chain));
             sagas.save(new WeaverChainSagaState(
                     saga.chainId(),
                     gameId,

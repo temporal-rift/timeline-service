@@ -76,7 +76,7 @@ class WeaverChainTest {
         assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
         assertThat(chain.playerId()).isEqualTo(PLAYER_ID);
         assertThat(chain.gameId()).isEqualTo(GAME_ID);
-        assertThat(chain.pendingLink()).isNull();
+        assertThat(chain.pendingLink()).isEmpty();
     }
 
     @Test
@@ -183,7 +183,7 @@ class WeaverChainTest {
         var fact = chain.threadPendingLink(eventId, outcomeId, 1);
 
         assertThat(fact).isEqualTo(new ChainLinkThreaded(CHAIN_ID, eventId, outcomeId, 1));
-        assertThat(chain.pendingLink()).isEqualTo(new ChainLink(eventId, outcomeId, 1));
+        assertThat(chain.pendingLink()).contains(new ChainLink(eventId, outcomeId, 1));
         assertThat(chain.length()).isZero();
         assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
     }
@@ -250,7 +250,7 @@ class WeaverChainTest {
 
         assertThat(facts).containsExactly(new ChainLinkAdded(CHAIN_ID, eventId, outcomeId, 1));
         assertThat(chain.length()).isEqualTo(1);
-        assertThat(chain.pendingLink()).isNull();
+        assertThat(chain.pendingLink()).isEmpty();
         assertThat(chain.links()).containsExactly(new ChainLink(eventId, outcomeId, 1));
         assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
     }
@@ -293,7 +293,7 @@ class WeaverChainTest {
         var fact = chain.clearPendingLink();
 
         assertThat(fact).isEqualTo(new ChainLinkInvalidated(CHAIN_ID, eventId, outcomeId));
-        assertThat(chain.pendingLink()).isNull();
+        assertThat(chain.pendingLink()).isEmpty();
         assertThat(chain.length()).isZero();
         assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
     }
@@ -351,7 +351,7 @@ class WeaverChainTest {
 
         assertThat(fact.discardedEventId()).isEqualTo(pendingEventId);
         assertThat(fact.discardedOutcomeId()).isEqualTo(pendingOutcomeId);
-        assertThat(chain.pendingLink()).isNull();
+        assertThat(chain.pendingLink()).isEmpty();
         assertThat(chain.length()).isEqualTo(1);
         assertThat(chain.links()).containsExactly(new ChainLink(targetEventId, targetOutcomeId, 1));
     }
@@ -385,7 +385,7 @@ class WeaverChainTest {
 
         assertThatThrownBy(() -> chain.threadPendingLink(eventId, outcomeId, 2))
                 .isInstanceOf(LinkEraNotSuccessiveException.class);
-        assertThat(chain.pendingLink()).isNull();
+        assertThat(chain.pendingLink()).isEmpty();
         assertThat(chain.length()).isEqualTo(1);
     }
 
@@ -399,7 +399,7 @@ class WeaverChainTest {
 
         chain.threadPendingLink(eventId, outcomeId, 3);
 
-        assertThat(chain.pendingLink()).isEqualTo(new ChainLink(eventId, outcomeId, 3));
+        assertThat(chain.pendingLink()).contains(new ChainLink(eventId, outcomeId, 3));
     }
 
     @Test
@@ -454,7 +454,7 @@ class WeaverChainTest {
         var target = new ResolvedOutcome(UUID.randomUUID(), UUID.randomUUID(), 2);
 
         assertThatThrownBy(() -> chain.reAnchor(target)).isInstanceOf(LinkEraNotSuccessiveException.class);
-        assertThat(chain.pendingLink()).isNotNull();
+        assertThat(chain.pendingLink()).isPresent();
     }
 
     @Test
@@ -501,7 +501,7 @@ class WeaverChainTest {
         assertThat(broken).isEqualTo(new ChainBroken(CHAIN_ID, "CHAIN_CONFLICT paradox cascaded unresolved"));
         assertThat(chain.status()).isEqualTo(ChainStatus.BROKEN);
         assertThat(chain.links()).containsExactly(new ChainLink(eventId, outcomeId, 1));
-        assertThat(chain.pendingLink()).isNull();
+        assertThat(chain.pendingLink()).isEmpty();
     }
 
     @Test

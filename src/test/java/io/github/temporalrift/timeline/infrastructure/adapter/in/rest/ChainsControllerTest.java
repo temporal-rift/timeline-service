@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
@@ -65,7 +66,12 @@ class ChainsControllerTest {
     void getChain_weaverWithChain_returnsChainState() throws Exception {
         given(getChainUseCase.get(GAME_ID, PLAYER_ID))
                 .willReturn(new GetChainUseCase.Result(
-                        CHAIN_ID, ChainStatus.ACTIVE, 1, List.of(new ChainLink(EVENT_ID, OUTCOME_ID, 2)), null, true));
+                        CHAIN_ID,
+                        ChainStatus.ACTIVE,
+                        1,
+                        List.of(new ChainLink(EVENT_ID, OUTCOME_ID, 2)),
+                        Optional.empty(),
+                        true));
 
         mockMvc.perform(get("/api/v1/games/{gameId}/chains", GAME_ID).with(auth()))
                 .andExpect(status().isOk())
@@ -86,7 +92,12 @@ class ChainsControllerTest {
     void getChain_weaverWithPendingLink_returnsPendingLinkSeparately() throws Exception {
         given(getChainUseCase.get(GAME_ID, PLAYER_ID))
                 .willReturn(new GetChainUseCase.Result(
-                        CHAIN_ID, ChainStatus.ACTIVE, 0, List.of(), new ChainLink(EVENT_ID, OUTCOME_ID, 2), false));
+                        CHAIN_ID,
+                        ChainStatus.ACTIVE,
+                        0,
+                        List.of(),
+                        Optional.of(new ChainLink(EVENT_ID, OUTCOME_ID, 2)),
+                        false));
 
         mockMvc.perform(get("/api/v1/games/{gameId}/chains", GAME_ID).with(auth()))
                 .andExpect(status().isOk())
