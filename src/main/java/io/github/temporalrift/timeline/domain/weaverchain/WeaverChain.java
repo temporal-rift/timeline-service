@@ -3,7 +3,6 @@ package io.github.temporalrift.timeline.domain.weaverchain;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 
 import io.github.temporalrift.timeline.domain.event.ChainBroken;
@@ -20,7 +19,8 @@ import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
  * Event-sourced aggregate for one Weaver player's causal chain. Rebuilt by {@link #replay(UUID, List)} or
  * {@link #restore(WeaverChainSnapshot, List)}, never loaded from a current-state row. The newest link may be
  * {@code pending} — anchored to a not-yet-resolved current-era outcome (a live THREAD prediction) — before it
- * confirms into {@link #links()}; at most one pending link is open at a time.
+ * confirms into {@link #links()}; at most one pending link is open at a time. Links are connected by era
+ * succession: each link's era is strictly later than the era of the link before it.
  */
 public final class WeaverChain {
 
@@ -121,7 +121,8 @@ public final class WeaverChain {
         }
         if (event instanceof ChainLinkThreaded threaded
                 && (pendingLink != null
-                        || links.stream().anyMatch(link -> link.eventId().equals(threaded.eventId())))) {
+                        || links.stream().anyMatch(link -> link.eventId().equals(threaded.eventId()))
+                        || !isAfter(threaded.eraNumber(), newestConfirmedLink()))) {
             throw new IllegalStateException("Invalid pending link for " + threaded.eventId());
         }
         if (event instanceof ChainLinkAdded added && !pendingLinkMatches(added.eventId(), added.outcomeId())) {
@@ -134,6 +135,10 @@ public final class WeaverChain {
         if (event instanceof ChainReAnchored reAnchored
                 && !newestLinkMatches(reAnchored.discardedEventId(), reAnchored.discardedOutcomeId())) {
             throw new IllegalStateException("Re-anchored link was never appended for " + reAnchored.discardedEventId());
+        }
+        if (event instanceof ChainReAnchored reAnchored && !isAfter(reAnchored.eraNumber(), linkBeforeNewest())) {
+            throw new IllegalStateException(
+                    "Re-anchored link is not after its previous link for " + reAnchored.eventId());
         }
         if (event instanceof ChainCompleted && links.size() != COMPLETION_LENGTH) {
             throw new IllegalStateException("ChainCompleted requires " + COMPLETION_LENGTH + " links");
@@ -156,6 +161,28 @@ public final class WeaverChain {
         }
         var newest = links.getLast();
         return newest.eventId().equals(eventId) && newest.outcomeId().equals(outcomeId);
+    }
+
+    private ChainLink newestConfirmedLink() {
+        return links.isEmpty() ? null : links.getLast();
+    }
+
+    /** The link a replacement of the newest link — pending or confirmed — must follow, or {@code null}. */
+    private ChainLink linkBeforeNewest() {
+        if (pendingLink != null) {
+            return newestConfirmedLink();
+        }
+        return links.size() < 2 ? null : links.get(links.size() - 2);
+    }
+
+    private static boolean isAfter(int eraNumber, ChainLink previous) {
+        return previous == null || eraNumber > previous.eraNumber();
+    }
+
+    private void requireAfter(UUID eventId, UUID outcomeId, int eraNumber, ChainLink previous) {
+        if (!isAfter(eraNumber, previous)) {
+            throw new LinkEraNotSuccessiveException(chainId, eventId, outcomeId, eraNumber, previous.eraNumber());
+        }
     }
 
     private void apply(ChainFact event) {
@@ -187,7 +214,8 @@ public final class WeaverChain {
 
     /**
      * Accepts one {@code THREAD} play, opening a pending link anchored to a not-yet-resolved current-era
-     * outcome. Rejected when the chain already has an open pending link or the event is already linked.
+     * outcome. Rejected when the chain already has an open pending link, the event is already linked, or the era
+     * is not after the newest confirmed link's era.
      */
     public ChainLinkThreaded threadPendingLink(UUID eventId, UUID outcomeId, int eraNumber) {
         Objects.requireNonNull(eventId, PARAM_EVENT_ID);
@@ -204,6 +232,7 @@ public final class WeaverChain {
         if (links.stream().anyMatch(link -> link.eventId().equals(eventId))) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "event already linked");
         }
+        requireAfter(eventId, outcomeId, eraNumber, newestConfirmedLink());
         var fact = new ChainLinkThreaded(chainId, eventId, outcomeId, eraNumber);
         pendingLink = new ChainLink(eventId, outcomeId, eraNumber);
         return fact;
@@ -244,13 +273,14 @@ public final class WeaverChain {
 
     /**
      * Discards this chain's newest link — pending or confirmed — and replaces it with a different resolved
-     * past outcome in one indivisible step ({@code REWEAVE}). Length and earlier links are unchanged.
+     * past outcome in one indivisible step ({@code REWEAVE}). Length and earlier links are unchanged; the target's
+     * era must be after the era of the link preceding the replaced one.
      */
-    public ChainReAnchored reAnchor(
-            UUID eventId, UUID outcomeId, int eraNumber, Set<ResolvedOutcome> resolvedOutcomes) {
-        Objects.requireNonNull(eventId, PARAM_EVENT_ID);
-        Objects.requireNonNull(outcomeId, PARAM_OUTCOME_ID);
-        Objects.requireNonNull(resolvedOutcomes, "resolvedOutcomes");
+    public ChainReAnchored reAnchor(ResolvedOutcome target) {
+        Objects.requireNonNull(target, "target");
+        var eventId = target.eventId();
+        var outcomeId = target.outcomeId();
+        var eraNumber = target.eraNumber();
         if (pendingLink == null && links.isEmpty()) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "chain has no links to re-anchor");
         }
@@ -260,12 +290,10 @@ public final class WeaverChain {
         if (status == ChainStatus.BROKEN) {
             throw new WeaverChainBrokenException(chainId);
         }
-        if (!resolvedOutcomes.contains(new ResolvedOutcome(eventId, outcomeId))) {
-            throw new InvalidChainLinkException(chainId, eventId, outcomeId, "outcome did not resolve");
-        }
         if (links.stream().anyMatch(link -> link.eventId().equals(eventId))) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "event already linked");
         }
+        requireAfter(eventId, outcomeId, eraNumber, linkBeforeNewest());
         var discarded = pendingLink != null ? pendingLink : links.getLast();
         var reAnchored =
                 new ChainReAnchored(chainId, discarded.eventId(), discarded.outcomeId(), eventId, outcomeId, eraNumber);

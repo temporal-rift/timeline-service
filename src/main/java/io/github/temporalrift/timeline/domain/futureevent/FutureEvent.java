@@ -3,6 +3,7 @@ package io.github.temporalrift.timeline.domain.futureevent;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import io.github.temporalrift.timeline.domain.event.EraStateCleared;
@@ -23,14 +24,14 @@ public final class FutureEvent {
 
     private final UUID id;
     private List<Outcome> outcomes;
-    private boolean resolved;
+    private Resolution resolution;
     private boolean stalled;
     private boolean sealBreach;
 
-    private FutureEvent(UUID id, List<Outcome> outcomes, boolean resolved, boolean stalled, boolean sealBreach) {
+    private FutureEvent(UUID id, List<Outcome> outcomes, Resolution resolution, boolean stalled, boolean sealBreach) {
         this.id = id;
         this.outcomes = outcomes;
-        this.resolved = resolved;
+        this.resolution = resolution;
         this.stalled = stalled;
         this.sealBreach = sealBreach;
     }
@@ -54,17 +55,23 @@ public final class FutureEvent {
                 throw new IllegalStateException("Event replayed outside the drafted and unresolved state for " + id);
             }
             state = switch (event) {
-                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), false, false, false);
-                case OutcomeApplied e -> new FutureEvent(id, e.finalOutcomes(), true, false, state.sealBreach());
+                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), null, false, false);
+                case OutcomeApplied e ->
+                    new FutureEvent(
+                            id,
+                            e.finalOutcomes(),
+                            new Resolution(e.winningOutcomeId(), e.eraNumber()),
+                            false,
+                            state.sealBreach());
                 case ProbabilityShifted e ->
-                    new FutureEvent(id, e.outcomes(), false, state.stalled(), state.sealBreach());
-                case EventStalled _ -> new FutureEvent(id, state.outcomes(), false, true, state.sealBreach());
-                case EventUnstalled _ -> new FutureEvent(id, state.outcomes(), false, false, state.sealBreach());
-                case OutcomeSealed e -> new FutureEvent(id, e.outcomes(), false, state.stalled(), state.sealBreach());
+                    new FutureEvent(id, e.outcomes(), null, state.stalled(), state.sealBreach());
+                case EventStalled _ -> new FutureEvent(id, state.outcomes(), null, true, state.sealBreach());
+                case EventUnstalled _ -> new FutureEvent(id, state.outcomes(), null, false, state.sealBreach());
+                case OutcomeSealed e -> new FutureEvent(id, e.outcomes(), null, state.stalled(), state.sealBreach());
                 case OutcomeAnnihilated e ->
-                    new FutureEvent(id, e.outcomes(), false, state.stalled(), state.sealBreach());
-                case SealBreachRecorded _ -> new FutureEvent(id, state.outcomes(), false, state.stalled(), true);
-                case EraStateCleared e -> new FutureEvent(id, e.outcomes(), false, state.stalled(), false);
+                    new FutureEvent(id, e.outcomes(), null, state.stalled(), state.sealBreach());
+                case SealBreachRecorded _ -> new FutureEvent(id, state.outcomes(), null, state.stalled(), true);
+                case EraStateCleared e -> new FutureEvent(id, e.outcomes(), null, state.stalled(), false);
                 default -> throw new IllegalArgumentException("Unknown FutureEvent domain event: " + event.getClass());
             };
         }
@@ -79,7 +86,7 @@ public final class FutureEvent {
      * era's index instead.
      */
     public EventStalled markStalled() {
-        if (resolved) {
+        if (resolved()) {
             throw new FutureEventAlreadyResolvedException(id);
         }
         this.stalled = true;
@@ -88,7 +95,7 @@ public final class FutureEvent {
 
     /** Clears a stalled state ({@code NULLIFY} targeting the {@code STALL} that set it). */
     public EventUnstalled clearStalled() {
-        if (resolved) {
+        if (resolved()) {
             throw new FutureEventAlreadyResolvedException(id);
         }
         this.stalled = false;
@@ -106,7 +113,7 @@ public final class FutureEvent {
      * equally likely.
      */
     public OutcomeApplied resolve(UUID gameId, int eraNumber, long roll) {
-        if (resolved) {
+        if (resolved()) {
             throw new FutureEventAlreadyResolvedException(id);
         }
         if (stalled) {
@@ -115,7 +122,7 @@ public final class FutureEvent {
         var winner = drawWeighted(roll);
         var event = new OutcomeApplied(gameId, eraNumber, id, winner.outcomeId(), outcomes);
         this.outcomes = event.finalOutcomes();
-        this.resolved = true;
+        this.resolution = new Resolution(winner.outcomeId(), eraNumber);
         return event;
     }
 
@@ -157,7 +164,7 @@ public final class FutureEvent {
      * {@code FutureEventRepository#append}'s own {@code Object} domain-event parameter.
      */
     public Object applyShift(ProbabilityShift shift, int magnitude, int floor, int ceiling) {
-        if (resolved) {
+        if (resolved()) {
             throw new FutureEventAlreadyResolvedException(id);
         }
         return switch (shift) {
@@ -331,7 +338,7 @@ public final class FutureEvent {
      * flag, its event, and its detection stay reserved for an explicit future seal-breaker.
      */
     public OutcomeSealed sealOutcome(UUID outcomeId) {
-        if (resolved) {
+        if (resolved()) {
             throw new FutureEventAlreadyResolvedException(id);
         }
         outcomeById(outcomeId);
@@ -351,7 +358,7 @@ public final class FutureEvent {
      * probabilities are preserved; only the flags a new era must not inherit are cleared.
      */
     public EraStateCleared clearEraState() {
-        if (resolved) {
+        if (resolved()) {
             throw new FutureEventAlreadyResolvedException(id);
         }
         var cleared = outcomes.stream()
@@ -365,7 +372,7 @@ public final class FutureEvent {
 
     /** Marks {@code outcomeId} annihilated ({@code ANNIHILATE}); it can never win this event's resolution. */
     public OutcomeAnnihilated annihilateOutcome(UUID outcomeId) {
-        if (resolved) {
+        if (resolved()) {
             throw new FutureEventAlreadyResolvedException(id);
         }
         outcomeById(outcomeId);
@@ -475,7 +482,12 @@ public final class FutureEvent {
     }
 
     public boolean resolved() {
-        return resolved;
+        return resolution != null;
+    }
+
+    /** The outcome this event drew and the era it resolved in, once resolved. */
+    public Optional<Resolution> resolution() {
+        return Optional.ofNullable(resolution);
     }
 
     public boolean stalled() {

@@ -1,10 +1,8 @@
 package io.github.temporalrift.timeline.application.saga;
 
 import java.time.Clock;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -28,7 +26,6 @@ import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
-import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -41,6 +38,7 @@ import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaState;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaStatus;
 import io.github.temporalrift.timeline.domain.weaverchain.ChainLink;
 import io.github.temporalrift.timeline.domain.weaverchain.InvalidChainLinkException;
+import io.github.temporalrift.timeline.domain.weaverchain.LinkEraNotSuccessiveException;
 import io.github.temporalrift.timeline.domain.weaverchain.ResolvedOutcome;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
@@ -62,12 +60,14 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     private static final String REASON_INVALID_COORDINATE = "INVALID_COORDINATE";
     private static final String REASON_ALREADY_PENDING = "ALREADY_PENDING";
     private static final String REASON_ALREADY_LINKED = "EVENT_ALREADY_LINKED";
+    private static final String REASON_LINK_ERA_NOT_SUCCESSIVE = "LINK_ERA_NOT_SUCCESSIVE";
 
     private static final String REASON_NO_ACTIVE_CHAIN = "NO_ACTIVE_CHAIN";
     private static final String REASON_CHAIN_TOO_SHORT = "CHAIN_TOO_SHORT";
     private static final String REASON_ALREADY_USED_THIS_ERA = "ALREADY_USED_THIS_ERA";
     private static final String REASON_TARGET_NOT_RESOLVED = "TARGET_NOT_RESOLVED";
     private static final String REASON_TARGET_ALREADY_LINKED = "TARGET_ALREADY_LINKED";
+    private static final String REASON_NO_LINK_TO_REPLACE = "NO_LINK_TO_REPLACE";
 
     private final WeaverChainRepository chains;
     private final WeaverChainSagaRepository sagas;
@@ -132,8 +132,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         try {
             var fact = chain.threadPendingLink(coordinate.eventId(), coordinate.outcomeId(), eraNumber);
             chains.append(chainId, fact);
-        } catch (InvalidChainLinkException _) {
-            var reason = chain.pendingLink() != null ? REASON_ALREADY_PENDING : REASON_ALREADY_LINKED;
+        } catch (InvalidChainLinkException e) {
+            var reason = threadRejectionReason(chain, e);
             publishThreadRejected(gameId, eraNumber, chainId, playerId, coordinate, reason);
             return;
         }
@@ -146,6 +146,13 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 new ChainLinkThreadedEvent(
                         gameId, eraNumber, chainId, playerId, coordinate.eventId(), coordinate.outcomeId()),
                 clock));
+    }
+
+    private static String threadRejectionReason(WeaverChain chain, InvalidChainLinkException rejection) {
+        if (rejection instanceof LinkEraNotSuccessiveException) {
+            return REASON_LINK_ERA_NOT_SUCCESSIVE;
+        }
+        return chain.pendingLink() != null ? REASON_ALREADY_PENDING : REASON_ALREADY_LINKED;
     }
 
     /**
@@ -251,31 +258,51 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                     gameId, eraNumber, playerId, SPECIAL_REWEAVE, saga.chainId(), target, rejectionReason);
             return;
         }
-        acceptReweave(gameId, eraNumber, playerId, saga, target);
+        resolvedTarget(target)
+                .ifPresentOrElse(
+                        resolved -> acceptReweave(gameId, eraNumber, playerId, saga, target, resolved),
+                        () -> publishSpecialRejected(
+                                gameId,
+                                eraNumber,
+                                playerId,
+                                SPECIAL_REWEAVE,
+                                saga.chainId(),
+                                target,
+                                REASON_TARGET_NOT_RESOLVED));
     }
 
     /** The rules REWEAVE alone can check before touching the chain aggregate. */
-    private String validateReweave(WeaverChainSagaState saga, int eraNumber, OutcomeCoordinate target) {
+    private static String validateReweave(WeaverChainSagaState saga, int eraNumber, OutcomeCoordinate target) {
         if (Integer.valueOf(eraNumber).equals(saga.reweaveUsedEra())) {
             return REASON_ALREADY_USED_THIS_ERA;
         }
         if (target.eventId() == null || target.outcomeId() == null) {
             return REASON_MISSING_COORDINATE;
         }
-        if (!resolvedAs(target.eventId(), target.outcomeId())) {
-            return REASON_TARGET_NOT_RESOLVED;
-        }
         return null;
     }
 
-    /** Re-anchors the chain's newest link once REWEAVE's target is known valid. */
+    /** Re-anchors the chain's newest link once REWEAVE's target is known to have won its event. */
     private void acceptReweave(
-            UUID gameId, int eraNumber, UUID playerId, WeaverChainSagaState saga, OutcomeCoordinate target) {
+            UUID gameId,
+            int eraNumber,
+            UUID playerId,
+            WeaverChainSagaState saga,
+            OutcomeCoordinate target,
+            ResolvedOutcome resolvedTarget) {
         var chain = chains.findById(saga.chainId());
-        var fact = tryReAnchor(chain, target.eventId(), target.outcomeId(), eraNumber);
-        if (fact == null) {
+        final ChainReAnchored fact;
+        try {
+            fact = chain.reAnchor(resolvedTarget);
+        } catch (InvalidChainLinkException e) {
             publishSpecialRejected(
-                    gameId, eraNumber, playerId, SPECIAL_REWEAVE, saga.chainId(), target, REASON_TARGET_ALREADY_LINKED);
+                    gameId,
+                    eraNumber,
+                    playerId,
+                    SPECIAL_REWEAVE,
+                    saga.chainId(),
+                    target,
+                    reweaveRejectionReason(chain, e));
             return;
         }
         chains.append(saga.chainId(), fact);
@@ -306,16 +333,14 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 clock));
     }
 
-    private ChainReAnchored tryReAnchor(WeaverChain chain, UUID targetEventId, UUID targetOutcomeId, int eraNumber) {
-        try {
-            return chain.reAnchor(
-                    targetEventId,
-                    targetOutcomeId,
-                    eraNumber,
-                    Set.of(new ResolvedOutcome(targetEventId, targetOutcomeId)));
-        } catch (InvalidChainLinkException _) {
-            return null;
+    private static String reweaveRejectionReason(WeaverChain chain, InvalidChainLinkException rejection) {
+        if (rejection instanceof LinkEraNotSuccessiveException) {
+            return REASON_LINK_ERA_NOT_SUCCESSIVE;
         }
+        if (chain.pendingLink() == null && chain.length() == 0) {
+            return REASON_NO_LINK_TO_REPLACE;
+        }
+        return REASON_TARGET_ALREADY_LINKED;
     }
 
     @Override
@@ -580,31 +605,20 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     }
 
     /**
-     * Whether the referenced outcome actually resolved as the winner of its event — the causal-link
-     * validity rule for REWEAVE's target. Unknown events, unresolved events, and resolved-differently
-     * outcomes all fail.
+     * REWEAVE's target with the era it resolved in, present only when the outcome is the one its event drew.
+     * Unknown events, unresolved events, and outcomes that lost the draw are all absent.
      */
-    private boolean resolvedAs(UUID eventId, UUID outcomeId) {
+    private Optional<ResolvedOutcome> resolvedTarget(OutcomeCoordinate target) {
         final FutureEvent futureEvent;
         try {
-            futureEvent = futureEvents.findById(eventId);
+            futureEvent = futureEvents.findById(target.eventId());
         } catch (FutureEventNotFoundException _) {
-            return false;
+            return Optional.empty();
         }
-        if (!futureEvent.resolved()) {
-            return false;
-        }
-        return Objects.equals(winningOutcomeId(futureEvent), outcomeId);
-    }
-
-    /** Highest-probability non-annihilated outcome, ties broken by smallest outcomeId — as resolved. */
-    private static UUID winningOutcomeId(FutureEvent futureEvent) {
-        return futureEvent.outcomes().stream()
-                .filter(outcome -> !outcome.annihilated())
-                .max(Comparator.comparingInt(Outcome::probability)
-                        .thenComparing(Comparator.comparing(Outcome::outcomeId).reversed()))
-                .map(Outcome::outcomeId)
-                .orElse(null);
+        return futureEvent
+                .resolution()
+                .filter(resolution -> resolution.winningOutcomeId().equals(target.outcomeId()))
+                .map(resolution -> new ResolvedOutcome(target.eventId(), target.outcomeId(), resolution.eraNumber()));
     }
 
     private static List<ChainCompletedEvent.ChainLinkEntry> toEntries(List<ChainLink> links) {
