@@ -377,22 +377,27 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     @Transactional
     public void resolvePendingLink(UUID gameId, int eraNumber, UUID eventId, UUID winningOutcomeId) {
         for (var saga : sagas.findOpenByGame(gameId)) {
-            var chain = chains.findById(saga.chainId());
-            var pending = chain.pendingLink();
-            if (pending == null || !pending.eventId().equals(eventId)) {
-                continue;
+            resolvePendingLinkForSaga(saga, gameId, eraNumber, eventId, winningOutcomeId);
+        }
+    }
+
+    private void resolvePendingLinkForSaga(
+            WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID eventId, UUID winningOutcomeId) {
+        var chain = chains.findById(saga.chainId());
+        var pending = chain.pendingLink();
+        if (pending == null || !pending.eventId().equals(eventId)) {
+            return;
+        }
+        if (pending.eraNumber() != eraNumber) {
+            if (pending.eraNumber() < eraNumber) {
+                expirePendingLink(gameId, eraNumber, saga, chain);
             }
-            if (pending.eraNumber() != eraNumber) {
-                if (pending.eraNumber() < eraNumber) {
-                    expirePendingLink(gameId, eraNumber, saga, chain);
-                }
-                continue;
-            }
-            if (pending.outcomeId().equals(winningOutcomeId)) {
-                confirmPendingLink(gameId, eraNumber, saga);
-            } else {
-                clearPendingLink(gameId, eraNumber, saga, chain);
-            }
+            return;
+        }
+        if (pending.outcomeId().equals(winningOutcomeId)) {
+            confirmPendingLink(gameId, eraNumber, saga);
+        } else {
+            clearPendingLink(gameId, eraNumber, saga, chain);
         }
     }
 
@@ -431,39 +436,47 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     @Transactional
     public void breakChainOnCascadedParadox(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId, UUID paradoxId) {
         for (var saga : sagas.findOpenByGame(gameId)) {
-            var chain = chains.findById(saga.chainId());
-            var pending = chain.pendingLink();
-            if (pending == null
-                    || !pending.eventId().equals(eventId)
-                    || !pending.outcomeId().equals(outcomeId)) {
-                continue;
-            }
-            if (pending.eraNumber() != eraNumber) {
-                if (pending.eraNumber() < eraNumber) {
-                    expirePendingLink(gameId, eraNumber, saga, chain);
-                }
-                continue;
-            }
-            var chainLengthAtBreak = chain.length();
-            var broken = chain.breakChain("CHAIN_CONFLICT paradox cascaded unresolved");
-            chains.append(saga.chainId(), broken);
-            sagas.save(new WeaverChainSagaState(
-                    saga.chainId(),
-                    gameId,
-                    saga.playerId(),
-                    WeaverChainSagaStatus.BROKEN,
-                    false,
-                    saga.tapestryUsedEra(),
-                    saga.reweaveUsedEra()));
-            publisher.publish(TimelineEventEnvelope.create(
-                    saga.chainId(),
-                    AGGREGATE_TYPE,
-                    gameId,
-                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new ChainBrokenEvent(
-                            gameId, eraNumber, saga.chainId(), saga.playerId(), paradoxId, chainLengthAtBreak),
-                    clock));
+            breakChainForSaga(saga, gameId, eraNumber, eventId, outcomeId, paradoxId);
         }
+    }
+
+    private void breakChainForSaga(
+            WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID eventId, UUID outcomeId, UUID paradoxId) {
+        var chain = chains.findById(saga.chainId());
+        var pending = chain.pendingLink();
+        if (pending == null
+                || !pending.eventId().equals(eventId)
+                || !pending.outcomeId().equals(outcomeId)) {
+            return;
+        }
+        if (pending.eraNumber() != eraNumber) {
+            if (pending.eraNumber() < eraNumber) {
+                expirePendingLink(gameId, eraNumber, saga, chain);
+            }
+            return;
+        }
+        breakChain(saga, gameId, eraNumber, paradoxId, chain);
+    }
+
+    private void breakChain(WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID paradoxId, WeaverChain chain) {
+        var chainLengthAtBreak = chain.length();
+        var broken = chain.breakChain("CHAIN_CONFLICT paradox cascaded unresolved");
+        chains.append(saga.chainId(), broken);
+        sagas.save(new WeaverChainSagaState(
+                saga.chainId(),
+                gameId,
+                saga.playerId(),
+                WeaverChainSagaStatus.BROKEN,
+                false,
+                saga.tapestryUsedEra(),
+                saga.reweaveUsedEra()));
+        publisher.publish(TimelineEventEnvelope.create(
+                saga.chainId(),
+                AGGREGATE_TYPE,
+                gameId,
+                TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                new ChainBrokenEvent(gameId, eraNumber, saga.chainId(), saga.playerId(), paradoxId, chainLengthAtBreak),
+                clock));
     }
 
     /** Confirms the given saga's chain's pending link, publishing {@code ChainLinkAdded} (+ {@code ChainCompleted}). */
