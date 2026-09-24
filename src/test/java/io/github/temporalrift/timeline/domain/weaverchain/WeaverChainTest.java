@@ -13,6 +13,7 @@ import io.github.temporalrift.timeline.domain.event.ChainCompleted;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
 import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidated;
 import io.github.temporalrift.timeline.domain.event.ChainLinkThreaded;
+import io.github.temporalrift.timeline.domain.event.ChainReAnchored;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 
 class WeaverChainTest {
@@ -347,13 +348,34 @@ class WeaverChainTest {
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
 
-        var fact = chain.reAnchor(new ResolvedOutcome(targetEventId, targetOutcomeId, 1));
+        var facts = chain.reAnchor(new ResolvedOutcome(targetEventId, targetOutcomeId, 1));
+        var fact = (ChainReAnchored) facts.getFirst();
 
         assertThat(fact.discardedEventId()).isEqualTo(pendingEventId);
         assertThat(fact.discardedOutcomeId()).isEqualTo(pendingOutcomeId);
         assertThat(chain.pendingLink()).isNull();
         assertThat(chain.length()).isEqualTo(1);
         assertThat(chain.links()).containsExactly(new ChainLink(targetEventId, targetOutcomeId, 1));
+        assertThat(facts).hasSize(1);
+    }
+
+    @Test
+    void reAnchor_pendingThirdLink_emitsCompletionInSameTransitionOnlyOnce() {
+        var chain = started();
+        for (var era : List.of(1, 2)) {
+            chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), era);
+            chain.confirmPendingLink();
+        }
+        var pendingEventId = UUID.randomUUID();
+        chain.threadPendingLink(pendingEventId, UUID.randomUUID(), 4);
+        var facts = chain.reAnchor(new ResolvedOutcome(UUID.randomUUID(), UUID.randomUUID(), 4));
+
+        assertThat(facts).hasSize(2);
+        assertThat(facts.getFirst()).isInstanceOf(ChainReAnchored.class);
+        assertThat(facts.getLast()).isEqualTo(new ChainCompleted(CHAIN_ID));
+        assertThat(chain.status()).isEqualTo(ChainStatus.COMPLETED);
+        assertThat(chain.length()).isEqualTo(3);
+        assertThat(chain.completeIfReady()).isEmpty();
     }
 
     @Test
@@ -366,12 +388,14 @@ class WeaverChainTest {
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
 
-        var fact = chain.reAnchor(new ResolvedOutcome(targetEventId, targetOutcomeId, 2));
+        var facts = chain.reAnchor(new ResolvedOutcome(targetEventId, targetOutcomeId, 2));
+        var fact = (ChainReAnchored) facts.getFirst();
 
         assertThat(fact.discardedEventId()).isEqualTo(firstEventId);
         assertThat(fact.discardedOutcomeId()).isEqualTo(firstOutcomeId);
         assertThat(chain.length()).isEqualTo(1);
         assertThat(chain.links()).containsExactly(new ChainLink(targetEventId, targetOutcomeId, 2));
+        assertThat(facts).hasSize(1);
     }
 
     @Test

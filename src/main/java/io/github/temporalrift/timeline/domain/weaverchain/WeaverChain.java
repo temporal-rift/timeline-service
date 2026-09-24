@@ -3,6 +3,7 @@ package io.github.temporalrift.timeline.domain.weaverchain;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import io.github.temporalrift.timeline.domain.event.ChainBroken;
@@ -279,9 +280,10 @@ public final class WeaverChain {
     /**
      * Discards this chain's newest link — pending or confirmed — and replaces it with a different resolved
      * past outcome in one indivisible step ({@code REWEAVE}). Length and earlier links are unchanged; the target's
-     * era must be after the era of the link preceding the replaced one.
+     * era must be after the era of the link preceding the replaced one. Returns the re-anchor fact and, when
+     * replacing a pending third link, the completion fact to append in the same batch.
      */
-    public ChainReAnchored reAnchor(ResolvedOutcome target) {
+    public List<WeaverChainEvent> reAnchor(ResolvedOutcome target) {
         Objects.requireNonNull(target, "target");
         var eventId = target.eventId();
         var outcomeId = target.outcomeId();
@@ -308,7 +310,18 @@ public final class WeaverChain {
             links.removeLast();
         }
         links.add(new ChainLink(eventId, outcomeId, eraNumber));
-        return reAnchored;
+        return completeIfReady()
+                .<List<WeaverChainEvent>>map(completed -> List.of(reAnchored, completed))
+                .orElseGet(() -> List.of(reAnchored));
+    }
+
+    /** Marks a three-link chain completed after a transition such as REWEAVE that installs a confirmed link. */
+    public Optional<ChainCompleted> completeIfReady() {
+        if (status != ChainStatus.ACTIVE || links.size() != COMPLETION_LENGTH || pendingLink != null) {
+            return Optional.empty();
+        }
+        status = ChainStatus.COMPLETED;
+        return Optional.of(new ChainCompleted(chainId));
     }
 
     /** Marks this chain broken, preserving its confirmed links and discarding any open pending link. */

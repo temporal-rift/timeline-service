@@ -34,6 +34,7 @@ class WeaverChainSagaIT {
     private static final String CHAIN_LINK_THREADED = "ChainLinkThreaded";
     private static final String CHAIN_LINK_ADDED = "ChainLinkAdded";
     private static final String CHAIN_COMPLETED = "ChainCompleted";
+    private static final String CHAIN_RE_ANCHORED = "ChainReAnchored";
     private static final String CHAIN_LINK_INVALIDATED = "ChainLinkInvalidated";
 
     @Autowired
@@ -97,6 +98,55 @@ class WeaverChainSagaIT {
         assertThat(completed.get("chainId")).hasToString(chainId);
         assertThat(completed.get("playerId")).hasToString(weaver.toString());
         assertThat((List<?>) completed.get("links")).hasSize(3);
+    }
+
+    @Test
+    void reweavePendingThirdLink_persistsCompletionAndPublishesVictoryOnce() {
+        var gameId = UUID.randomUUID();
+        var weaver = UUID.randomUUID();
+        for (var era : List.of(1, 2)) {
+            var eventId = UUID.randomUUID();
+            var winner = UUID.randomUUID();
+            draftDeterministicEra(gameId, era, eventId, winner);
+            publishThread(gameId, era, weaver, eventId, winner, UUID.randomUUID());
+            awaitChainLinkThreaded(gameId, era);
+            resolveEra(gameId, era, eventId, winner);
+            awaitChainLinkAdded(gameId, era);
+        }
+
+        var replacementEvent = UUID.randomUUID();
+        var replacementOutcome = UUID.randomUUID();
+        draftEra(gameId, 3, replacementEvent, replacementOutcome);
+        resolveEra(gameId, 3, replacementEvent, replacementOutcome);
+
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        draftEra(gameId, 4, pendingEvent, pendingOutcome);
+        publishThread(gameId, 4, weaver, pendingEvent, pendingOutcome, UUID.randomUUID());
+        awaitChainLinkThreaded(gameId, 3);
+        publishReweave(gameId, 4, weaver, replacementEvent, replacementOutcome);
+
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_COMPLETED))
+                        .hasSize(1));
+        var reAnchored = payloadsOf(messagesFor(gameId), CHAIN_RE_ANCHORED);
+        var completed = payloadsOf(messagesFor(gameId), CHAIN_COMPLETED);
+        assertThat(reAnchored).hasSize(1);
+        assertThat(reAnchored.getFirst()).containsEntry("chainLength", 3);
+        assertThat(completed.getFirst()).containsEntry("eraNumber", 3);
+        assertThat((List<?>) completed.getFirst().get("links")).hasSize(3);
+        var chainId = UUID.fromString(completed.getFirst().get("chainId").toString());
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT status FROM weaver_chain_saga WHERE chain_id = ?", String.class, chainId))
+                .isEqualTo("COMPLETED");
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT reweave_used_era FROM weaver_chain_saga WHERE chain_id = ?", Integer.class, chainId))
+                .isEqualTo(4);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM event_store WHERE aggregate_id = ? AND event_type = 'ChainCompleted'",
+                        Integer.class,
+                        chainId))
+                .isEqualTo(1);
     }
 
     /**
@@ -251,6 +301,22 @@ class WeaverChainSagaIT {
         payload.put("targetOutcomeId", targetOutcomeId);
         payload.put("targetPlayerId", null);
         publish(gameId, "SpecialActionPlayed", payload, eventId);
+    }
+
+    private void publishReweave(UUID gameId, int eraNumber, UUID playerId, UUID eventId, UUID outcomeId) {
+        var payload = new HashMap<String, Object>();
+        payload.put("gameId", gameId);
+        payload.put("eraNumber", eraNumber);
+        payload.put("roundNumber", 1);
+        payload.put("playerId", playerId);
+        payload.put("faction", "WEAVERS");
+        payload.put("specialAction", "REWEAVE");
+        payload.put("sourceEventId", null);
+        payload.put("sourceOutcomeId", null);
+        payload.put("targetEventId", eventId);
+        payload.put("targetOutcomeId", outcomeId);
+        payload.put("targetPlayerId", null);
+        publish(gameId, "SpecialActionPlayed", payload);
     }
 
     private void publishSpecialActionPlayed(

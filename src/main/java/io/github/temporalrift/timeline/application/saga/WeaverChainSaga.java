@@ -61,6 +61,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     private static final String REASON_ALREADY_PENDING = "ALREADY_PENDING";
     private static final String REASON_ALREADY_LINKED = "EVENT_ALREADY_LINKED";
     private static final String REASON_LINK_ERA_NOT_SUCCESSIVE = "LINK_ERA_NOT_SUCCESSIVE";
+    private static final String REASON_CHAIN_ALREADY_COMPLETED = "CHAIN_ALREADY_COMPLETED";
 
     private static final String REASON_NO_ACTIVE_CHAIN = "NO_ACTIVE_CHAIN";
     private static final String REASON_CHAIN_TOO_SHORT = "CHAIN_TOO_SHORT";
@@ -99,6 +100,23 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     public void playThread(UUID gameId, int eraNumber, UUID playerId, UUID eventId, UUID outcomeId) {
         var saga = sagas.findOpenByGameAndPlayer(gameId, playerId).orElse(null);
         var coordinate = new OutcomeCoordinate(eventId, outcomeId);
+        if (saga != null) {
+            var chain = chains.findById(saga.chainId());
+            completeChainIfReady(gameId, saga, chain);
+        }
+        var completedChain = sagas.findAllByGameAndPlayer(gameId, playerId).stream()
+                .filter(candidate -> candidate.status() == WeaverChainSagaStatus.COMPLETED)
+                .findFirst();
+        if (completedChain.isPresent()) {
+            publishThreadRejected(
+                    gameId,
+                    eraNumber,
+                    completedChain.orElseThrow().chainId(),
+                    playerId,
+                    coordinate,
+                    REASON_CHAIN_ALREADY_COMPLETED);
+            return;
+        }
         var rejectionReason = validateThread(gameId, eraNumber, coordinate);
         if (rejectionReason != null) {
             publishThreadRejected(
@@ -291,9 +309,9 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             OutcomeCoordinate target,
             ResolvedOutcome resolvedTarget) {
         var chain = chains.findById(saga.chainId());
-        final ChainReAnchored fact;
+        final List<WeaverChainEvent> facts;
         try {
-            fact = chain.reAnchor(resolvedTarget);
+            facts = chain.reAnchor(resolvedTarget);
         } catch (InvalidChainLinkException e) {
             publishSpecialRejected(
                     gameId,
@@ -305,14 +323,16 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                     reweaveRejectionReason(chain, e));
             return;
         }
-        chains.append(saga.chainId(), fact);
+        chains.appendAll(saga.chainId(), facts);
         var reAnchored = chains.findById(saga.chainId());
+        var fact = (ChainReAnchored) facts.getFirst();
+        var completed = facts.stream().anyMatch(ChainCompleted.class::isInstance);
         sagas.save(new WeaverChainSagaState(
                 saga.chainId(),
                 gameId,
                 playerId,
-                WeaverChainSagaStatus.OPEN,
-                saga.tapestryProtected(),
+                completed ? WeaverChainSagaStatus.COMPLETED : WeaverChainSagaStatus.OPEN,
+                completed ? false : saga.tapestryProtected(),
                 saga.tapestryUsedEra(),
                 eraNumber));
         publisher.publish(TimelineEventEnvelope.create(
@@ -330,6 +350,42 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                         target.eventId(),
                         target.outcomeId(),
                         reAnchored.length()),
+                clock));
+        if (completed) {
+            publishChainCompleted(gameId, saga, reAnchored);
+        }
+    }
+
+    private void completeChainIfReady(UUID gameId, WeaverChainSagaState saga, WeaverChain chain) {
+        var completion = chain.completeIfReady();
+        if (completion.isEmpty()) {
+            return;
+        }
+        chains.append(saga.chainId(), completion.orElseThrow());
+        var completed = chains.findById(saga.chainId());
+        publishChainCompleted(gameId, saga, completed);
+        sagas.save(new WeaverChainSagaState(
+                saga.chainId(),
+                gameId,
+                saga.playerId(),
+                WeaverChainSagaStatus.COMPLETED,
+                false,
+                saga.tapestryUsedEra(),
+                saga.reweaveUsedEra()));
+    }
+
+    private void publishChainCompleted(UUID gameId, WeaverChainSagaState saga, WeaverChain completed) {
+        publisher.publish(TimelineEventEnvelope.create(
+                saga.chainId(),
+                AGGREGATE_TYPE,
+                gameId,
+                TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                new ChainCompletedEvent(
+                        gameId,
+                        completed.links().getLast().eraNumber(),
+                        saga.chainId(),
+                        saga.playerId(),
+                        toEntries(completed.links())),
                 clock));
     }
 
