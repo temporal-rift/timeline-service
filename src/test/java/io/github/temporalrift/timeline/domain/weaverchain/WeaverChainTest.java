@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import io.github.temporalrift.timeline.domain.event.ChainBroken;
 import io.github.temporalrift.timeline.domain.event.ChainCompleted;
@@ -50,15 +52,13 @@ class WeaverChainTest {
 
     @Test
     void replay_chainReAnchoredWithMismatchedDiscardedOutcome_throwsIllegalState() {
-        var confirmedEventId = UUID.randomUUID();
-        var confirmedOutcomeId = UUID.randomUUID();
+        var pendingEventId = UUID.randomUUID();
+        var pendingOutcomeId = UUID.randomUUID();
         var wrongOutcomeId = UUID.randomUUID();
         var history = List.of(
                 new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
-                new ChainLinkThreaded(CHAIN_ID, confirmedEventId, confirmedOutcomeId, 1),
-                new ChainLinkAdded(CHAIN_ID, confirmedEventId, confirmedOutcomeId, 1),
-                new io.github.temporalrift.timeline.domain.event.ChainReAnchored(
-                        CHAIN_ID, confirmedEventId, wrongOutcomeId, UUID.randomUUID(), UUID.randomUUID(), 2));
+                new ChainLinkThreaded(CHAIN_ID, pendingEventId, pendingOutcomeId, 1),
+                new ChainReAnchored(CHAIN_ID, pendingEventId, wrongOutcomeId, UUID.randomUUID(), UUID.randomUUID(), 1));
 
         assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
     }
@@ -313,88 +313,193 @@ class WeaverChainTest {
         assertThat(chain.links().getFirst().eventId()).isEqualTo(firstEventId);
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2})
+    void reAimPendingLink_movesPendingLinkWithoutGrowth(int confirmedLinks) {
+        var chain = withConfirmedLinks(confirmedLinks);
+        var era = confirmedLinks + 1;
+        var pendingEventId = UUID.randomUUID();
+        var pendingOutcomeId = UUID.randomUUID();
+        chain.threadPendingLink(pendingEventId, pendingOutcomeId, era);
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+
+        var fact = chain.reAimPendingLink(targetEventId, targetOutcomeId, era);
+
+        assertThat(fact)
+                .isEqualTo(new ChainReAnchored(
+                        CHAIN_ID, pendingEventId, pendingOutcomeId, targetEventId, targetOutcomeId, era));
+        assertThat(chain.pendingLink()).isEqualTo(new ChainLink(targetEventId, targetOutcomeId, era));
+        assertThat(chain.length()).isEqualTo(confirmedLinks);
+        assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2})
+    void reAimPendingLink_withoutPendingLink_rejected(int confirmedLinks) {
+        var chain = withConfirmedLinks(confirmedLinks);
+        var before = chain.links();
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> chain.reAimPendingLink(eventId, outcomeId, 4))
+                .isInstanceOf(NoPendingLinkException.class);
+        assertThat(chain.links()).isEqualTo(before);
+        assertThat(chain.pendingLink()).isNull();
+    }
+
     @Test
-    void reAnchor_targetEventAlreadyLinkedWithADifferentOutcome_rejected() {
+    void reAimPendingLink_sameEventOtherOutcome_accepted() {
+        var chain = started();
+        var eventId = UUID.randomUUID();
+        chain.threadPendingLink(eventId, UUID.randomUUID(), 1);
+        var otherOutcomeId = UUID.randomUUID();
+
+        chain.reAimPendingLink(eventId, otherOutcomeId, 1);
+
+        assertThat(chain.pendingLink()).isEqualTo(new ChainLink(eventId, otherOutcomeId, 1));
+    }
+
+    @Test
+    void reAimPendingLink_pendingOutcomeItself_rejected() {
+        var chain = started();
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        chain.threadPendingLink(eventId, outcomeId, 1);
+
+        assertThatThrownBy(() -> chain.reAimPendingLink(eventId, outcomeId, 1))
+                .isInstanceOf(InvalidChainLinkException.class)
+                .isNotInstanceOf(NoPendingLinkException.class);
+        assertThat(chain.pendingLink()).isEqualTo(new ChainLink(eventId, outcomeId, 1));
+    }
+
+    @Test
+    void reAimPendingLink_eventAlreadyConfirmedLinked_rejected() {
         var chain = started();
         var linkedEventId = UUID.randomUUID();
-        var linkedOutcomeId = UUID.randomUUID();
-        chain.threadPendingLink(linkedEventId, linkedOutcomeId, 1);
+        chain.threadPendingLink(linkedEventId, UUID.randomUUID(), 1);
         chain.confirmPendingLink();
-        var secondEventId = UUID.randomUUID();
-        chain.threadPendingLink(secondEventId, UUID.randomUUID(), 2);
-        chain.confirmPendingLink();
-        // An event resolves to exactly one outcome, so a caller can never legitimately claim another outcome of
-        // an already-linked event; the aggregate must reject it without relying on the saga's pre-check.
-        var claimedResolved = new ResolvedOutcome(linkedEventId, UUID.randomUUID(), 3);
+        var pending = chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 2);
+        var outcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> chain.reAnchor(claimedResolved)).isInstanceOf(InvalidChainLinkException.class);
+        assertThatThrownBy(() -> chain.reAimPendingLink(linkedEventId, outcomeId, 2))
+                .isInstanceOf(InvalidChainLinkException.class)
+                .isNotInstanceOf(NoPendingLinkException.class);
+        assertThat(chain.pendingLink().eventId()).isEqualTo(pending.eventId());
+    }
+
+    @Test
+    void reAimPendingLink_intoAnotherEra_rejected() {
+        var chain = started();
+        chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 3);
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> chain.reAimPendingLink(eventId, outcomeId, 4))
+                .isInstanceOf(NoPendingLinkException.class);
+        assertThat(chain.pendingLink().eraNumber()).isEqualTo(3);
+    }
+
+    @Test
+    void reAimPendingLink_twoConfirmedLinks_neverCompletes() {
+        var chain = withConfirmedLinks(2);
+        chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 3);
+
+        chain.reAimPendingLink(UUID.randomUUID(), UUID.randomUUID(), 3);
+
+        assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
         assertThat(chain.length()).isEqualTo(2);
     }
 
     @Test
-    void reAnchor_noLinksAtAll_rejected() {
-        var chain = started();
-        var target = new ResolvedOutcome(UUID.randomUUID(), UUID.randomUUID(), 1);
+    void reAimPendingLink_thenConfirmed_completesOnThirdConfirmedLink() {
+        var chain = withConfirmedLinks(2);
+        chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 3);
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        chain.reAimPendingLink(targetEventId, targetOutcomeId, 3);
 
-        assertThatThrownBy(() -> chain.reAnchor(target)).isInstanceOf(InvalidChainLinkException.class);
+        var facts = chain.confirmPendingLink();
+
+        assertThat(facts)
+                .containsExactly(
+                        new ChainLinkAdded(CHAIN_ID, targetEventId, targetOutcomeId, 3), new ChainCompleted(CHAIN_ID));
+        assertThat(chain.status()).isEqualTo(ChainStatus.COMPLETED);
     }
 
     @Test
-    void reAnchor_discardsPendingLink_replacesWithConfirmedTarget() {
-        var chain = started();
+    void reAimPendingLink_completedOrBrokenChain_throws() {
+        var completed = completedChain();
+        var broken = started();
+        broken.breakChain("test");
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> completed.reAimPendingLink(eventId, outcomeId, 4))
+                .isInstanceOf(WeaverChainCompletedException.class);
+        assertThatThrownBy(() -> broken.reAimPendingLink(eventId, outcomeId, 1))
+                .isInstanceOf(WeaverChainBrokenException.class);
+    }
+
+    @Test
+    void replay_reAimedPendingLink_rebuildsPendingLink() {
         var pendingEventId = UUID.randomUUID();
         var pendingOutcomeId = UUID.randomUUID();
-        chain.threadPendingLink(pendingEventId, pendingOutcomeId, 1);
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
+        var history = List.of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkThreaded(CHAIN_ID, pendingEventId, pendingOutcomeId, 2),
+                new ChainReAnchored(CHAIN_ID, pendingEventId, pendingOutcomeId, targetEventId, targetOutcomeId, 2),
+                new ChainLinkAdded(CHAIN_ID, targetEventId, targetOutcomeId, 2));
 
-        var facts = chain.reAnchor(new ResolvedOutcome(targetEventId, targetOutcomeId, 1));
-        var fact = (ChainReAnchored) facts.getFirst();
+        var chain = WeaverChain.replay(CHAIN_ID, history);
 
-        assertThat(fact.discardedEventId()).isEqualTo(pendingEventId);
-        assertThat(fact.discardedOutcomeId()).isEqualTo(pendingOutcomeId);
-        assertThat(chain.pendingLink()).isNull();
-        assertThat(chain.length()).isEqualTo(1);
-        assertThat(chain.links()).containsExactly(new ChainLink(targetEventId, targetOutcomeId, 1));
-        assertThat(facts).hasSize(1);
-    }
-
-    @Test
-    void reAnchor_pendingThirdLink_emitsCompletionInSameTransitionOnlyOnce() {
-        var chain = started();
-        for (var era : List.of(1, 2)) {
-            chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), era);
-            chain.confirmPendingLink();
-        }
-        var pendingEventId = UUID.randomUUID();
-        chain.threadPendingLink(pendingEventId, UUID.randomUUID(), 4);
-        var facts = chain.reAnchor(new ResolvedOutcome(UUID.randomUUID(), UUID.randomUUID(), 4));
-
-        assertThat(facts).hasSize(2);
-        assertThat(facts.getFirst()).isInstanceOf(ChainReAnchored.class);
-        assertThat(facts.getLast()).isEqualTo(new ChainCompleted(CHAIN_ID));
-        assertThat(chain.status()).isEqualTo(ChainStatus.COMPLETED);
-        assertThat(chain.length()).isEqualTo(3);
-    }
-
-    @Test
-    void reAnchor_discardsConfirmedNewestLink_lengthUnchanged() {
-        var chain = started();
-        var firstEventId = UUID.randomUUID();
-        var firstOutcomeId = UUID.randomUUID();
-        chain.threadPendingLink(firstEventId, firstOutcomeId, 1);
-        chain.confirmPendingLink();
-        var targetEventId = UUID.randomUUID();
-        var targetOutcomeId = UUID.randomUUID();
-
-        var facts = chain.reAnchor(new ResolvedOutcome(targetEventId, targetOutcomeId, 2));
-        var fact = (ChainReAnchored) facts.getFirst();
-
-        assertThat(fact.discardedEventId()).isEqualTo(firstEventId);
-        assertThat(fact.discardedOutcomeId()).isEqualTo(firstOutcomeId);
-        assertThat(chain.length()).isEqualTo(1);
         assertThat(chain.links()).containsExactly(new ChainLink(targetEventId, targetOutcomeId, 2));
-        assertThat(facts).hasSize(1);
+        assertThat(chain.pendingLink()).isNull();
+    }
+
+    @Test
+    void replay_reAnchoredWithoutPendingLink_throwsIllegalState() {
+        var confirmedEventId = UUID.randomUUID();
+        var confirmedOutcomeId = UUID.randomUUID();
+        var history = List.of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkThreaded(CHAIN_ID, confirmedEventId, confirmedOutcomeId, 1),
+                new ChainLinkAdded(CHAIN_ID, confirmedEventId, confirmedOutcomeId, 1),
+                new ChainReAnchored(
+                        CHAIN_ID, confirmedEventId, confirmedOutcomeId, UUID.randomUUID(), UUID.randomUUID(), 2));
+
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void replay_reAnchoredIntoAnotherEra_throwsIllegalState() {
+        var pendingEventId = UUID.randomUUID();
+        var pendingOutcomeId = UUID.randomUUID();
+        var history = List.of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkThreaded(CHAIN_ID, pendingEventId, pendingOutcomeId, 3),
+                new ChainReAnchored(
+                        CHAIN_ID, pendingEventId, pendingOutcomeId, UUID.randomUUID(), UUID.randomUUID(), 1));
+
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void replay_reAnchoredOntoLinkedEvent_throwsIllegalState() {
+        var linkedEventId = UUID.randomUUID();
+        var linkedOutcomeId = UUID.randomUUID();
+        var pendingEventId = UUID.randomUUID();
+        var pendingOutcomeId = UUID.randomUUID();
+        var history = List.of(
+                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
+                new ChainLinkThreaded(CHAIN_ID, linkedEventId, linkedOutcomeId, 1),
+                new ChainLinkAdded(CHAIN_ID, linkedEventId, linkedOutcomeId, 1),
+                new ChainLinkThreaded(CHAIN_ID, pendingEventId, pendingOutcomeId, 2),
+                new ChainReAnchored(CHAIN_ID, pendingEventId, pendingOutcomeId, linkedEventId, UUID.randomUUID(), 2));
+
+        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -438,49 +543,6 @@ class WeaverChainTest {
     }
 
     @Test
-    void reAnchor_confirmedNewestLinkToEraNotAfterPrecedingLink_rejected() {
-        var chain = started();
-        chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 1);
-        chain.confirmPendingLink();
-        chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 3);
-        chain.confirmPendingLink();
-        var before = chain.links();
-
-        var target = new ResolvedOutcome(UUID.randomUUID(), UUID.randomUUID(), 1);
-
-        assertThatThrownBy(() -> chain.reAnchor(target)).isInstanceOf(LinkEraNotSuccessiveException.class);
-        assertThat(chain.links()).isEqualTo(before);
-    }
-
-    @Test
-    void reAnchor_confirmedNewestLinkToEraAfterPrecedingLink_keepsTargetEra() {
-        var chain = started();
-        chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 1);
-        chain.confirmPendingLink();
-        chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 3);
-        chain.confirmPendingLink();
-        var targetEventId = UUID.randomUUID();
-        var targetOutcomeId = UUID.randomUUID();
-
-        chain.reAnchor(new ResolvedOutcome(targetEventId, targetOutcomeId, 2));
-
-        assertThat(chain.links().getLast()).isEqualTo(new ChainLink(targetEventId, targetOutcomeId, 2));
-    }
-
-    @Test
-    void reAnchor_pendingLinkToEraOfNewestConfirmedLink_rejected() {
-        var chain = started();
-        chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 2);
-        chain.confirmPendingLink();
-        chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), 3);
-
-        var target = new ResolvedOutcome(UUID.randomUUID(), UUID.randomUUID(), 2);
-
-        assertThatThrownBy(() -> chain.reAnchor(target)).isInstanceOf(LinkEraNotSuccessiveException.class);
-        assertThat(chain.pendingLink()).isNotNull();
-    }
-
-    @Test
     void replay_threadedLinkNotAfterNewestConfirmedLink_throwsIllegalState() {
         var firstEventId = UUID.randomUUID();
         var firstOutcomeId = UUID.randomUUID();
@@ -489,23 +551,6 @@ class WeaverChainTest {
                 new ChainLinkThreaded(CHAIN_ID, firstEventId, firstOutcomeId, 2),
                 new ChainLinkAdded(CHAIN_ID, firstEventId, firstOutcomeId, 2),
                 new ChainLinkThreaded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 2));
-
-        assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    void replay_reAnchoredLinkNotAfterPrecedingLink_throwsIllegalState() {
-        var firstEventId = UUID.randomUUID();
-        var firstOutcomeId = UUID.randomUUID();
-        var secondEventId = UUID.randomUUID();
-        var secondOutcomeId = UUID.randomUUID();
-        var history = List.of(
-                new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID),
-                new ChainLinkThreaded(CHAIN_ID, firstEventId, firstOutcomeId, 2),
-                new ChainLinkAdded(CHAIN_ID, firstEventId, firstOutcomeId, 2),
-                new ChainLinkThreaded(CHAIN_ID, secondEventId, secondOutcomeId, 3),
-                new io.github.temporalrift.timeline.domain.event.ChainReAnchored(
-                        CHAIN_ID, secondEventId, secondOutcomeId, UUID.randomUUID(), UUID.randomUUID(), 1));
 
         assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
     }
@@ -626,6 +671,15 @@ class WeaverChainTest {
 
     private static WeaverChain started() {
         return WeaverChain.replay(CHAIN_ID, List.of(new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID)));
+    }
+
+    private static WeaverChain withConfirmedLinks(int count) {
+        var chain = started();
+        for (int era = 1; era <= count; era++) {
+            chain.threadPendingLink(UUID.randomUUID(), UUID.randomUUID(), era);
+            chain.confirmPendingLink();
+        }
+        return chain;
     }
 
     private static void completeWithThreeLinks(WeaverChain chain) {

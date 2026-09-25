@@ -23,7 +23,8 @@ import org.springframework.messaging.support.MessageBuilder;
  * Kafka-level proof of the Weaver chain saga: THREAD opens a pending link on a not-yet-resolved current-era
  * outcome; the pending link confirms (ChainLinkAdded) when its era resolves as predicted, growing the same chain
  * across era boundaries until the third link completes it; a redelivered THREAD emits only one ChainLinkThreaded;
- * GameEnded invalidates an incomplete chain's pending link; and an Annihilate naming an already-resolved,
+ * GameEnded invalidates an incomplete chain's pending link; REWEAVE moves an annihilated pending link to a live
+ * outcome that confirms only by winning; and an Annihilate naming an already-resolved,
  * confirmed-linked outcome is a no-op (only the chain's open pending link, if any, can ever be invalidated).
  */
 @TimelineServiceIntegrationTest
@@ -36,6 +37,7 @@ class WeaverChainSagaIT {
     private static final String CHAIN_COMPLETED = "ChainCompleted";
     private static final String CHAIN_RE_ANCHORED = "ChainReAnchored";
     private static final String CHAIN_LINK_INVALIDATED = "ChainLinkInvalidated";
+    private static final String PARADOX_DETECTED = "ParadoxDetected";
 
     @Autowired
     KafkaTemplate<Object, Object> kafkaTemplate;
@@ -101,7 +103,7 @@ class WeaverChainSagaIT {
     }
 
     @Test
-    void reweavePendingThirdLink_persistsCompletionAndPublishesVictoryOnce() {
+    void reweaveOffAnnihilatedPendingOutcome_confirmsOnlyWhenNewOutcomeWins() {
         var gameId = UUID.randomUUID();
         var weaver = UUID.randomUUID();
         for (var era : List.of(1, 2)) {
@@ -114,39 +116,41 @@ class WeaverChainSagaIT {
             awaitChainLinkAdded(gameId, era);
         }
 
-        var replacementEvent = UUID.randomUUID();
-        var replacementOutcome = UUID.randomUUID();
-        draftEra(gameId, 3, replacementEvent, replacementOutcome);
-        resolveEra(gameId, 3, replacementEvent, replacementOutcome);
-
-        var pendingEvent = UUID.randomUUID();
-        var pendingOutcome = UUID.randomUUID();
-        draftEra(gameId, 4, pendingEvent, pendingOutcome);
-        publishThread(gameId, 4, weaver, pendingEvent, pendingOutcome, UUID.randomUUID());
+        var event = UUID.randomUUID();
+        var predicted = UUID.randomUUID();
+        var reAimed = UUID.randomUUID();
+        var other = UUID.randomUUID();
+        publishEraStarted(gameId, 3);
+        publishEventsDrawn(gameId, 3, event, reAimed, predicted, other);
+        awaitFutureEventIndexed(gameId, 3);
+        publishThread(gameId, 3, weaver, event, predicted, UUID.randomUUID());
         awaitChainLinkThreaded(gameId, 3);
-        publishReweave(gameId, 4, weaver, replacementEvent, replacementOutcome);
+        publishSpecialActionPlayed(gameId, 3, UUID.randomUUID(), "ANNIHILATE", event, predicted);
+        publishSpecialActionPlayed(gameId, 3, UUID.randomUUID(), "ANNIHILATE", event, other);
+        publishActionRoundClosed(gameId, 3, 1);
+        publishReweave(gameId, 3, weaver, event, reAimed);
+        await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_RE_ANCHORED))
+                        .hasSize(1));
+        assertThat(eventTypesOf(messagesFor(gameId))).doesNotContain(CHAIN_COMPLETED);
+
+        resolveEra(gameId, 3, event, reAimed);
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_COMPLETED))
                         .hasSize(1));
-        var reAnchored = payloadsOf(messagesFor(gameId), CHAIN_RE_ANCHORED);
-        var completed = payloadsOf(messagesFor(gameId), CHAIN_COMPLETED);
-        assertThat(reAnchored).hasSize(1);
-        assertThat(reAnchored.getFirst()).containsEntry("chainLength", 3);
-        assertThat(completed.getFirst()).containsEntry("eraNumber", 3);
-        assertThat((List<?>) completed.getFirst().get("links")).hasSize(3);
-        var chainId = UUID.fromString(completed.getFirst().get("chainId").toString());
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT status FROM weaver_chain_saga WHERE chain_id = ?", String.class, chainId))
-                .isEqualTo("COMPLETED");
+        var reAnchored = payloadsOf(messagesFor(gameId), CHAIN_RE_ANCHORED).getFirst();
+        assertThat(reAnchored).containsEntry("chainLength", 2);
+        assertThat(reAnchored.get("discardedOutcomeId")).hasToString(predicted.toString());
+        assertThat(payloadsOf(messagesFor(gameId), CHAIN_LINK_ADDED)).anySatisfy(payload -> {
+            assertThat(payload).containsEntry("chainLength", 3);
+            assertThat(payload.get("linkedOutcomeId")).hasToString(reAimed.toString());
+        });
+        assertThat(eventTypesOf(messagesFor(gameId))).doesNotContain(PARADOX_DETECTED);
+        var chainId = UUID.fromString(reAnchored.get("chainId").toString());
         assertThat(jdbcTemplate.queryForObject(
                         "SELECT reweave_used_era FROM weaver_chain_saga WHERE chain_id = ?", Integer.class, chainId))
-                .isEqualTo(4);
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM event_store WHERE aggregate_id = ? AND event_type = 'ChainCompleted'",
-                        Integer.class,
-                        chainId))
-                .isEqualTo(1);
+                .isEqualTo(3);
     }
 
     /**

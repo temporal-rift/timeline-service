@@ -2,7 +2,6 @@ package io.github.temporalrift.timeline.application.saga;
 
 import java.time.Clock;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -39,7 +38,7 @@ import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaStatus;
 import io.github.temporalrift.timeline.domain.weaverchain.ChainLink;
 import io.github.temporalrift.timeline.domain.weaverchain.InvalidChainLinkException;
 import io.github.temporalrift.timeline.domain.weaverchain.LinkEraNotSuccessiveException;
-import io.github.temporalrift.timeline.domain.weaverchain.ResolvedOutcome;
+import io.github.temporalrift.timeline.domain.weaverchain.NoPendingLinkException;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
 /**
@@ -66,9 +65,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     private static final String REASON_NO_ACTIVE_CHAIN = "NO_ACTIVE_CHAIN";
     private static final String REASON_CHAIN_TOO_SHORT = "CHAIN_TOO_SHORT";
     private static final String REASON_ALREADY_USED_THIS_ERA = "ALREADY_USED_THIS_ERA";
-    private static final String REASON_TARGET_NOT_RESOLVED = "TARGET_NOT_RESOLVED";
     private static final String REASON_TARGET_ALREADY_LINKED = "TARGET_ALREADY_LINKED";
-    private static final String REASON_NO_LINK_TO_REPLACE = "NO_LINK_TO_REPLACE";
+    private static final String REASON_NO_PENDING_LINK = "NO_PENDING_LINK";
 
     private final WeaverChainRepository chains;
     private final WeaverChainSagaRepository sagas;
@@ -267,48 +265,46 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             publishSpecialRejected(gameId, eraNumber, playerId, SPECIAL_REWEAVE, null, target, REASON_NO_ACTIVE_CHAIN);
             return;
         }
-        var rejectionReason = validateReweave(saga, eraNumber, target);
+        var chain = chains.findById(saga.chainId());
+        var rejectionReason = validateReweave(gameId, eraNumber, saga, chain, target);
         if (rejectionReason != null) {
             publishSpecialRejected(
                     gameId, eraNumber, playerId, SPECIAL_REWEAVE, saga.chainId(), target, rejectionReason);
             return;
         }
-        resolvedTarget(target)
-                .ifPresentOrElse(
-                        resolved -> acceptReweave(gameId, eraNumber, playerId, saga, target, resolved),
-                        () -> publishSpecialRejected(
-                                gameId,
-                                eraNumber,
-                                playerId,
-                                SPECIAL_REWEAVE,
-                                saga.chainId(),
-                                target,
-                                REASON_TARGET_NOT_RESOLVED));
+        acceptReweave(gameId, eraNumber, playerId, saga, chain, target);
     }
 
-    /** The rules REWEAVE alone can check before touching the chain aggregate. */
-    private static String validateReweave(WeaverChainSagaState saga, int eraNumber, OutcomeCoordinate target) {
+    /** The REWEAVE rules checked before the chain re-aims; a pending link is required before the target is judged. */
+    private String validateReweave(
+            UUID gameId, int eraNumber, WeaverChainSagaState saga, WeaverChain chain, OutcomeCoordinate target) {
         if (Integer.valueOf(eraNumber).equals(saga.reweaveUsedEra())) {
             return REASON_ALREADY_USED_THIS_ERA;
         }
         if (target.eventId() == null || target.outcomeId() == null) {
             return REASON_MISSING_COORDINATE;
         }
+        var pending = chain.pendingLink();
+        if (pending == null || pending.eraNumber() != eraNumber) {
+            return REASON_NO_PENDING_LINK;
+        }
+        if (!isValidCurrentEraCoordinate(gameId, eraNumber, target.eventId(), target.outcomeId())) {
+            return REASON_INVALID_COORDINATE;
+        }
         return null;
     }
 
-    /** Re-anchors the chain's newest link once REWEAVE's target is known to have won its event. */
+    /** Moves the chain's pending link to REWEAVE's live target; the link stays pending and the chain cannot grow. */
     private void acceptReweave(
             UUID gameId,
             int eraNumber,
             UUID playerId,
             WeaverChainSagaState saga,
-            OutcomeCoordinate target,
-            ResolvedOutcome resolvedTarget) {
-        var chain = chains.findById(saga.chainId());
-        final List<WeaverChainEvent> facts;
+            WeaverChain chain,
+            OutcomeCoordinate target) {
+        final ChainReAnchored fact;
         try {
-            facts = chain.reAnchor(resolvedTarget);
+            fact = chain.reAimPendingLink(target.eventId(), target.outcomeId(), eraNumber);
         } catch (InvalidChainLinkException e) {
             publishSpecialRejected(
                     gameId,
@@ -317,19 +313,16 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                     SPECIAL_REWEAVE,
                     saga.chainId(),
                     target,
-                    reweaveRejectionReason(chain, e));
+                    reweaveRejectionReason(chain, target, e));
             return;
         }
-        chains.appendAll(saga.chainId(), facts);
-        var reAnchored = chains.findById(saga.chainId());
-        var fact = (ChainReAnchored) facts.getFirst();
-        var completed = facts.stream().anyMatch(ChainCompleted.class::isInstance);
+        chains.append(saga.chainId(), fact);
         sagas.save(new WeaverChainSagaState(
                 saga.chainId(),
                 gameId,
                 playerId,
-                completed ? WeaverChainSagaStatus.COMPLETED : WeaverChainSagaStatus.OPEN,
-                !completed && saga.tapestryProtected(),
+                WeaverChainSagaStatus.OPEN,
+                saga.tapestryProtected(),
                 saga.tapestryUsedEra(),
                 eraNumber));
         publisher.publish(TimelineEventEnvelope.create(
@@ -344,13 +337,20 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                         playerId,
                         fact.discardedEventId(),
                         fact.discardedOutcomeId(),
-                        target.eventId(),
-                        target.outcomeId(),
-                        reAnchored.length()),
+                        fact.eventId(),
+                        fact.outcomeId(),
+                        chain.length()),
                 clock));
-        if (completed) {
-            publishChainCompleted(gameId, saga, reAnchored);
+    }
+
+    private static String reweaveRejectionReason(
+            WeaverChain chain, OutcomeCoordinate target, InvalidChainLinkException rejection) {
+        if (rejection instanceof NoPendingLinkException) {
+            return REASON_NO_PENDING_LINK;
         }
+        return chain.links().stream().anyMatch(link -> link.eventId().equals(target.eventId()))
+                ? REASON_TARGET_ALREADY_LINKED
+                : REASON_INVALID_COORDINATE;
     }
 
     private void publishChainCompleted(UUID gameId, WeaverChainSagaState saga, WeaverChain completed) {
@@ -366,16 +366,6 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                         saga.playerId(),
                         toEntries(completed.links())),
                 clock));
-    }
-
-    private static String reweaveRejectionReason(WeaverChain chain, InvalidChainLinkException rejection) {
-        if (rejection instanceof LinkEraNotSuccessiveException) {
-            return REASON_LINK_ERA_NOT_SUCCESSIVE;
-        }
-        if (chain.pendingLink() == null && chain.length() == 0) {
-            return REASON_NO_LINK_TO_REPLACE;
-        }
-        return REASON_TARGET_ALREADY_LINKED;
     }
 
     @Override
@@ -630,23 +620,6 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                     saga.tapestryUsedEra(),
                     saga.reweaveUsedEra()));
         }
-    }
-
-    /**
-     * REWEAVE's target with the era it resolved in, present only when the outcome is the one its event drew.
-     * Unknown events, unresolved events, and outcomes that lost the draw are all absent.
-     */
-    private Optional<ResolvedOutcome> resolvedTarget(OutcomeCoordinate target) {
-        final FutureEvent futureEvent;
-        try {
-            futureEvent = futureEvents.findById(target.eventId());
-        } catch (FutureEventNotFoundException _) {
-            return Optional.empty();
-        }
-        return futureEvent
-                .resolution()
-                .filter(resolution -> resolution.winningOutcomeId().equals(target.outcomeId()))
-                .map(resolution -> new ResolvedOutcome(target.eventId(), target.outcomeId(), resolution.eraNumber()));
     }
 
     private static List<ChainCompletedEvent.ChainLinkEntry> toEntries(List<ChainLink> links) {

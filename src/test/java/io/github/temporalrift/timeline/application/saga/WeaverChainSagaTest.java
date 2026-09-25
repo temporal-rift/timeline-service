@@ -2,11 +2,13 @@ package io.github.temporalrift.timeline.application.saga;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
@@ -23,6 +25,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -79,6 +83,8 @@ class WeaverChainSagaTest {
     TimelineEventPublisher publisher;
 
     Clock clock = Clock.fixed(Instant.parse("2026-09-12T00:00:00Z"), ZoneOffset.UTC);
+
+    private final Map<Integer, List<UUID>> liveEventsByEra = new HashMap<>();
 
     FakeChains chains;
     FakeSagas sagas;
@@ -540,100 +546,6 @@ class WeaverChainSagaTest {
     }
 
     @Test
-    void reweave_discardsPendingLink_replacesWithConfirmedTarget() {
-        var chainId = openChainWithPendingLink();
-        var pending = chains.findById(chainId).pendingLink();
-        var replacementEvent = UUID.randomUUID();
-        var replacementOutcome = UUID.randomUUID();
-        given(futureEvents.findById(replacementEvent)).willReturn(resolvedEvent(replacementEvent, replacementOutcome));
-
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, replacementEvent, replacementOutcome);
-
-        var chain = chains.findById(chainId);
-        assertThat(chain.pendingLink()).isNull();
-        assertThat(chain.length()).isEqualTo(1);
-        assertThat(chain.links().getFirst().eventId())
-                .isEqualTo(replacementEvent)
-                .isNotEqualTo(pending.eventId());
-        var reAnchored = published(ChainReAnchoredEvent.class);
-        assertThat(reAnchored.discardedEventId()).isEqualTo(pending.eventId());
-    }
-
-    @Test
-    void reweave_pendingReplacementWithOneConfirmedLink_keepsChainOpenAtTwo() {
-        var chainId = openChainWithConfirmedLinks(1);
-        var chain = chains.findById(chainId);
-        var pendingEvent = UUID.randomUUID();
-        var pendingOutcome = UUID.randomUUID();
-        chains.append(chainId, chain.threadPendingLink(pendingEvent, pendingOutcome, ERA));
-        var replacementEvent = UUID.randomUUID();
-        var replacementOutcome = UUID.randomUUID();
-        given(futureEvents.findById(replacementEvent)).willReturn(resolvedEvent(replacementEvent, replacementOutcome));
-
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, replacementEvent, replacementOutcome);
-
-        assertThat(chains.findById(chainId).length()).isEqualTo(2);
-        assertThat(sagas.findByChainId(chainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.OPEN);
-        published(ChainReAnchoredEvent.class);
-        publishedNever(ChainCompletedEvent.class);
-    }
-
-    @Test
-    void reweave_pendingReplacementWithTwoConfirmedLinks_completesExactlyOnce() {
-        var chainId = openChainWithConfirmedLinks(2);
-        var chain = chains.findById(chainId);
-        var pendingEvent = UUID.randomUUID();
-        var pendingOutcome = UUID.randomUUID();
-        chains.append(chainId, chain.threadPendingLink(pendingEvent, pendingOutcome, ERA));
-        var replacementEvent = UUID.randomUUID();
-        var replacementOutcome = UUID.randomUUID();
-        given(futureEvents.findById(replacementEvent)).willReturn(resolvedEvent(replacementEvent, replacementOutcome));
-
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, replacementEvent, replacementOutcome);
-
-        var completedChain = chains.findById(chainId);
-        assertThat(completedChain.length()).isEqualTo(3);
-        assertThat(completedChain.status()).isEqualTo(ChainStatus.COMPLETED);
-        assertThat(completedChain.links().getLast().eventId()).isEqualTo(replacementEvent);
-        var completedSaga = sagas.findByChainId(chainId).orElseThrow();
-        assertThat(completedSaga.status()).isEqualTo(WeaverChainSagaStatus.COMPLETED);
-        assertThat(completedSaga.reweaveUsedEra()).isEqualTo(ERA);
-        var reAnchored = published(ChainReAnchoredEvent.class);
-        var completed = published(ChainCompletedEvent.class);
-        assertThat(reAnchored.chainLength()).isEqualTo(3);
-        assertThat(completed.links()).hasSize(3);
-        assertThat(completed.eraNumber()).isEqualTo(ERA - 1);
-        then(publisher)
-                .should(times(1))
-                .publish(argThat(envelope -> envelope != null && envelope.payload() instanceof ChainCompletedEvent));
-    }
-
-    @Test
-    void thread_afterReweaveCompletion_isRejectedWithoutOpeningAnotherChain() {
-        var chainId = openChainWithConfirmedLinks(2);
-        var chain = chains.findById(chainId);
-        var pendingEvent = UUID.randomUUID();
-        var pendingOutcome = UUID.randomUUID();
-        chains.append(chainId, chain.threadPendingLink(pendingEvent, pendingOutcome, ERA));
-        var replacementEvent = UUID.randomUUID();
-        var replacementOutcome = UUID.randomUUID();
-        given(futureEvents.findById(replacementEvent)).willReturn(resolvedEvent(replacementEvent, replacementOutcome));
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, replacementEvent, replacementOutcome);
-        var threadEvent = UUID.randomUUID();
-        var threadOutcome = UUID.randomUUID();
-
-        saga.playThread(GAME_ID, ERA + 1, PLAYER_ID, threadEvent, threadOutcome);
-
-        var rejected = published(ThreadRejectedEvent.class);
-        assertThat(rejected.reason()).isEqualTo("CHAIN_ALREADY_COMPLETED");
-        assertThat(sagas.findAllByGameAndPlayer(GAME_ID, PLAYER_ID)).hasSize(1);
-        assertThat(chains.findById(chainId).length()).isEqualTo(3);
-        then(publisher)
-                .should(times(1))
-                .publish(argThat(envelope -> envelope != null && envelope.payload() instanceof ChainCompletedEvent));
-    }
-
-    @Test
     void thread_afterPendingLinkConfirmation_isRejectedWithoutOpeningAnotherChain() {
         var chainId = openChainWithConfirmedLinks(2);
         var pendingEvent = UUID.randomUUID();
@@ -653,75 +565,264 @@ class WeaverChainSagaTest {
                 .publish(argThat(envelope -> envelope != null && envelope.payload() instanceof ChainCompletedEvent));
     }
 
-    @Test
-    void reweave_success_replacesNewestConfirmedLinkAndKeepsLength() {
-        var chainId = openChainWithConfirmedLinks(2);
-        var targetEvent = UUID.randomUUID();
-        var targetOutcome = UUID.randomUUID();
-        given(futureEvents.findById(targetEvent)).willReturn(resolvedEvent(targetEvent, targetOutcome));
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2})
+    void reweave_pendingLink_reAimsWithoutGrowthOrShift(int confirmedLinks) {
+        var pending = liveOutcome(ERA);
+        var chainId = openChainWithPendingLink(confirmedLinks, pending);
+        var target = liveOutcome(ERA);
 
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, targetEvent, targetOutcome);
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, target.eventId(), target.outcomeId());
 
         var chain = chains.findById(chainId);
-        assertThat(chain.length()).isEqualTo(2);
-        assertThat(chain.links().getLast().eventId()).isEqualTo(targetEvent);
-        assertThat(chain.links().getLast().outcomeId()).isEqualTo(targetOutcome);
-        assertThat(chain.links().getLast().eraNumber()).isEqualTo(ERA - 1);
+        assertThat(chain.pendingLink().eventId()).isEqualTo(target.eventId());
+        assertThat(chain.pendingLink().outcomeId()).isEqualTo(target.outcomeId());
+        assertThat(chain.length()).isEqualTo(confirmedLinks);
         var reAnchored = published(ChainReAnchoredEvent.class);
-        assertThat(reAnchored.chainLength()).isEqualTo(2);
-        assertThat(reAnchored.linkedEventId()).isEqualTo(targetEvent);
+        assertThat(reAnchored.discardedEventId()).isEqualTo(pending.eventId());
+        assertThat(reAnchored.discardedOutcomeId()).isEqualTo(pending.outcomeId());
+        assertThat(reAnchored.linkedEventId()).isEqualTo(target.eventId());
+        assertThat(reAnchored.linkedOutcomeId()).isEqualTo(target.outcomeId());
+        assertThat(reAnchored.chainLength()).isEqualTo(confirmedLinks);
+        assertThat(sagas.findByChainId(chainId).orElseThrow().reweaveUsedEra()).isEqualTo(ERA);
+        publishedNever(ChainLinkAddedEvent.class);
+        publishedNever(ChainCompletedEvent.class);
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2})
+    void reweave_withoutPendingLink_rejectedAsNoPendingLink(int confirmedLinks) {
+        var chainId = openChainWithConfirmedLinks(confirmedLinks);
+        var before = chains.findById(chainId).links();
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, UUID.randomUUID(), UUID.randomUUID());
+
+        assertThat(published(SpecialRejectedEvent.class).reason()).isEqualTo("NO_PENDING_LINK");
+        assertThat(chains.findById(chainId).links()).isEqualTo(before);
+        assertThat(sagas.findByChainId(chainId).orElseThrow().reweaveUsedEra()).isNull();
+    }
+
+    @Test
+    void reweave_pendingLinkFromEarlierEra_rejectedAsNoPendingLink() {
+        var chainId = openChainWithPendingLink(0, new Coordinate(UUID.randomUUID(), UUID.randomUUID()));
+
+        saga.playReweave(GAME_ID, ERA + 1, PLAYER_ID, UUID.randomUUID(), UUID.randomUUID());
+
+        assertThat(published(SpecialRejectedEvent.class).reason()).isEqualTo("NO_PENDING_LINK");
+        assertThat(chains.findById(chainId).pendingLink().eraNumber()).isEqualTo(ERA);
+    }
+
+    @Test
+    void reweave_reAimedLink_confirmsWhenNewOutcomeWins() {
+        var chainId = openChainWithPendingLink(1, liveOutcome(ERA));
+        var target = liveOutcome(ERA);
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, target.eventId(), target.outcomeId());
+
+        saga.resolvePendingLink(GAME_ID, ERA, target.eventId(), target.outcomeId());
+
+        assertThat(chains.findById(chainId).length()).isEqualTo(2);
+        assertThat(published(ChainLinkAddedEvent.class).linkedEventId()).isEqualTo(target.eventId());
+    }
+
+    @Test
+    void reweave_reAimedLink_clearsWhenNewOutcomeLoses() {
+        var chainId = openChainWithPendingLink(1, liveOutcome(ERA));
+        var target = liveOutcome(ERA);
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, target.eventId(), target.outcomeId());
+
+        saga.resolvePendingLink(GAME_ID, ERA, target.eventId(), UUID.randomUUID());
+
+        assertThat(chains.findById(chainId).length()).isEqualTo(1);
+        assertThat(chains.findById(chainId).pendingLink()).isNull();
+        published(ChainLinkInvalidatedEvent.class);
+        publishedNever(ChainLinkAddedEvent.class);
+    }
+
+    @Test
+    void reweave_twoConfirmedLinks_completesOnlyWhenReAimedLinkConfirms() {
+        var chainId = openChainWithPendingLink(2, liveOutcome(ERA));
+        var target = liveOutcome(ERA);
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, target.eventId(), target.outcomeId());
+
+        assertThat(sagas.findByChainId(chainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.OPEN);
+        publishedNever(ChainCompletedEvent.class);
+
+        saga.resolvePendingLink(GAME_ID, ERA, target.eventId(), target.outcomeId());
+
+        assertThat(chains.findById(chainId).status()).isEqualTo(ChainStatus.COMPLETED);
+        assertThat(sagas.findByChainId(chainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.COMPLETED);
+        then(publisher)
+                .should(times(1))
+                .publish(argThat(envelope -> envelope != null && envelope.payload() instanceof ChainCompletedEvent));
+    }
+
+    @Test
+    void threadThenReweaveEveryEra_withoutACorrectPrediction_neverCompletes() {
+        stubThreadRewardRules();
+        for (var era : List.of(2, 3, 4)) {
+            var threaded = liveOutcome(era);
+            var reAimed = liveOutcome(era);
+            saga.playThread(GAME_ID, era, PLAYER_ID, threaded.eventId(), threaded.outcomeId());
+            saga.playReweave(GAME_ID, era, PLAYER_ID, reAimed.eventId(), reAimed.outcomeId());
+            saga.resolvePendingLink(GAME_ID, era, reAimed.eventId(), UUID.randomUUID());
+        }
+
+        var state = sagas.findOpenByGameAndPlayer(GAME_ID, PLAYER_ID).orElseThrow();
+        assertThat(chains.findById(state.chainId()).length()).isZero();
+        publishedNever(ChainLinkAddedEvent.class);
+        publishedNever(ChainCompletedEvent.class);
+    }
+
+    @Test
+    void reweave_offAnnihilatedPendingOutcome_movesLinkToLiveOutcome() {
+        var pending = liveOutcome(ERA);
+        var chainId = openChainWithPendingLink(1, pending);
+        saga.annihilateOutcome(GAME_ID, ERA, pending.eventId(), pending.outcomeId());
+        var target = liveOutcome(ERA);
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, target.eventId(), target.outcomeId());
+
+        assertThat(chains.findById(chainId).pendingLink().outcomeId()).isEqualTo(target.outcomeId());
+        assertThat(chains.findById(chainId).length()).isEqualTo(1);
+    }
+
+    @Test
+    void reweave_tapestryArmed_stillProtectsReAimedLink() {
+        var chainId = openChainWithPendingLink(2, liveOutcome(ERA));
+        saga.playTapestry(GAME_ID, ERA, PLAYER_ID);
+        var target = liveOutcome(ERA);
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, target.eventId(), target.outcomeId());
+
+        saga.annihilateOutcome(GAME_ID, ERA, target.eventId(), target.outcomeId());
+
+        assertThat(published(ChainProtectionConsumedEvent.class).protectedEventId())
+                .isEqualTo(target.eventId());
+        assertThat(chains.findById(chainId).status()).isEqualTo(ChainStatus.COMPLETED);
+    }
+
+    @Test
+    void reweave_pendingOutcomeItself_rejectedAsInvalidCoordinate() {
+        var pending = liveOutcome(ERA);
+        var chainId = openChainWithPendingLink(1, pending);
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, pending.eventId(), pending.outcomeId());
+
+        assertThat(published(SpecialRejectedEvent.class).reason()).isEqualTo("INVALID_COORDINATE");
+        assertThat(sagas.findByChainId(chainId).orElseThrow().reweaveUsedEra()).isNull();
+    }
+
+    @Test
+    void reweave_sameEventOtherOutcome_accepted() {
+        var pending = liveOutcome(ERA);
+        var chainId = openChainWithPendingLink(0, pending);
+        var otherOutcome = futureEvents.findById(pending.eventId()).outcomes().stream()
+                .map(Outcome::outcomeId)
+                .filter(id -> !id.equals(pending.outcomeId()))
+                .findFirst()
+                .orElseThrow();
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, pending.eventId(), otherOutcome);
+
+        assertThat(chains.findById(chainId).pendingLink().outcomeId()).isEqualTo(otherOutcome);
+    }
+
+    @Test
+    void reweave_annihilatedTarget_rejectedAsInvalidCoordinate() {
+        openChainWithPendingLink(1, liveOutcome(ERA));
+        var target = liveOutcome(ERA);
+        futureEvents.findById(target.eventId()).annihilateOutcome(target.outcomeId());
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, target.eventId(), target.outcomeId());
+
+        assertThat(published(SpecialRejectedEvent.class).reason()).isEqualTo("INVALID_COORDINATE");
+    }
+
+    @Test
+    void reweave_resolvedOrOtherEraTarget_rejectedAsInvalidCoordinate() {
+        openChainWithPendingLink(1, liveOutcome(ERA));
+        var resolvedId = UUID.randomUUID();
+        var resolvedWinner = UUID.randomUUID();
+        given(futureEvents.findById(resolvedId)).willReturn(resolvedEvent(resolvedId, resolvedWinner, ERA));
+        indexLive(ERA, resolvedId);
+        var otherEra = liveOutcome(ERA + 1);
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, resolvedId, resolvedWinner);
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, otherEra.eventId(), otherEra.outcomeId());
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(2)).publish(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(envelope -> ((SpecialRejectedEvent) envelope.payload()).reason())
+                .containsExactly("INVALID_COORDINATE", "INVALID_COORDINATE");
+    }
+
+    @Test
+    void reweave_targetEventAlreadyLinked_rejected() {
+        var chainId = openChainWithConfirmedLinks(1);
+        var linked = chains.findById(chainId).links().getFirst();
+        // A Tapestry-confirmed link whose event Stalled is still live in a later era.
+        indexLive(ERA, linked.eventId());
+        given(futureEvents.findById(linked.eventId()))
+                .willReturn(unresolvedEventWithOutcome(linked.eventId(), linked.outcomeId()));
+        chains.append(
+                chainId,
+                chains.findById(chainId).threadPendingLink(liveOutcome(ERA).eventId(), UUID.randomUUID(), ERA));
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, linked.eventId(), linked.outcomeId());
+
+        assertThat(published(SpecialRejectedEvent.class).reason()).isEqualTo("TARGET_ALREADY_LINKED");
+    }
+
+    @Test
+    void reweave_missingTargetCoordinate_rejected() {
+        openChainWithPendingLink(1, liveOutcome(ERA));
+
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, null, null);
+
+        assertThat(published(SpecialRejectedEvent.class).reason()).isEqualTo("MISSING_COORDINATE");
     }
 
     @Test
     void reweave_alreadyUsedThisEra_rejectedWithoutChange() {
-        var chainId = openChainWithConfirmedLinks(2);
-        var firstTarget = UUID.randomUUID();
-        var firstOutcome = UUID.randomUUID();
-        given(futureEvents.findById(firstTarget)).willReturn(resolvedEvent(firstTarget, firstOutcome));
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, firstTarget, firstOutcome);
-        var secondTarget = UUID.randomUUID();
-        var secondOutcome = UUID.randomUUID();
+        var chainId = openChainWithPendingLink(1, liveOutcome(ERA));
+        var first = liveOutcome(ERA);
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, first.eventId(), first.outcomeId());
+        var second = liveOutcome(ERA);
 
-        // Rejected purely on the era-budget check — never even looks up the second target.
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, secondTarget, secondOutcome);
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, second.eventId(), second.outcomeId());
 
-        var chain = chains.findById(chainId);
-        assertThat(chain.links().getLast().eventId()).isEqualTo(firstTarget);
-        var rejected = published(SpecialRejectedEvent.class);
-        assertThat(rejected.reason()).isEqualTo("ALREADY_USED_THIS_ERA");
-    }
-
-    @Test
-    void reweave_usedInAnEarlierEra_succeedsAgainInALaterEra() {
-        var chainId = openChainWithConfirmedLinks(2);
-        var firstTarget = UUID.randomUUID();
-        var firstOutcome = UUID.randomUUID();
-        given(futureEvents.findById(firstTarget)).willReturn(resolvedEvent(firstTarget, firstOutcome));
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, firstTarget, firstOutcome);
-        var secondTarget = UUID.randomUUID();
-        var secondOutcome = UUID.randomUUID();
-        given(futureEvents.findById(secondTarget)).willReturn(resolvedEvent(secondTarget, secondOutcome));
-
-        saga.playReweave(GAME_ID, ERA + 1, PLAYER_ID, secondTarget, secondOutcome);
-
-        var chain = chains.findById(chainId);
-        assertThat(chain.links().getLast().eventId()).isEqualTo(secondTarget);
-        published(ChainReAnchoredEvent.class);
+        assertThat(chains.findById(chainId).pendingLink().eventId()).isEqualTo(first.eventId());
+        assertThat(published(SpecialRejectedEvent.class).reason()).isEqualTo("ALREADY_USED_THIS_ERA");
     }
 
     @Test
     void reweave_rejectedAttempt_doesNotCountTowardTheEraLimit() {
-        var chainId = openChainWithConfirmedLinks(1);
-
+        var chainId = openChainWithPendingLink(1, liveOutcome(ERA));
         saga.playReweave(GAME_ID, ERA, PLAYER_ID, null, null);
-        var target = UUID.randomUUID();
-        var outcome = UUID.randomUUID();
-        given(futureEvents.findById(target)).willReturn(resolvedEvent(target, outcome));
+        var target = liveOutcome(ERA);
 
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, target, outcome);
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, target.eventId(), target.outcomeId());
 
-        assertThat(chains.findById(chainId).links().getLast().eventId()).isEqualTo(target);
+        assertThat(chains.findById(chainId).pendingLink().eventId()).isEqualTo(target.eventId());
         published(ChainReAnchoredEvent.class);
+    }
+
+    @Test
+    void reweave_usedInAnEarlierEra_succeedsAgainInALaterEra() {
+        var chainId = openChainWithPendingLink(0, liveOutcome(ERA));
+        var first = liveOutcome(ERA);
+        saga.playReweave(GAME_ID, ERA, PLAYER_ID, first.eventId(), first.outcomeId());
+        saga.resolvePendingLink(GAME_ID, ERA, first.eventId(), first.outcomeId());
+        var next = liveOutcome(ERA + 1);
+        chains.append(chainId, chains.findById(chainId).threadPendingLink(next.eventId(), next.outcomeId(), ERA + 1));
+        var second = liveOutcome(ERA + 1);
+
+        saga.playReweave(GAME_ID, ERA + 1, PLAYER_ID, second.eventId(), second.outcomeId());
+
+        assertThat(chains.findById(chainId).pendingLink().eventId()).isEqualTo(second.eventId());
+        assertThat(sagas.findByChainId(chainId).orElseThrow().reweaveUsedEra()).isEqualTo(ERA + 1);
     }
 
     @Test
@@ -734,107 +835,6 @@ class WeaverChainSagaTest {
         var rejected = published(SpecialRejectedEvent.class);
         assertThat(rejected.reason()).isEqualTo("NO_ACTIVE_CHAIN");
         assertThat(rejected.specialAction()).isEqualTo("REWEAVE");
-    }
-
-    @Test
-    void reweave_missingTargetCoordinate_rejected() {
-        openChainWithConfirmedLinks(1);
-
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, null, null);
-
-        var rejected = published(SpecialRejectedEvent.class);
-        assertThat(rejected.reason()).isEqualTo("MISSING_COORDINATE");
-    }
-
-    @Test
-    void reweave_targetNotResolved_rejectedWithoutChange() {
-        var chainId = openChainWithConfirmedLinks(1);
-        var targetEvent = UUID.randomUUID();
-        var actualWinner = UUID.randomUUID();
-        var claimedOutcome = UUID.randomUUID();
-        given(futureEvents.findById(targetEvent)).willReturn(resolvedEvent(targetEvent, actualWinner));
-
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, targetEvent, claimedOutcome);
-
-        assertThat(chains.findById(chainId).length()).isEqualTo(1);
-        var rejected = published(SpecialRejectedEvent.class);
-        assertThat(rejected.reason()).isEqualTo("TARGET_NOT_RESOLVED");
-    }
-
-    @Test
-    void reweave_targetAlreadyLinked_rejectedWithoutChange() {
-        var chainId = openChainWithConfirmedLinks(1);
-        var existingLink = chains.findById(chainId).links().getFirst();
-        given(futureEvents.findById(existingLink.eventId()))
-                .willReturn(resolvedEvent(existingLink.eventId(), existingLink.outcomeId()));
-
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, existingLink.eventId(), existingLink.outcomeId());
-
-        assertThat(chains.findById(chainId).length()).isEqualTo(1);
-        var rejected = published(SpecialRejectedEvent.class);
-        assertThat(rejected.reason()).isEqualTo("TARGET_ALREADY_LINKED");
-    }
-
-    @Test
-    void reweave_targetIsDrawnLowProbabilityWinner_accepted() {
-        var chainId = openChainWithConfirmedLinks(1);
-        var targetEvent = UUID.randomUUID();
-        var drawnWinner = UUID.randomUUID();
-        var favourite = UUID.randomUUID();
-        given(futureEvents.findById(targetEvent))
-                .willReturn(resolvedEventWithUnderdogWinner(targetEvent, drawnWinner, favourite));
-
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, targetEvent, drawnWinner);
-
-        assertThat(chains.findById(chainId).links().getLast().outcomeId()).isEqualTo(drawnWinner);
-        published(ChainReAnchoredEvent.class);
-    }
-
-    @Test
-    void reweave_targetIsHighestProbabilityLoser_rejectedAsNotResolved() {
-        var chainId = openChainWithConfirmedLinks(1);
-        var targetEvent = UUID.randomUUID();
-        var drawnWinner = UUID.randomUUID();
-        var favourite = UUID.randomUUID();
-        given(futureEvents.findById(targetEvent))
-                .willReturn(resolvedEventWithUnderdogWinner(targetEvent, drawnWinner, favourite));
-
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, targetEvent, favourite);
-
-        assertThat(chains.findById(chainId).links().getLast().eventId()).isNotEqualTo(targetEvent);
-        var rejected = published(SpecialRejectedEvent.class);
-        assertThat(rejected.reason()).isEqualTo("TARGET_NOT_RESOLVED");
-    }
-
-    @Test
-    void reweave_targetEraNotAfterPrecedingLink_rejectedWithoutChange() {
-        var chainId = openChainWithConfirmedLinks(2);
-        var before = chains.findById(chainId).links();
-        var targetEvent = UUID.randomUUID();
-        var targetOutcome = UUID.randomUUID();
-        given(futureEvents.findById(targetEvent)).willReturn(resolvedEvent(targetEvent, targetOutcome, 1));
-
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, targetEvent, targetOutcome);
-
-        assertThat(chains.findById(chainId).links()).isEqualTo(before);
-        var rejected = published(SpecialRejectedEvent.class);
-        assertThat(rejected.reason()).isEqualTo("LINK_ERA_NOT_SUCCESSIVE");
-        assertThat(sagas.findByChainId(chainId).orElseThrow().reweaveUsedEra()).isNull();
-    }
-
-    @Test
-    void reweave_chainWithNoLinks_rejectedAsNoLinkToReplace() {
-        var chainId = openChainWithPendingLink();
-        var pending = chains.findById(chainId).pendingLink();
-        saga.resolvePendingLink(GAME_ID, ERA, pending.eventId(), UUID.randomUUID());
-        var targetEvent = UUID.randomUUID();
-        var targetOutcome = UUID.randomUUID();
-        given(futureEvents.findById(targetEvent)).willReturn(resolvedEvent(targetEvent, targetOutcome));
-
-        saga.playReweave(GAME_ID, ERA, PLAYER_ID, targetEvent, targetOutcome);
-
-        var rejected = published(SpecialRejectedEvent.class);
-        assertThat(rejected.reason()).isEqualTo("NO_LINK_TO_REPLACE");
     }
 
     @Test
@@ -955,6 +955,34 @@ class WeaverChainSagaTest {
         return chainId;
     }
 
+    /** Opens a chain with {@code confirmedLinks} confirmed links and a pending link on {@code pending} in ERA. */
+    private UUID openChainWithPendingLink(int confirmedLinks, Coordinate pending) {
+        var chainId = openChainWithConfirmedLinks(confirmedLinks);
+        chains.append(chainId, new ChainLinkThreaded(chainId, pending.eventId(), pending.outcomeId(), ERA));
+        return chainId;
+    }
+
+    /** Stubs a live outcome of {@code era}: its event is indexed in that era, unresolved, and not annihilated. */
+    private Coordinate liveOutcome(int era) {
+        var eventId = UUID.randomUUID();
+        var outcomeId = UUID.randomUUID();
+        indexLive(era, eventId);
+        lenient().when(futureEvents.findById(eventId)).thenReturn(unresolvedEventWithOutcome(eventId, outcomeId));
+        return new Coordinate(eventId, outcomeId);
+    }
+
+    private void indexLive(int era, UUID eventId) {
+        if (liveEventsByEra.isEmpty()) {
+            lenient()
+                    .when(eraIndex.findByGameIdAndEraNumber(eq(GAME_ID), anyInt()))
+                    .thenAnswer(invocation ->
+                            liveEventsByEra.getOrDefault(invocation.<Integer>getArgument(1), List.of()).stream()
+                                    .map(id -> new IndexedEventId(id, 0))
+                                    .toList());
+        }
+        liveEventsByEra.computeIfAbsent(era, _ -> new ArrayList<>()).add(eventId);
+    }
+
     private FutureEvent resolvedEvent(UUID eventId, UUID winnerId) {
         return resolvedEvent(eventId, winnerId, ERA - 1);
     }
@@ -971,19 +999,6 @@ class WeaverChainSagaTest {
                 List.of(
                         new FutureEventDrafted(eventId, outcomes),
                         new OutcomeApplied(GAME_ID, eraNumber, eventId, winnerId, outcomes)));
-    }
-
-    /** A resolved event whose weighted draw picked its least likely outcome over the favourite. */
-    private FutureEvent resolvedEventWithUnderdogWinner(UUID eventId, UUID winnerId, UUID favouriteId) {
-        var outcomes = List.of(
-                new Outcome(favouriteId, "favourite", 70),
-                new Outcome(UUID.randomUUID(), "middle", 20),
-                new Outcome(winnerId, "underdog", 10));
-        return FutureEvent.replay(
-                eventId,
-                List.of(
-                        new FutureEventDrafted(eventId, outcomes),
-                        new OutcomeApplied(GAME_ID, ERA - 1, eventId, winnerId, outcomes)));
     }
 
     private FutureEvent unresolvedEventWithOutcome(UUID eventId, UUID outcomeId) {

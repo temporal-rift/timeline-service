@@ -3,7 +3,6 @@ package io.github.temporalrift.timeline.domain.weaverchain;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
 import io.github.temporalrift.timeline.domain.event.ChainBroken;
@@ -105,10 +104,9 @@ public final class WeaverChain {
     }
 
     /**
-     * Applies one replayed event. A third {@link ChainLinkAdded} marks the chain completed; a
-     * {@link ChainReAnchored} reaches that state only when its {@link ChainCompleted} fact is replayed. A repeated
-     * completion fact is an idempotent echo; anything else after a terminal state fails loudly. Facts carrying
-     * another chain's id, repeating a linked event, or completing a short chain are rejected before mutation.
+     * Applies one replayed event. A third {@link ChainLinkAdded} marks the chain completed. A repeated completion
+     * fact is an idempotent echo; anything else after a terminal state fails loudly. Facts carrying another chain's
+     * id, repeating a linked event, or completing a short chain are rejected before mutation.
      */
     private void applyReplayed(ChainFact event, UUID chainId) {
         if (!Objects.equals(event.chainId(), chainId)) {
@@ -131,9 +129,8 @@ public final class WeaverChain {
     private String replayViolation(ChainFact event) {
         return switch (event) {
             case ChainLinkThreaded e
-            when pendingLink != null
-                    || links.stream().anyMatch(link -> link.eventId().equals(e.eventId()))
-                    || !isAfter(e.eraNumber(), newestConfirmedLink()) -> "Invalid pending link for " + e.eventId();
+            when pendingLink != null || isLinked(e.eventId()) || !isAfter(e.eraNumber(), newestConfirmedLink()) ->
+                "Invalid pending link for " + e.eventId();
             case ChainLinkAdded e
             when !pendingLinkMatches(e.eventId(), e.outcomeId()) ->
                 "No matching pending link to confirm for " + e.eventId();
@@ -141,11 +138,11 @@ public final class WeaverChain {
             when !pendingLinkMatches(e.eventId(), e.outcomeId()) ->
                 "No matching pending link to invalidate for " + e.eventId();
             case ChainReAnchored e
-            when !newestLinkMatches(e.discardedEventId(), e.discardedOutcomeId()) ->
-                "Re-anchored link was never appended for " + e.discardedEventId();
+            when !pendingLinkMatches(e.discardedEventId(), e.discardedOutcomeId()) ->
+                "No matching pending link to re-aim for " + e.discardedEventId();
             case ChainReAnchored e
-            when !isAfter(e.eraNumber(), linkBeforeNewest()) ->
-                "Re-anchored link is not after its previous link for " + e.eventId();
+            when e.eraNumber() != pendingLink.eraNumber() || isLinked(e.eventId()) ->
+                "Invalid re-aimed pending link for " + e.eventId();
             case ChainCompleted _
             when links.size() != COMPLETION_LENGTH -> "ChainCompleted requires " + COMPLETION_LENGTH + " links";
             default -> null;
@@ -158,27 +155,12 @@ public final class WeaverChain {
                 && pendingLink.outcomeId().equals(outcomeId);
     }
 
-    private boolean newestLinkMatches(UUID eventId, UUID outcomeId) {
-        if (pendingLink != null) {
-            return pendingLinkMatches(eventId, outcomeId);
-        }
-        if (links.isEmpty()) {
-            return false;
-        }
-        var newest = links.getLast();
-        return newest.eventId().equals(eventId) && newest.outcomeId().equals(outcomeId);
+    private boolean isLinked(UUID eventId) {
+        return links.stream().anyMatch(link -> link.eventId().equals(eventId));
     }
 
     private ChainLink newestConfirmedLink() {
         return links.isEmpty() ? null : links.getLast();
-    }
-
-    /** The link a replacement of the newest link — pending or confirmed — must follow, or {@code null}. */
-    private ChainLink linkBeforeNewest() {
-        if (pendingLink != null) {
-            return newestConfirmedLink();
-        }
-        return links.size() < 2 ? null : links.get(links.size() - 2);
     }
 
     private static boolean isAfter(int eraNumber, ChainLink previous) {
@@ -207,14 +189,7 @@ public final class WeaverChain {
                 status = ChainStatus.BROKEN;
                 pendingLink = null;
             }
-            case ChainReAnchored e -> {
-                if (pendingLink != null) {
-                    pendingLink = null;
-                } else {
-                    links.removeLast();
-                }
-                links.add(new ChainLink(e.eventId(), e.outcomeId(), e.eraNumber()));
-            }
+            case ChainReAnchored e -> pendingLink = new ChainLink(e.eventId(), e.outcomeId(), e.eraNumber());
         }
     }
 
@@ -235,7 +210,7 @@ public final class WeaverChain {
         if (pendingLink != null) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "chain already has an open pending link");
         }
-        if (links.stream().anyMatch(link -> link.eventId().equals(eventId))) {
+        if (isLinked(eventId)) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "event already linked");
         }
         requireAfter(eventId, outcomeId, eraNumber, newestConfirmedLink());
@@ -278,51 +253,32 @@ public final class WeaverChain {
     }
 
     /**
-     * Discards this chain's newest link — pending or confirmed — and replaces it with a different resolved
-     * past outcome in one indivisible step ({@code REWEAVE}). Replacing a confirmed link preserves the confirmed
-     * length; replacing a pending link increases it by one. Earlier links are unchanged, and the target's
-     * era must be after the era of the link preceding the replaced one. Returns the re-anchor fact and, when
-     * replacing a pending third link, the completion fact to append in the same batch.
+     * Moves this chain's open pending link to a different outcome of the same era ({@code REWEAVE}). The link
+     * stays pending and confirms only if its new outcome wins; confirmed links and chain length are unchanged.
+     * Rejected without a pending link from {@code eraNumber}, for the pending outcome itself, or for an event that
+     * is already a confirmed link.
      */
-    public List<WeaverChainEvent> reAnchor(ResolvedOutcome target) {
-        Objects.requireNonNull(target, "target");
-        var eventId = target.eventId();
-        var outcomeId = target.outcomeId();
-        var eraNumber = target.eraNumber();
-        if (pendingLink == null && links.isEmpty()) {
-            throw new InvalidChainLinkException(chainId, eventId, outcomeId, "chain has no links to re-anchor");
-        }
+    public ChainReAnchored reAimPendingLink(UUID eventId, UUID outcomeId, int eraNumber) {
+        Objects.requireNonNull(eventId, PARAM_EVENT_ID);
+        Objects.requireNonNull(outcomeId, PARAM_OUTCOME_ID);
         if (status == ChainStatus.COMPLETED) {
             throw new WeaverChainCompletedException(chainId);
         }
         if (status == ChainStatus.BROKEN) {
             throw new WeaverChainBrokenException(chainId);
         }
-        if (links.stream().anyMatch(link -> link.eventId().equals(eventId))) {
+        if (pendingLink == null || pendingLink.eraNumber() != eraNumber) {
+            throw new NoPendingLinkException(chainId, eventId, outcomeId, eraNumber);
+        }
+        if (pendingLinkMatches(eventId, outcomeId)) {
+            throw new InvalidChainLinkException(chainId, eventId, outcomeId, "target is the pending outcome");
+        }
+        if (isLinked(eventId)) {
             throw new InvalidChainLinkException(chainId, eventId, outcomeId, "event already linked");
         }
-        requireAfter(eventId, outcomeId, eraNumber, linkBeforeNewest());
-        var discarded = pendingLink != null ? pendingLink : links.getLast();
-        var reAnchored =
-                new ChainReAnchored(chainId, discarded.eventId(), discarded.outcomeId(), eventId, outcomeId, eraNumber);
-        if (pendingLink != null) {
-            pendingLink = null;
-        } else {
-            links.removeLast();
-        }
-        links.add(new ChainLink(eventId, outcomeId, eraNumber));
-        return completeIfReady()
-                .<List<WeaverChainEvent>>map(completed -> List.of(reAnchored, completed))
-                .orElseGet(() -> List.of(reAnchored));
-    }
-
-    /** Marks a three-link chain completed after REWEAVE installs a confirmed link. */
-    private Optional<ChainCompleted> completeIfReady() {
-        if (status != ChainStatus.ACTIVE || links.size() != COMPLETION_LENGTH || pendingLink != null) {
-            return Optional.empty();
-        }
-        status = ChainStatus.COMPLETED;
-        return Optional.of(new ChainCompleted(chainId));
+        var discarded = pendingLink;
+        pendingLink = new ChainLink(eventId, outcomeId, eraNumber);
+        return new ChainReAnchored(chainId, discarded.eventId(), discarded.outcomeId(), eventId, outcomeId, eraNumber);
     }
 
     /** Marks this chain broken, preserving its confirmed links and discarding any open pending link. */
