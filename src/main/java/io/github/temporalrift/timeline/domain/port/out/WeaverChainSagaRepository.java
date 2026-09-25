@@ -15,6 +15,9 @@ public interface WeaverChainSagaRepository {
     /** Finds the open saga for one player in one game, if any (at most one active chain per player). */
     Optional<WeaverChainSagaState> findOpenByGameAndPlayer(UUID gameId, UUID playerId);
 
+    /** Finds one completed saga for a player in a game without loading earlier broken chains. */
+    Optional<WeaverChainSagaState> findCompletedByGameAndPlayer(UUID gameId, UUID playerId);
+
     /**
      * Finds every saga for one player in one game, in any status — the gated chain read reports
      * completed and broken chains too, and terminal rows accumulate when a Weaver rebuilds after a

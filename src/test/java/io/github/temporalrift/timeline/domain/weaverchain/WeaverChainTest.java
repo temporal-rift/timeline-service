@@ -375,7 +375,6 @@ class WeaverChainTest {
         assertThat(facts.getLast()).isEqualTo(new ChainCompleted(CHAIN_ID));
         assertThat(chain.status()).isEqualTo(ChainStatus.COMPLETED);
         assertThat(chain.length()).isEqualTo(3);
-        assertThat(chain.completeIfReady()).isEmpty();
     }
 
     @Test

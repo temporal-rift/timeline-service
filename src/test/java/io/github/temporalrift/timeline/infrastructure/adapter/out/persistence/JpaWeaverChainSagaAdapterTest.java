@@ -73,6 +73,28 @@ class JpaWeaverChainSagaAdapterTest {
     }
 
     @Test
+    void findCompletedByGameAndPlayer_returnsOnlyMatchingCompletedSaga() {
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var completedChain = UUID.randomUUID();
+        sagas.save(new WeaverChainSagaState(
+                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null, null));
+        sagas.save(new WeaverChainSagaState(
+                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null));
+        sagas.save(new WeaverChainSagaState(
+                UUID.randomUUID(), gameId, UUID.randomUUID(), WeaverChainSagaStatus.COMPLETED, false, null, null));
+        sagas.save(new WeaverChainSagaState(
+                completedChain, gameId, playerId, WeaverChainSagaStatus.COMPLETED, false, null, null));
+
+        assertThat(sagas.findCompletedByGameAndPlayer(gameId, playerId))
+                .get()
+                .extracting(WeaverChainSagaState::chainId)
+                .isEqualTo(completedChain);
+        assertThat(sagas.findCompletedByGameAndPlayer(UUID.randomUUID(), playerId))
+                .isEmpty();
+    }
+
+    @Test
     void findAllByGameAndPlayer_returnsOpenAndTerminalSagas() {
         var gameId = UUID.randomUUID();
         var playerId = UUID.randomUUID();

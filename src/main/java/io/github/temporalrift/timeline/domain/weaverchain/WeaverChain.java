@@ -105,10 +105,10 @@ public final class WeaverChain {
     }
 
     /**
-     * Applies one replayed event, deriving completion from the link count so a stream missing its terminal fact
-     * still rebuilds as completed. A repeated {@link ChainCompleted} is an idempotent echo; anything else after a
-     * terminal state fails loudly. Facts carrying another chain's id, repeating a linked event, or completing a
-     * short chain are rejected before any state mutation.
+     * Applies one replayed event. A third {@link ChainLinkAdded} marks the chain completed; a
+     * {@link ChainReAnchored} reaches that state only when its {@link ChainCompleted} fact is replayed. A repeated
+     * completion fact is an idempotent echo; anything else after a terminal state fails loudly. Facts carrying
+     * another chain's id, repeating a linked event, or completing a short chain are rejected before mutation.
      */
     private void applyReplayed(ChainFact event, UUID chainId) {
         if (!Objects.equals(event.chainId(), chainId)) {
@@ -279,7 +279,8 @@ public final class WeaverChain {
 
     /**
      * Discards this chain's newest link — pending or confirmed — and replaces it with a different resolved
-     * past outcome in one indivisible step ({@code REWEAVE}). Length and earlier links are unchanged; the target's
+     * past outcome in one indivisible step ({@code REWEAVE}). Replacing a confirmed link preserves the confirmed
+     * length; replacing a pending link increases it by one. Earlier links are unchanged, and the target's
      * era must be after the era of the link preceding the replaced one. Returns the re-anchor fact and, when
      * replacing a pending third link, the completion fact to append in the same batch.
      */
@@ -315,8 +316,8 @@ public final class WeaverChain {
                 .orElseGet(() -> List.of(reAnchored));
     }
 
-    /** Marks a three-link chain completed after a transition such as REWEAVE that installs a confirmed link. */
-    public Optional<ChainCompleted> completeIfReady() {
+    /** Marks a three-link chain completed after REWEAVE installs a confirmed link. */
+    private Optional<ChainCompleted> completeIfReady() {
         if (status != ChainStatus.ACTIVE || links.size() != COMPLETION_LENGTH || pendingLink != null) {
             return Optional.empty();
         }
