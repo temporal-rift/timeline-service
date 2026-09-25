@@ -551,7 +551,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                         pending.eventId(),
                         pending.outcomeId(),
                         grown.length(),
-                        previousLinkEventId),
+                        previousLinkEventId,
+                        pending.eraNumber()),
                 clock));
         if (facts.stream().anyMatch(ChainCompleted.class::isInstance)) {
             sagas.save(new WeaverChainSagaState(

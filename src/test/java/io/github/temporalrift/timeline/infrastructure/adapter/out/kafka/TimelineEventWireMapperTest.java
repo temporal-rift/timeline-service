@@ -138,7 +138,7 @@ class TimelineEventWireMapperTest {
         var linkedOutcomeId = UUID.randomUUID();
         var previousLinkEventId = UUID.randomUUID();
         var event = new ChainLinkAddedEvent(
-                gameId, chainId, playerId, linkedEventId, linkedOutcomeId, 2, previousLinkEventId);
+                gameId, chainId, playerId, linkedEventId, linkedOutcomeId, 2, previousLinkEventId, 3);
 
         var wire = mapper.toWire(event);
 
@@ -149,6 +149,7 @@ class TimelineEventWireMapperTest {
         assertThat(wire.linkedOutcomeId()).isEqualTo(linkedOutcomeId);
         assertThat(wire.chainLength()).isEqualTo(2);
         assertThat(wire.previousLinkEventId()).isEqualTo(previousLinkEventId);
+        assertThat(wire.eraNumber()).isEqualTo(3);
     }
 
     @Test
