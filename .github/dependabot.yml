@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    groups:
+      temporal-rift-contracts:
+        patterns:
+          - "io.github.temporal-rift:*"
