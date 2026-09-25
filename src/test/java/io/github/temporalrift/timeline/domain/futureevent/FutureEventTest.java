@@ -1417,6 +1417,26 @@ class FutureEventTest {
     }
 
     @Test
+    void applyShift_collide_alreadyTiedPair_leavesWeightsButArmsDeadHeat() {
+        // A Collide on an already-equal pair still spends the card on forcing that tie, so it counts like any other.
+        var id = UUID.randomUUID();
+        var suppressed = new Outcome(UUID.randomUUID(), "suppressed", 24);
+        var a = new Outcome(UUID.randomUUID(), "a", 38);
+        var b = new Outcome(UUID.randomUUID(), "b", 38);
+        var event = drafted(id, suppressed, a, b);
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+                .isEmpty();
+
+        var result = event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(result).isInstanceOf(OutcomesCollided.class);
+        assertThat(event.outcomes()).extracting(Outcome::probability).containsExactly(24, 38, 38);
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+                .extracting(DetectedParadox::type)
+                .containsExactly(ParadoxType.DEAD_HEAT);
+    }
+
+    @Test
     void applyShift_collide_sealDeclined_recordsNoCollidedPair() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
