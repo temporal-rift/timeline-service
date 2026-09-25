@@ -14,7 +14,7 @@ public interface WeaverChainSagaUseCase {
     /** Arms TAPESTRY protection on a 2+ link chain, once per era, or privately rejects it. */
     void playTapestry(UUID gameId, int eraNumber, UUID playerId);
 
-    /** Discards the chain's newest link (pending or confirmed) and re-anchors it to a resolved past outcome. */
+    /** Moves the chain's pending link to a different live outcome of the current era; the link stays pending. */
     void playReweave(UUID gameId, int eraNumber, UUID playerId, UUID targetEventId, UUID targetOutcomeId);
 
     /**

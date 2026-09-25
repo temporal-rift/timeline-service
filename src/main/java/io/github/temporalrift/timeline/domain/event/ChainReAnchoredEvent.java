@@ -2,7 +2,7 @@ package io.github.temporalrift.timeline.domain.event;
 
 import java.util.UUID;
 
-/** Publication record for the {@code ChainReAnchored} wire fact — an accepted REWEAVE re-anchored the chain. */
+/** Publication record for the {@code ChainReAnchored} wire fact — an accepted REWEAVE moved the pending link. */
 public record ChainReAnchoredEvent(
         UUID gameId,
         int eraNumber,
