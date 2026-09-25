@@ -304,7 +304,11 @@ class ParadoxResolutionSagaImpl {
         var freshParadoxes = stabilized
                 ? List.<DetectedParadox>of()
                 : ParadoxDetector.detect(
-                        futureEvent.outcomes(), futureEvent.sealBreach(), futureEvent.id(), activeChains);
+                        futureEvent.outcomes(),
+                        futureEvent.sealBreach(),
+                        futureEvent.collidedPairs(),
+                        futureEvent.id(),
+                        activeChains);
 
         var persistingIds = reconcileFindings(
                 phase,
@@ -431,10 +435,10 @@ class ParadoxResolutionSagaImpl {
 
     /**
      * STABILIZE clears every finding without changing weights, so a remaining tie is settled by the ordinary weighted
-     * draw; it has no effect on an event with no eligible outcome left to draw.
+     * draw; it has no effect on an event with no drawable weight left (see {@code IMPOSSIBLE_ERASURE}).
      */
     private static boolean isStabilized(ParadoxResolutionPhase phase, UUID affectedEventId, FutureEvent futureEvent) {
-        return futureEvent.hasEligibleOutcome()
+        return futureEvent.hasDrawableWeight()
                 && phase.submissions().stream()
                         .anyMatch(s -> STABILIZE.equals(s.cardType()) && affectedEventId.equals(s.targetEventId()));
     }
