@@ -99,12 +99,12 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     @Transactional
     public void playThread(UUID gameId, int eraNumber, UUID playerId, UUID eventId, UUID outcomeId) {
         var coordinate = new OutcomeCoordinate(eventId, outcomeId);
-        var completedChain = sagas.findCompletedByGameAndPlayer(gameId, playerId);
-        if (completedChain.isPresent()) {
+        var completedSaga = sagas.findCompletedByGameAndPlayer(gameId, playerId).orElse(null);
+        if (completedSaga != null) {
             publishThreadRejected(
                     gameId,
                     eraNumber,
-                    completedChain.get().chainId(),
+                    completedSaga.chainId(),
                     playerId,
                     coordinate,
                     REASON_CHAIN_ALREADY_COMPLETED);
