@@ -98,25 +98,19 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     @Override
     @Transactional
     public void playThread(UUID gameId, int eraNumber, UUID playerId, UUID eventId, UUID outcomeId) {
-        var saga = sagas.findOpenByGameAndPlayer(gameId, playerId).orElse(null);
         var coordinate = new OutcomeCoordinate(eventId, outcomeId);
-        if (saga != null) {
-            var chain = chains.findById(saga.chainId());
-            completeChainIfReady(gameId, saga, chain);
-        }
-        var completedChain = sagas.findAllByGameAndPlayer(gameId, playerId).stream()
-                .filter(candidate -> candidate.status() == WeaverChainSagaStatus.COMPLETED)
-                .findFirst();
+        var completedChain = sagas.findCompletedByGameAndPlayer(gameId, playerId);
         if (completedChain.isPresent()) {
             publishThreadRejected(
                     gameId,
                     eraNumber,
-                    completedChain.orElseThrow().chainId(),
+                    completedChain.get().chainId(),
                     playerId,
                     coordinate,
                     REASON_CHAIN_ALREADY_COMPLETED);
             return;
         }
+        var saga = sagas.findOpenByGameAndPlayer(gameId, playerId).orElse(null);
         var rejectionReason = validateThread(gameId, eraNumber, coordinate);
         if (rejectionReason != null) {
             publishThreadRejected(
@@ -356,24 +350,6 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         }
     }
 
-    private void completeChainIfReady(UUID gameId, WeaverChainSagaState saga, WeaverChain chain) {
-        var completion = chain.completeIfReady();
-        if (completion.isEmpty()) {
-            return;
-        }
-        chains.append(saga.chainId(), completion.orElseThrow());
-        var completed = chains.findById(saga.chainId());
-        publishChainCompleted(gameId, saga, completed);
-        sagas.save(new WeaverChainSagaState(
-                saga.chainId(),
-                gameId,
-                saga.playerId(),
-                WeaverChainSagaStatus.COMPLETED,
-                false,
-                saga.tapestryUsedEra(),
-                saga.reweaveUsedEra()));
-    }
-
     private void publishChainCompleted(UUID gameId, WeaverChainSagaState saga, WeaverChain completed) {
         publisher.publish(TimelineEventEnvelope.create(
                 saga.chainId(),
@@ -451,7 +427,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 new ChainProtectionConsumedEvent(
                         gameId, eraNumber, saga.chainId(), saga.playerId(), eventId, outcomeId),
                 clock));
-        confirmPendingLink(gameId, eraNumber, saga);
+        confirmPendingLink(gameId, saga);
     }
 
     @Override
@@ -476,7 +452,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             return;
         }
         if (pending.outcomeId().equals(winningOutcomeId)) {
-            confirmPendingLink(gameId, eraNumber, saga);
+            confirmPendingLink(gameId, saga);
         } else {
             clearPendingLink(gameId, eraNumber, saga, chain);
         }
@@ -505,7 +481,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                     && pending.eventId().equals(eventId)
                     && pending.outcomeId().equals(outcomeId)) {
                 if (pending.eraNumber() == eraNumber) {
-                    confirmPendingLink(gameId, eraNumber, saga);
+                    confirmPendingLink(gameId, saga);
                 } else if (pending.eraNumber() < eraNumber) {
                     expirePendingLink(gameId, eraNumber, saga, chain);
                 }
@@ -561,7 +537,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     }
 
     /** Confirms the given saga's chain's pending link, publishing {@code ChainLinkAdded} (+ {@code ChainCompleted}). */
-    private void confirmPendingLink(UUID gameId, int eraNumber, WeaverChainSagaState saga) {
+    private void confirmPendingLink(UUID gameId, WeaverChainSagaState saga) {
         var chain = chains.findById(saga.chainId());
         var pending = chain.pendingLink();
         var beforeLength = chain.length();
@@ -585,14 +561,6 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                         previousLinkEventId),
                 clock));
         if (facts.stream().anyMatch(ChainCompleted.class::isInstance)) {
-            publisher.publish(TimelineEventEnvelope.create(
-                    saga.chainId(),
-                    AGGREGATE_TYPE,
-                    gameId,
-                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new ChainCompletedEvent(
-                            gameId, eraNumber, saga.chainId(), saga.playerId(), toEntries(grown.links())),
-                    clock));
             sagas.save(new WeaverChainSagaState(
                     saga.chainId(),
                     gameId,
@@ -601,6 +569,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                     false,
                     saga.tapestryUsedEra(),
                     saga.reweaveUsedEra()));
+            publishChainCompleted(gameId, saga, grown);
         }
     }
 

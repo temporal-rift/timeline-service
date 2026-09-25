@@ -55,6 +55,7 @@ import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaState;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaStatus;
+import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
 @ExtendWith(MockitoExtension.class)
@@ -592,8 +593,7 @@ class WeaverChainSagaTest {
 
         var completedChain = chains.findById(chainId);
         assertThat(completedChain.length()).isEqualTo(3);
-        assertThat(completedChain.status())
-                .isEqualTo(io.github.temporalrift.timeline.domain.weaverchain.ChainStatus.COMPLETED);
+        assertThat(completedChain.status()).isEqualTo(ChainStatus.COMPLETED);
         assertThat(completedChain.links().getLast().eventId()).isEqualTo(replacementEvent);
         var completedSaga = sagas.findByChainId(chainId).orElseThrow();
         assertThat(completedSaga.status()).isEqualTo(WeaverChainSagaStatus.COMPLETED);
@@ -628,6 +628,26 @@ class WeaverChainSagaTest {
         assertThat(rejected.reason()).isEqualTo("CHAIN_ALREADY_COMPLETED");
         assertThat(sagas.findAllByGameAndPlayer(GAME_ID, PLAYER_ID)).hasSize(1);
         assertThat(chains.findById(chainId).length()).isEqualTo(3);
+        then(publisher)
+                .should(times(1))
+                .publish(argThat(envelope -> envelope != null && envelope.payload() instanceof ChainCompletedEvent));
+    }
+
+    @Test
+    void thread_afterPendingLinkConfirmation_isRejectedWithoutOpeningAnotherChain() {
+        var chainId = openChainWithConfirmedLinks(2);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, chains.findById(chainId).threadPendingLink(pendingEvent, pendingOutcome, ERA));
+
+        saga.resolvePendingLink(GAME_ID, ERA, pendingEvent, pendingOutcome);
+        saga.playThread(GAME_ID, ERA + 1, PLAYER_ID, UUID.randomUUID(), UUID.randomUUID());
+
+        assertThat(sagas.findByChainId(chainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.COMPLETED);
+        assertThat(chains.findById(chainId).status()).isEqualTo(ChainStatus.COMPLETED);
+        assertThat(published(ThreadRejectedEvent.class).reason()).isEqualTo("CHAIN_ALREADY_COMPLETED");
+        assertThat(published(ChainCompletedEvent.class).eraNumber()).isEqualTo(ERA);
+        assertThat(sagas.findAllByGameAndPlayer(GAME_ID, PLAYER_ID)).hasSize(1);
         then(publisher)
                 .should(times(1))
                 .publish(argThat(envelope -> envelope != null && envelope.payload() instanceof ChainCompletedEvent));
@@ -1049,6 +1069,15 @@ class WeaverChainSagaTest {
                     .filter(state -> state.gameId().equals(gameId)
                             && state.playerId().equals(playerId)
                             && state.status() == WeaverChainSagaStatus.OPEN)
+                    .findFirst();
+        }
+
+        @Override
+        public Optional<WeaverChainSagaState> findCompletedByGameAndPlayer(UUID gameId, UUID playerId) {
+            return states.values().stream()
+                    .filter(state -> state.gameId().equals(gameId)
+                            && state.playerId().equals(playerId)
+                            && state.status() == WeaverChainSagaStatus.COMPLETED)
                     .findFirst();
         }
 

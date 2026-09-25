@@ -17,6 +17,9 @@ interface WeaverChainSagaJpaRepository extends JpaRepository<WeaverChainSagaEnti
     Optional<WeaverChainSagaEntity> findByGameIdAndPlayerIdAndStatus(
             UUID gameId, UUID playerId, WeaverChainSagaStatus status);
 
+    Optional<WeaverChainSagaEntity> findFirstByGameIdAndPlayerIdAndStatus(
+            UUID gameId, UUID playerId, WeaverChainSagaStatus status);
+
     List<WeaverChainSagaEntity> findByGameIdAndPlayerId(UUID gameId, UUID playerId);
 
     List<WeaverChainSagaEntity> findByGameIdAndStatus(UUID gameId, WeaverChainSagaStatus status);
