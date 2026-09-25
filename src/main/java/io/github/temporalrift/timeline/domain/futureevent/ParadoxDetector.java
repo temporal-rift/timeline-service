@@ -11,9 +11,9 @@ import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
 /**
  * Detects paradox conditions on a {@link FutureEvent}'s final, post-effects outcome state. Plain
- * domain logic — no framework dependency — so it can run ahead of the highest-probability winner selection in
- * the resolution use case. A single call reports every paradox type independently satisfied by the given state,
- * not just the first one found.
+ * domain logic — no framework dependency — so it can run ahead of the weighted draw in the resolution use case.
+ * A tie or an annihilated leader is not a paradox by itself: the draw settles both. A single call reports every
+ * paradox type independently satisfied by the given state, not just the first one found.
  */
 public final class ParadoxDetector {
 
@@ -21,11 +21,13 @@ public final class ParadoxDetector {
 
     /**
      * {@code sealBreach} is {@link FutureEvent#sealBreach()} — whether an effect application already recorded a
-     * {@code SealBreachRecorded} against this event. Detection itself stays a pure function of
-     * these two inputs so it can run independently of the aggregate.
+     * {@code SealBreachRecorded} against this event — and {@code collidedPairs} is
+     * {@link FutureEvent#collidedPairs()}. Detection itself stays a pure function of these inputs so it can run
+     * independently of the aggregate.
      */
-    public static List<DetectedParadox> detect(List<Outcome> outcomes, boolean sealBreach) {
-        return detect(outcomes, sealBreach, null, List.of());
+    public static List<DetectedParadox> detect(
+            List<Outcome> outcomes, boolean sealBreach, List<CollidedPair> collidedPairs) {
+        return detect(outcomes, sealBreach, collidedPairs, null, List.of());
     }
 
     /**
@@ -34,9 +36,13 @@ public final class ParadoxDetector {
      * {@code eventId} participate; a null event id or empty chain input reports no conflict.
      */
     public static List<DetectedParadox> detect(
-            List<Outcome> outcomes, boolean sealBreach, UUID eventId, List<WeaverChain> chains) {
+            List<Outcome> outcomes,
+            boolean sealBreach,
+            List<CollidedPair> collidedPairs,
+            UUID eventId,
+            List<WeaverChain> chains) {
         var paradoxes = new ArrayList<DetectedParadox>();
-        paradoxes.addAll(detectDeadHeat(outcomes));
+        paradoxes.addAll(detectDeadHeat(outcomes, collidedPairs));
         paradoxes.addAll(detectImpossibleErasure(outcomes));
         paradoxes.addAll(detectChainConflict(eventId, outcomes, chains));
         paradoxes.addAll(detectSealBreach(outcomes, sealBreach));
@@ -44,11 +50,11 @@ public final class ParadoxDetector {
     }
 
     /**
-     * Reports one {@link DetectedParadox} of type {@code DEAD_HEAT} when two or more non-annihilated outcomes
-     * share the highest probability among an event's non-annihilated outcomes —
-     * {@code affectedOutcomeIds} contains every tied outcome's id.
+     * Reports one {@link DetectedParadox} of type {@code DEAD_HEAT} when two or more non-annihilated outcomes share
+     * the highest, positive non-annihilated probability and a {@code COLLIDE} this era equalized a pair among them —
+     * {@code affectedOutcomeIds} contains every tied outcome's id. Ties reached any other way go to the draw.
      */
-    private static List<DetectedParadox> detectDeadHeat(List<Outcome> outcomes) {
+    private static List<DetectedParadox> detectDeadHeat(List<Outcome> outcomes, List<CollidedPair> collidedPairs) {
         var nonAnnihilated = outcomes.stream().filter(o -> !o.annihilated()).toList();
         if (nonAnnihilated.isEmpty()) {
             return List.of();
@@ -59,37 +65,34 @@ public final class ParadoxDetector {
                 .filter(o -> o.probability() == highest)
                 .map(Outcome::outcomeId)
                 .toList();
-        if (tied.size() < 2) {
+        if (highest == 0 || tied.size() < 2 || collidedPairs.stream().noneMatch(pair -> pair.within(tied))) {
             return List.of();
         }
         return List.of(new DetectedParadox(
-                ParadoxType.DEAD_HEAT,
-                tied,
-                "Outcomes " + tied + " are tied at the highest non-annihilated probability " + highest));
+                ParadoxType.DEAD_HEAT, tied, "Collided outcomes " + tied + " are tied at the highest eligible weight"));
     }
 
     /**
-     * Reports one {@link DetectedParadox} of type {@code IMPOSSIBLE_ERASURE} for every annihilated outcome whose
-     * probability is greater than or equal to every non-annihilated outcome's probability. An
-     * event with no non-annihilated outcomes at all trivially satisfies this for each annihilated outcome.
+     * Reports one {@link DetectedParadox} of type {@code IMPOSSIBLE_ERASURE} when erasure leaves the
+     * non-annihilated outcomes no weight to draw from (including none remaining) — {@code affectedOutcomeIds}
+     * contains every annihilated outcome's id.
      */
     private static List<DetectedParadox> detectImpossibleErasure(List<Outcome> outcomes) {
-        var nonAnnihilated = outcomes.stream().filter(o -> !o.annihilated()).toList();
-        var paradoxes = new ArrayList<DetectedParadox>();
-        for (var outcome : outcomes) {
-            if (outcome.annihilated() && isAtLeastEveryOtherProbability(outcome, nonAnnihilated)) {
-                paradoxes.add(new DetectedParadox(
-                        ParadoxType.IMPOSSIBLE_ERASURE,
-                        List.of(outcome.outcomeId()),
-                        "Annihilated outcome " + outcome.outcomeId() + " holds probability " + outcome.probability()
-                                + ", which is >= every non-annihilated outcome's probability"));
-            }
+        var annihilated = outcomes.stream()
+                .filter(Outcome::annihilated)
+                .map(Outcome::outcomeId)
+                .toList();
+        int eligibleWeight = outcomes.stream()
+                .filter(o -> !o.annihilated())
+                .mapToInt(Outcome::probability)
+                .sum();
+        if (annihilated.isEmpty() || eligibleWeight > 0) {
+            return List.of();
         }
-        return paradoxes;
-    }
-
-    private static boolean isAtLeastEveryOtherProbability(Outcome annihilated, List<Outcome> nonAnnihilated) {
-        return nonAnnihilated.stream().allMatch(o -> annihilated.probability() >= o.probability());
+        return List.of(new DetectedParadox(
+                ParadoxType.IMPOSSIBLE_ERASURE,
+                annihilated,
+                "Annihilated outcomes " + annihilated + " leave no eligible outcome with weight to draw"));
     }
 
     /**

@@ -1,5 +1,6 @@
 package io.github.temporalrift.timeline.domain.futureevent;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -13,6 +14,7 @@ import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.OutcomeSealed;
+import io.github.temporalrift.timeline.domain.event.OutcomesCollided;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
 import io.github.temporalrift.timeline.domain.event.SealBreachRecorded;
 
@@ -27,13 +29,21 @@ public final class FutureEvent {
     private Resolution resolution;
     private boolean stalled;
     private boolean sealBreach;
+    private List<CollidedPair> collidedPairs;
 
-    private FutureEvent(UUID id, List<Outcome> outcomes, Resolution resolution, boolean stalled, boolean sealBreach) {
+    private FutureEvent(
+            UUID id,
+            List<Outcome> outcomes,
+            Resolution resolution,
+            boolean stalled,
+            boolean sealBreach,
+            List<CollidedPair> collidedPairs) {
         this.id = id;
         this.outcomes = outcomes;
         this.resolution = resolution;
         this.stalled = stalled;
         this.sealBreach = sealBreach;
+        this.collidedPairs = List.copyOf(collidedPairs);
     }
 
     /** Rebuilds this aggregate by replaying its domain-event stream in order. */
@@ -45,6 +55,7 @@ public final class FutureEvent {
             }
             if ((event instanceof OutcomeApplied
                             || event instanceof ProbabilityShifted
+                            || event instanceof OutcomesCollided
                             || event instanceof EventStalled
                             || event instanceof EventUnstalled
                             || event instanceof OutcomeSealed
@@ -55,23 +66,30 @@ public final class FutureEvent {
                 throw new IllegalStateException("Event replayed outside the drafted and unresolved state for " + id);
             }
             state = switch (event) {
-                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), null, false, false);
+                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), null, false, false, List.of());
                 case OutcomeApplied e ->
                     new FutureEvent(
                             id,
                             e.finalOutcomes(),
                             new Resolution(e.winningOutcomeId(), e.eraNumber()),
                             false,
-                            state.sealBreach());
-                case ProbabilityShifted e ->
-                    new FutureEvent(id, e.outcomes(), null, state.stalled(), state.sealBreach());
-                case EventStalled _ -> new FutureEvent(id, state.outcomes(), null, true, state.sealBreach());
-                case EventUnstalled _ -> new FutureEvent(id, state.outcomes(), null, false, state.sealBreach());
-                case OutcomeSealed e -> new FutureEvent(id, e.outcomes(), null, state.stalled(), state.sealBreach());
-                case OutcomeAnnihilated e ->
-                    new FutureEvent(id, e.outcomes(), null, state.stalled(), state.sealBreach());
-                case SealBreachRecorded _ -> new FutureEvent(id, state.outcomes(), null, state.stalled(), true);
-                case EraStateCleared e -> new FutureEvent(id, e.outcomes(), null, state.stalled(), false);
+                            state.sealBreach(),
+                            state.collidedPairs());
+                case ProbabilityShifted e -> state.withOutcomes(e.outcomes());
+                case OutcomesCollided e -> {
+                    var pairs = new ArrayList<>(state.collidedPairs());
+                    pairs.add(new CollidedPair(e.firstOutcomeId(), e.secondOutcomeId()));
+                    yield new FutureEvent(id, e.outcomes(), null, state.stalled(), state.sealBreach(), pairs);
+                }
+                case EventStalled _ ->
+                    new FutureEvent(id, state.outcomes(), null, true, state.sealBreach(), state.collidedPairs());
+                case EventUnstalled _ ->
+                    new FutureEvent(id, state.outcomes(), null, false, state.sealBreach(), state.collidedPairs());
+                case OutcomeSealed e -> state.withOutcomes(e.outcomes());
+                case OutcomeAnnihilated e -> state.withOutcomes(e.outcomes());
+                case SealBreachRecorded _ ->
+                    new FutureEvent(id, state.outcomes(), null, state.stalled(), true, state.collidedPairs());
+                case EraStateCleared e -> new FutureEvent(id, e.outcomes(), null, state.stalled(), false, List.of());
                 default -> throw new IllegalArgumentException("Unknown FutureEvent domain event: " + event.getClass());
             };
         }
@@ -79,6 +97,10 @@ public final class FutureEvent {
             throw new FutureEventNotFoundException(id);
         }
         return state;
+    }
+
+    private FutureEvent withOutcomes(List<Outcome> replayedOutcomes) {
+        return new FutureEvent(id, replayedOutcomes, null, stalled, sealBreach, collidedPairs);
     }
 
     /**
@@ -110,7 +132,7 @@ public final class FutureEvent {
      * caller-resolved magnitude/floor/ceiling instead of a port reference); it is folded into {@code [0, total)}
      * via {@link Math#floorMod} against the sum of eligible weights, then walked cumulatively. An annihilated
      * outcome contributes no weight and can never win. Tied outcomes, including a Dead Heat cleared by Stabilize, are
-     * equally likely.
+     * equally likely. Callers must check {@link #hasDrawableWeight()} first.
      */
     public OutcomeApplied resolve(UUID gameId, int eraNumber, long roll) {
         if (resolved()) {
@@ -127,10 +149,8 @@ public final class FutureEvent {
     }
 
     /**
-     * Cumulative-weight walk over the non-annihilated outcomes: {@code total} is guaranteed positive whenever the
-     * eligible set is non-empty (the sum-to-100 invariant plus {@code IMPOSSIBLE_ERASURE}'s upstream guarantee that
-     * no annihilated outcome's weight is >= every eligible outcome's), so the defensive exception below is not an
-     * expected runtime path.
+     * Cumulative-weight walk over the non-annihilated outcomes. A zero eligible total is {@code IMPOSSIBLE_ERASURE}
+     * and never reaches here, so the defensive exceptions below are not expected runtime paths.
      */
     private Outcome drawWeighted(long roll) {
         var eligible = outcomes.stream().filter(o -> !o.annihilated()).toList();
@@ -158,7 +178,8 @@ public final class FutureEvent {
      * {@link ProbabilityShift} variant, resolved by the caller via {@code ProbabilityRulesPort} — this
      * aggregate stays free of any config/port coupling.
      *
-     * <p>Always returns a {@link ProbabilityShifted} with the post-shift outcomes: a shift that would have
+     * <p>Returns a {@link ProbabilityShifted} with the post-shift outcomes, or an {@link OutcomesCollided} for a
+     * {@code COLLIDE} that left its pair equal: a shift that would have
      * to move a sealed outcome's probability is declined with weights unchanged as an ordinary failure (see
      * {@link #sealOutcome}) — callers only need the persisted fact, mirroring
      * {@code FutureEventRepository#append}'s own {@code Object} domain-event parameter.
@@ -265,6 +286,7 @@ public final class FutureEvent {
      * to the third outcome, preserving the 100 total within floor/ceiling; a sealed selection or a remainder owed
      * to a sealed third declines the shift with weights unchanged as an ordinary failure, and a bound-overflow
      * edge keeps total and bounds via a deterministic outcome-id-ordered fallback without guaranteeing equality.
+     * A result that leaves the pair equal is an {@link OutcomesCollided}, the Dead Heat trigger input.
      */
     private Object collideOrBreach(UUID outcomeAId, UUID outcomeBId, int floor, int ceiling) {
         if (Objects.equals(outcomeAId, outcomeBId)) {
@@ -285,9 +307,7 @@ public final class FutureEvent {
                     clampPairPreservingSum(halfFallback, combinedFallback - halfFallback, floor, ceiling);
             var fallbackOutcomes =
                     replaceProbabilities(Map.of(outcomeAId, rebalancedFallback[0], outcomeBId, rebalancedFallback[1]));
-            var fallbackEvent = new ProbabilityShifted(id, fallbackOutcomes);
-            this.outcomes = fallbackOutcomes;
-            return fallbackEvent;
+            return collisionResult(outcomeAId, outcomeBId, fallbackOutcomes);
         }
         var third = thirds.getFirst();
         int combined = a.probability() + b.probability();
@@ -303,9 +323,7 @@ public final class FutureEvent {
             var rebalanced = clampPairPreservingSum(mid, mid, floor, ceiling);
             var shiftedOutcomes = replaceProbabilities(
                     Map.of(outcomeAId, rebalanced[0], outcomeBId, rebalanced[1], third.outcomeId(), thirdIdeal));
-            var event = new ProbabilityShifted(id, shiftedOutcomes);
-            this.outcomes = shiftedOutcomes;
-            return event;
+            return collisionResult(outcomeAId, outcomeBId, shiftedOutcomes);
         }
         int clampedThird = Math.clamp(thirdIdeal, floor, ceiling);
         int pairSum = 100 - clampedThird;
@@ -317,9 +335,19 @@ public final class FutureEvent {
         var rebalanced = clampPairPreservingSum(firstIdeal, secondIdeal, floor, ceiling);
         var shiftedOutcomes = replaceProbabilities(
                 Map.of(ordered[0], rebalanced[0], ordered[1], rebalanced[1], third.outcomeId(), clampedThird));
-        var event = new ProbabilityShifted(id, shiftedOutcomes);
+        return collisionResult(outcomeAId, outcomeBId, shiftedOutcomes);
+    }
+
+    /** Marks the pair collided only when the applied result actually left it equal. */
+    private Object collisionResult(UUID outcomeAId, UUID outcomeBId, List<Outcome> shiftedOutcomes) {
         this.outcomes = shiftedOutcomes;
-        return event;
+        if (outcomeById(outcomeAId).probability() != outcomeById(outcomeBId).probability()) {
+            return new ProbabilityShifted(id, shiftedOutcomes);
+        }
+        var pairs = new ArrayList<>(collidedPairs);
+        pairs.add(new CollidedPair(outcomeAId, outcomeBId));
+        this.collidedPairs = List.copyOf(pairs);
+        return new OutcomesCollided(id, shiftedOutcomes, outcomeAId, outcomeBId);
     }
 
     /**
@@ -353,8 +381,8 @@ public final class FutureEvent {
     }
 
     /**
-     * Clears this event's per-era state — every outcome's sealed/annihilated flag and the seal-breach flag —
-     * when it carries into a new era. Identity, outcome set, and
+     * Clears this event's per-era state — every outcome's sealed/annihilated flag, the seal-breach flag, and the
+     * collided pairs — when it carries into a new era. Identity, outcome set, and
      * probabilities are preserved; only the flags a new era must not inherit are cleared.
      */
     public EraStateCleared clearEraState() {
@@ -367,6 +395,7 @@ public final class FutureEvent {
         var event = new EraStateCleared(id, cleared);
         this.outcomes = cleared;
         this.sealBreach = false;
+        this.collidedPairs = List.of();
         return event;
     }
 
@@ -498,9 +527,18 @@ public final class FutureEvent {
         return sealBreach;
     }
 
-    /** True when at least one outcome is not annihilated — callers must check this before {@link #resolve}. */
-    public boolean hasEligibleOutcome() {
-        return outcomes.stream().anyMatch(o -> !o.annihilated());
+    /** Pairs a {@code COLLIDE} left equal this era, in application order; cleared on carry. */
+    public List<CollidedPair> collidedPairs() {
+        return collidedPairs;
+    }
+
+    /** True when the non-annihilated outcomes hold positive total weight — check before {@link #resolve}. */
+    public boolean hasDrawableWeight() {
+        return outcomes.stream()
+                        .filter(o -> !o.annihilated())
+                        .mapToInt(Outcome::probability)
+                        .sum()
+                > 0;
     }
 
     public List<Outcome> outcomes() {

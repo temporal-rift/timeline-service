@@ -190,9 +190,8 @@ public record ParadoxResolutionPhase(
      * its originally detected {@code type} plus {@code affectedOutcomeIds} — needed at close time to tell whether
      * re-detection on the affected event still reports this same finding (persists) or not (resolved).
      * {@code affectedOutcomeIds} disambiguates two findings of the
-     * same {@code type} on one event (e.g. two independently annihilated outcomes each tripping
-     * {@code IMPOSSIBLE_ERASURE}) — matching on {@code type} alone would treat clearing either one as clearing
-     * both.
+     * same {@code type} on one event (e.g. two chains' pending links each tripping {@code CHAIN_CONFLICT}) —
+     * matching on {@code type} alone would treat clearing either one as clearing both.
      */
     public record PendingParadox(
             UUID paradoxId, ParadoxType type, List<UUID> affectedOutcomeIds, UUID affectedEventId, int revealIndex) {

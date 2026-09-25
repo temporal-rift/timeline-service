@@ -68,9 +68,9 @@ class ParadoxResolutionForceCascadeIT {
                 eraNumber,
                 paradoxedEventId,
                 annihilatedOutcomeId,
-                60,
+                100,
                 secondOutcomeId,
-                40,
+                0,
                 eventId1,
                 winnerOutcomeId1,
                 70,
@@ -146,7 +146,7 @@ class ParadoxResolutionForceCascadeIT {
                 .isEqualTo(1);
 
         // Resolving the next era directly proves the carried event is active again with its paradox state
-        // intact: nothing broke the tie, so the same IMPOSSIBLE_ERASURE paradox is re-detected
+        // intact: nothing restored eligible weight, so the same IMPOSSIBLE_ERASURE paradox is re-detected
         // from the exact carried outcome state — not silently dropped or force-resolved.
         var nextEraResolutionEventId = UUID.randomUUID();
         publishResolutionStarted(gameId, eraNumber + 1, nextEraResolutionEventId);
@@ -173,10 +173,10 @@ class ParadoxResolutionForceCascadeIT {
         var outcomeC = UUID.randomUUID();
 
         publishEraStarted(gameId, 1);
-        publishEventsDrawnSingleThreeOutcomeEvent(gameId, 1, eventId, outcomeA, 50, outcomeB, 30, outcomeC, 20);
+        publishEventsDrawnSingleThreeOutcomeEvent(gameId, 1, eventId, outcomeA, 100, outcomeB, 0, outcomeC, 0);
         awaitFutureEventsIndexed(gameId, 1, 1);
 
-        // Annihilating the highest-probability outcome trips IMPOSSIBLE_ERASURE immediately.
+        // Annihilating the outcome holding all the weight leaves nothing to draw: IMPOSSIBLE_ERASURE.
         publishSpecialActionPlayed(gameId, 1, eventId, "ANNIHILATE", outcomeA);
         publishActionRoundClosed(gameId, 1, 1);
         publishResolutionStarted(gameId, 1, UUID.randomUUID());

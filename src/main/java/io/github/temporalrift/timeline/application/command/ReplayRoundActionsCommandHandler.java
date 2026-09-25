@@ -24,7 +24,6 @@ import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUse
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.AdjustedBandsPublished;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
-import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
@@ -516,12 +515,11 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * ({@link #applyShifter}) and {@link #applyMimicTier}, so both go through identical floor/ceiling/
      * redistribution and sealed-outcome handling.
      */
-    private Object applyDirectShift(
+    private void applyDirectShift(
             FutureEvent futureEvent, ProbabilityShift shift, int magnitude, Set<UUID> touchedEventIds) {
         var result = futureEvent.applyShift(shift, magnitude, rules.probabilityFloor(), rules.probabilityCeiling());
         futureEvents.append(futureEvent.id(), result);
         touchedEventIds.add(futureEvent.id());
-        return result;
     }
 
     private Map<UUID, Double> resolveAmplifyMultipliers(
@@ -624,23 +622,18 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                     rallyAdjustedMagnitude(rallyDeclaredOutcomes, effectiveKind, targetOutcomeId, amplifiedMagnitude);
 
             var before = probabilitiesByOutcome(futureEvent);
-            var result = applyDirectShift(futureEvent, shift, magnitude, touchedEventIds);
+            applyDirectShift(futureEvent, shift, magnitude, touchedEventIds);
 
             // Took effect means the probabilities actually moved — a seal-blocked or fully clamped shift
-            // returns unchanged outcomes and must not read as effective.
-            if (result instanceof ProbabilityShifted shifted
-                    && !probabilitiesByOutcome(shifted.outcomes()).equals(before)) {
+            // leaves the outcomes unchanged and must not read as effective.
+            if (!probabilitiesByOutcome(futureEvent).equals(before)) {
                 tookEffectEnvelopeIds.add(a.envelopeEventId());
             }
         });
     }
 
     private static Map<UUID, Integer> probabilitiesByOutcome(FutureEvent futureEvent) {
-        return probabilitiesByOutcome(futureEvent.outcomes());
-    }
-
-    private static Map<UUID, Integer> probabilitiesByOutcome(List<Outcome> outcomes) {
-        return outcomes.stream().collect(Collectors.toMap(Outcome::outcomeId, Outcome::probability));
+        return futureEvent.outcomes().stream().collect(Collectors.toMap(Outcome::outcomeId, Outcome::probability));
     }
 
     /** {@code null} unless this is a SWING or COLLIDE, the two shifters with a source outcome. */

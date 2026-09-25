@@ -18,6 +18,7 @@ import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.OutcomeSealed;
+import io.github.temporalrift.timeline.domain.event.OutcomesCollided;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
 import io.github.temporalrift.timeline.domain.event.SealBreachRecorded;
 
@@ -427,7 +428,7 @@ class FutureEventTest {
         assertThat(byId(event, b.outcomeId())).isEqualTo(40);
         assertThat(byId(event, c.outcomeId())).isEqualTo(20);
         assertThat(sum(event)).isEqualTo(100);
-        var paradoxes = ParadoxDetector.detect(event.outcomes(), event.sealBreach());
+        var paradoxes = ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs());
         assertThat(paradoxes).singleElement().satisfies(paradox -> {
             assertThat(paradox.type()).isEqualTo(ParadoxType.DEAD_HEAT);
             assertThat(paradox.affectedOutcomeIds()).containsExactlyInAnyOrder(a.outcomeId(), b.outcomeId());
@@ -448,7 +449,8 @@ class FutureEventTest {
         assertThat(byId(event, b.outcomeId())).isEqualTo(25);
         assertThat(byId(event, c.outcomeId())).isEqualTo(50);
         assertThat(sum(event)).isEqualTo(100);
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach())).isEmpty();
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+                .isEmpty();
     }
 
     @Test
@@ -609,7 +611,8 @@ class FutureEventTest {
         event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
 
         assertThat(byId(event, a.outcomeId())).isEqualTo(50);
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach())).isEmpty();
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+                .isEmpty();
     }
 
     @Test
@@ -627,7 +630,8 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(70);
         assertThat(byId(event, b.outcomeId())).isEqualTo(30);
         assertThat(byId(event, c.outcomeId())).isZero();
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach())).isEmpty();
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+                .isEmpty();
     }
 
     @Test
@@ -641,7 +645,7 @@ class FutureEventTest {
 
         var result = event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
 
-        assertThat(result).isInstanceOf(ProbabilityShifted.class);
+        assertThat(result).isInstanceOf(OutcomesCollided.class);
         assertThat(byId(event, a.outcomeId())).isEqualTo(40);
         assertThat(byId(event, b.outcomeId())).isEqualTo(40);
         assertThat(byId(event, c.outcomeId())).isEqualTo(20);
@@ -1302,31 +1306,18 @@ class FutureEventTest {
     }
 
     @Test
-    void hasEligibleOutcome_noneAnnihilated_isTrue() {
+    void hasDrawableWeight_noneAnnihilated_isTrue() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
         var b = new Outcome(UUID.randomUUID(), "b", 30);
         var c = new Outcome(UUID.randomUUID(), "c", 20);
         var event = drafted(id, a, b, c);
 
-        assertThat(event.hasEligibleOutcome()).isTrue();
+        assertThat(event.hasDrawableWeight()).isTrue();
     }
 
     @Test
-    void hasEligibleOutcome_oneAnnihilated_isTrue() {
-        var id = UUID.randomUUID();
-        var a = new Outcome(UUID.randomUUID(), "a", 50);
-        var b = new Outcome(UUID.randomUUID(), "b", 30);
-        var c = new Outcome(UUID.randomUUID(), "c", 20);
-        var event = drafted(id, a, b, c);
-
-        event.annihilateOutcome(a.outcomeId());
-
-        assertThat(event.hasEligibleOutcome()).isTrue();
-    }
-
-    @Test
-    void hasEligibleOutcome_twoAnnihilated_isTrue() {
+    void hasDrawableWeight_oneAnnihilated_isTrue() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
         var b = new Outcome(UUID.randomUUID(), "b", 30);
@@ -1334,13 +1325,12 @@ class FutureEventTest {
         var event = drafted(id, a, b, c);
 
         event.annihilateOutcome(a.outcomeId());
-        event.annihilateOutcome(b.outcomeId());
 
-        assertThat(event.hasEligibleOutcome()).isTrue();
+        assertThat(event.hasDrawableWeight()).isTrue();
     }
 
     @Test
-    void hasEligibleOutcome_allThreeAnnihilatedInAscendingOrder_isFalse() {
+    void hasDrawableWeight_twoAnnihilated_isTrue() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
         var b = new Outcome(UUID.randomUUID(), "b", 30);
@@ -1349,39 +1339,205 @@ class FutureEventTest {
 
         event.annihilateOutcome(a.outcomeId());
         event.annihilateOutcome(b.outcomeId());
-        event.annihilateOutcome(c.outcomeId());
 
-        assertThat(event.hasEligibleOutcome()).isFalse();
+        assertThat(event.hasDrawableWeight()).isTrue();
     }
 
     @Test
-    void hasEligibleOutcome_allThreeAnnihilatedInDescendingOrder_isFalse() {
+    void hasDrawableWeight_allThreeAnnihilatedInAscendingOrder_isFalse() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
         var b = new Outcome(UUID.randomUUID(), "b", 30);
         var c = new Outcome(UUID.randomUUID(), "c", 20);
         var event = drafted(id, a, b, c);
 
-        event.annihilateOutcome(c.outcomeId());
-        event.annihilateOutcome(b.outcomeId());
         event.annihilateOutcome(a.outcomeId());
-
-        assertThat(event.hasEligibleOutcome()).isFalse();
-    }
-
-    @Test
-    void hasEligibleOutcome_allThreeAnnihilatedInMixedOrder_isFalse() {
-        var id = UUID.randomUUID();
-        var a = new Outcome(UUID.randomUUID(), "a", 50);
-        var b = new Outcome(UUID.randomUUID(), "b", 30);
-        var c = new Outcome(UUID.randomUUID(), "c", 20);
-        var event = drafted(id, a, b, c);
-
         event.annihilateOutcome(b.outcomeId());
         event.annihilateOutcome(c.outcomeId());
+
+        assertThat(event.hasDrawableWeight()).isFalse();
+    }
+
+    @Test
+    void hasDrawableWeight_allThreeAnnihilatedInDescendingOrder_isFalse() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(c.outcomeId());
+        event.annihilateOutcome(b.outcomeId());
         event.annihilateOutcome(a.outcomeId());
 
-        assertThat(event.hasEligibleOutcome()).isFalse();
+        assertThat(event.hasDrawableWeight()).isFalse();
+    }
+
+    @Test
+    void hasDrawableWeight_allThreeAnnihilatedInMixedOrder_isFalse() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(b.outcomeId());
+        event.annihilateOutcome(c.outcomeId());
+        event.annihilateOutcome(a.outcomeId());
+
+        assertThat(event.hasDrawableWeight()).isFalse();
+    }
+
+    @Test
+    void hasDrawableWeight_eligibleOutcomesAllAtZero_isFalse() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 50);
+        var c = new Outcome(UUID.randomUUID(), "c", 0);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(a.outcomeId());
+        event.annihilateOutcome(b.outcomeId());
+
+        assertThat(event.hasDrawableWeight()).isFalse();
+    }
+
+    @Test
+    void applyShift_collide_equalizingPair_recordsCollidedPair() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        var result = event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(result).isEqualTo(new OutcomesCollided(id, event.outcomes(), a.outcomeId(), b.outcomeId()));
+        assertThat(event.collidedPairs()).containsExactly(new CollidedPair(a.outcomeId(), b.outcomeId()));
+    }
+
+    @Test
+    void applyShift_collide_sealDeclined_recordsNoCollidedPair() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+        event.sealOutcome(a.outcomeId());
+
+        event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+
+        assertThat(event.collidedPairs()).isEmpty();
+    }
+
+    @Test
+    void applyShift_collide_boundFallbackLeavingPairUnequal_recordsNoCollidedPair() {
+        var firstId = UUID.randomUUID();
+        var secondId = UUID.randomUUID();
+        var event = drafted(
+                UUID.randomUUID(),
+                new Outcome(firstId, "a", 25),
+                new Outcome(secondId, "b", 24),
+                new Outcome(UUID.randomUUID(), "c", 51));
+
+        var result = event.applyShift(new ProbabilityShift.Collide(firstId, secondId), 0, 0, 51);
+
+        assertThat(byId(event, firstId)).isNotEqualTo(byId(event, secondId));
+        assertThat(result).isInstanceOf(ProbabilityShifted.class);
+        assertThat(event.collidedPairs()).isEmpty();
+    }
+
+    @Test
+    void replay_outcomesCollided_restoresCollidedPairUntilEraStateCleared() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 40);
+        var b = new Outcome(UUID.randomUUID(), "b", 40);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var outcomes = List.of(a, b, c);
+        var drafted = new FutureEventDrafted(id, outcomes);
+        var collided = new OutcomesCollided(id, outcomes, a.outcomeId(), b.outcomeId());
+        var stalled = new EventStalled(id);
+
+        var replayed = FutureEvent.replay(id, List.of(drafted, collided, stalled));
+        var carried = FutureEvent.replay(id, List.of(drafted, collided, stalled, new EraStateCleared(id, outcomes)));
+
+        assertThat(replayed.collidedPairs()).containsExactly(new CollidedPair(a.outcomeId(), b.outcomeId()));
+        assertThat(replayed.outcomes()).isEqualTo(outcomes);
+        assertThat(carried.collidedPairs()).isEmpty();
+    }
+
+    @Test
+    void freshEvent_gradeOneSuppressOnLeader_raisesNoParadox() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 33);
+        var b = new Outcome(UUID.randomUUID(), "b", 33);
+        var leader = new Outcome(UUID.randomUUID(), "leader", 34);
+        var event = drafted(id, a, b, leader);
+
+        event.applyShift(new ProbabilityShift.Suppress(leader.outcomeId()), -10, 0, 90);
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(38);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(38);
+        assertThat(byId(event, leader.outcomeId())).isEqualTo(24);
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+                .isEmpty();
+    }
+
+    @Test
+    void freshEvent_annihilateOnLeader_raisesNoParadox() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 33);
+        var b = new Outcome(UUID.randomUUID(), "b", 33);
+        var leader = new Outcome(UUID.randomUUID(), "leader", 34);
+        var event = drafted(id, a, b, leader);
+
+        event.annihilateOutcome(leader.outcomeId());
+
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+                .isEmpty();
+    }
+
+    @Test
+    void carriedTie_withoutFreshCollide_raisesNoDeadHeat_butReCollidingDoes() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 31);
+        var c = new Outcome(UUID.randomUUID(), "c", 19);
+        var event = drafted(id, a, b, c);
+        event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+                .extracting(DetectedParadox::type)
+                .containsExactly(ParadoxType.DEAD_HEAT);
+
+        event.clearEraState();
+
+        assertThat(byId(event, a.outcomeId())).isEqualTo(40);
+        assertThat(byId(event, b.outcomeId())).isEqualTo(40);
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+                .isEmpty();
+
+        event.applyShift(new ProbabilityShift.Collide(b.outcomeId(), a.outcomeId()), 0, 0, 90);
+
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+                .extracting(DetectedParadox::type)
+                .containsExactly(ParadoxType.DEAD_HEAT);
+    }
+
+    @Test
+    void roundingTie_afterPush_raisesNoDeadHeat() {
+        // Exact redistribution would leave 49 vs 49.33; rounding the shares ties the top at 49/49.
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 2);
+        var b = new Outcome(UUID.randomUUID(), "b", 39);
+        var c = new Outcome(UUID.randomUUID(), "c", 59);
+        var event = drafted(id, a, b, c);
+
+        event.applyShift(new ProbabilityShift.Push(b.outcomeId()), 10, 0, 90);
+
+        assertThat(byId(event, b.outcomeId())).isEqualTo(49);
+        assertThat(byId(event, c.outcomeId())).isEqualTo(49);
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+                .isEmpty();
     }
 
     private static int byId(FutureEvent event, UUID outcomeId) {

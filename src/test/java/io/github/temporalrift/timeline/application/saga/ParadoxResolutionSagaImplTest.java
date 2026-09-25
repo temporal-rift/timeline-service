@@ -30,6 +30,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
+import io.github.temporalrift.timeline.domain.event.OutcomesCollided;
 import io.github.temporalrift.timeline.domain.event.ParadoxCascaded;
 import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolutionPhaseStarted;
@@ -301,23 +302,17 @@ class ParadoxResolutionSagaImplTest {
                 .breakChainOnCascadedParadox(GAME_ID, ERA_NUMBER, affectedEventId, pendingOutcomeId, paradoxId);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(times(3)).publish(captor.capture());
+        then(publisher).should(times(2)).publish(captor.capture());
         var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .toList();
 
-        // Annihilation also creates an impossible erasure in this fixture; announce it before cascading.
-        var detected = (ParadoxDetected) payloads.get(0);
-        assertThat(detected.paradoxes())
-                .singleElement()
-                .satisfies(paradox -> assertThat(paradox.type()).isEqualTo(ParadoxType.IMPOSSIBLE_ERASURE));
-        var cascaded = (ParadoxCascaded) payloads.get(1);
+        var cascaded = (ParadoxCascaded) payloads.get(0);
         assertThat(cascaded.paradoxId()).isEqualTo(paradoxId);
-        assertThat(cascaded.paradoxIds())
-                .containsExactly(paradoxId, detected.paradoxes().getFirst().paradoxId());
+        assertThat(cascaded.paradoxIds()).containsExactly(paradoxId);
         assertThat(cascaded.affectedEventId()).isEqualTo(affectedEventId);
 
-        var barrier = (EraResolutionCompleted) payloads.get(2);
+        var barrier = (EraResolutionCompleted) payloads.get(1);
         assertThat(barrier.terminalResolutions())
                 .containsExactly(
                         new TerminalResolution(affectedEventId, 0, TerminalResolution.TerminalState.CASCADED, null));
@@ -573,7 +568,7 @@ class ParadoxResolutionSagaImplTest {
                         .findFirst()
                         .orElseThrow()
                         .probability())
-                .isEqualTo(60);
+                .isEqualTo(30);
     }
 
     @Test
@@ -584,9 +579,8 @@ class ParadoxResolutionSagaImplTest {
         var annihilatedId = UUID.randomUUID();
         var secondOutcomeId = UUID.randomUUID();
         var playerId = UUID.randomUUID();
-        var futureEvent =
-                impossibleErasureFutureEvent(affectedEventId, annihilatedId, secondOutcomeId, UUID.randomUUID());
-        // A small PUSH to the non-annihilated "second" outcome — the annihilated outcome stays >= both others.
+        var futureEvent = twoErasuresFutureEvent(affectedEventId, annihilatedId, secondOutcomeId, UUID.randomUUID());
+        // Pushing the other annihilated outcome takes its point from the first one; the eligible outcome stays at 0.
         var submission = new Submission(playerId, "PUSH", CardGrade.II, affectedEventId, secondOutcomeId);
         var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
@@ -594,7 +588,11 @@ class ParadoxResolutionSagaImplTest {
                 ERA_NUMBER,
                 ParadoxResolutionPhaseStatus.WAITING,
                 List.of(new PendingParadox(
-                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                        paradoxId,
+                        ParadoxType.IMPOSSIBLE_ERASURE,
+                        List.of(annihilatedId, secondOutcomeId),
+                        affectedEventId,
+                        0)),
                 List.of(),
                 List.of(),
                 List.of(submission),
@@ -695,19 +693,20 @@ class ParadoxResolutionSagaImplTest {
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
         var annihilatedId = UUID.randomUUID();
-        var sealedOutcomeId = UUID.randomUUID();
+        var secondOutcomeId = UUID.randomUUID();
         var thirdOutcomeId = UUID.randomUUID();
         var playerId = UUID.randomUUID();
+        var outcomes = List.of(
+                new Outcome(annihilatedId, "annihilated", 100, false, true),
+                new Outcome(secondOutcomeId, "second", 0),
+                new Outcome(thirdOutcomeId, "third", 0));
         var futureEvent = FutureEvent.replay(
                 affectedEventId,
-                List.of(new FutureEventDrafted(
-                        affectedEventId,
-                        List.of(
-                                new Outcome(annihilatedId, "annihilated", 50, false, true),
-                                new Outcome(sealedOutcomeId, "sealed", 35, true, false),
-                                new Outcome(thirdOutcomeId, "third", 15)))));
-        // Suppressing the annihilated outcome to 30 clears its erasure; the sealed outcome stays at 35,
-        // and the other live outcome absorbs all 20 freed points to create a new dead heat at 35.
+                List.of(
+                        new FutureEventDrafted(affectedEventId, outcomes),
+                        new OutcomesCollided(affectedEventId, outcomes, secondOutcomeId, thirdOutcomeId)));
+        // Suppressing the annihilated outcome frees 20 points split evenly across the collided pair: the erasure
+        // clears, and the pair now leads tied at 10 — a new dead heat.
         var submission = new Submission(playerId, "SUPPRESS", CardGrade.II, affectedEventId, annihilatedId);
         var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
@@ -753,29 +752,17 @@ class ParadoxResolutionSagaImplTest {
     }
 
     @Test
-    void closeEvent_twoIndependentImpossibleErasureFindingsOnOneEvent_onlyTheClearedOneIsResolved() {
-        // Regression: matching a fresh finding to an original one by type alone would treat clearing either
-        // annihilated outcome as clearing both. Two outcomes independently annihilated and both >= the sole
-        // non-annihilated outcome both trip IMPOSSIBLE_ERASURE with distinct affectedOutcomeIds.
+    void closeEvent_twoFindingsOnOneEvent_onlyTheClearedOneIsResolved() {
+        // Regression: a fresh finding is matched to an original one per finding, so clearing the erasure must
+        // not also clear the chain conflict on the same annihilated outcome.
         var sagaId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
-        var higherAnnihilatedId = UUID.randomUUID();
-        var lowerAnnihilatedId = UUID.randomUUID();
-        var nonAnnihilatedId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
         var playerId = UUID.randomUUID();
-        var higherParadoxId = UUID.randomUUID();
-        var lowerParadoxId = UUID.randomUUID();
-        var futureEvent = FutureEvent.replay(
-                affectedEventId,
-                List.of(new FutureEventDrafted(
-                        affectedEventId,
-                        List.of(
-                                new Outcome(higherAnnihilatedId, "higher", 50, false, true),
-                                new Outcome(lowerAnnihilatedId, "lower", 40, false, true),
-                                new Outcome(nonAnnihilatedId, "third", 10)))));
-        // Suppresses the lower-probability annihilated outcome down to 0 — it drops below the non-annihilated
-        // outcome and clears, but the higher one (still 50 >= its share of the redistribution) persists.
-        var submission = new Submission(playerId, "SUPPRESS", CardGrade.II, affectedEventId, lowerAnnihilatedId);
+        var erasureParadoxId = UUID.randomUUID();
+        var chainParadoxId = UUID.randomUUID();
+        var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
+        var submission = new Submission(playerId, "SUPPRESS", CardGrade.II, affectedEventId, annihilatedId);
         var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
@@ -783,15 +770,15 @@ class ParadoxResolutionSagaImplTest {
                 ParadoxResolutionPhaseStatus.WAITING,
                 List.of(
                         new PendingParadox(
-                                higherParadoxId,
+                                erasureParadoxId,
                                 ParadoxType.IMPOSSIBLE_ERASURE,
-                                List.of(higherAnnihilatedId),
+                                List.of(annihilatedId),
                                 affectedEventId,
                                 0),
                         new PendingParadox(
-                                lowerParadoxId,
-                                ParadoxType.IMPOSSIBLE_ERASURE,
-                                List.of(lowerAnnihilatedId),
+                                chainParadoxId,
+                                ParadoxType.CHAIN_CONFLICT,
+                                List.of(annihilatedId),
                                 affectedEventId,
                                 0)),
                 List.of(),
@@ -801,6 +788,7 @@ class ParadoxResolutionSagaImplTest {
 
         given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
         given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+        givenActiveChainWithPendingLink(affectedEventId, annihilatedId);
         given(probabilityRules.suppressShift(CardGrade.II)).willReturn(-40);
         given(probabilityRules.probabilityFloor()).willReturn(0);
         given(probabilityRules.probabilityCeiling()).willReturn(90);
@@ -813,32 +801,27 @@ class ParadoxResolutionSagaImplTest {
                 .map(TimelineEventEnvelope::payload)
                 .toList();
 
-        // The lower-probability annihilated outcome's finding cleared...
-        var resolved = payloads.stream()
-                .filter(ParadoxResolved.class::isInstance)
-                .map(ParadoxResolved.class::cast)
-                .toList();
-        assertThat(resolved).extracting(ParadoxResolved::paradoxId).containsExactly(lowerParadoxId);
-        // ...but the higher one — a distinct finding despite sharing the same type — still cascades, and the
-        // whole event is CASCADED, not resolved.
-        var cascaded = payloads.stream()
-                .filter(ParadoxCascaded.class::isInstance)
-                .map(ParadoxCascaded.class::cast)
-                .toList();
-        assertThat(cascaded).extracting(ParadoxCascaded::paradoxId).containsExactly(higherParadoxId);
+        assertThat(payloads)
+                .filteredOn(ParadoxResolved.class::isInstance)
+                .extracting(p -> ((ParadoxResolved) p).paradoxId())
+                .containsExactly(erasureParadoxId);
+        assertThat(payloads)
+                .filteredOn(ParadoxCascaded.class::isInstance)
+                .extracting(p -> ((ParadoxCascaded) p).paradoxId())
+                .containsExactly(chainParadoxId);
     }
 
     @Test
     void handlePlayerSubmitted_stabilizeTargetsEvent_resolvesDespiteStillParadoxed() {
         // STABILIZE suppresses re-detection entirely for its targeted event — the event resolves even
         // though its outcome state (untouched, since STABILIZE isn't a probability shift) would still trip
-        // IMPOSSIBLE_ERASURE on a fresh detection.
+        // DEAD_HEAT on a fresh detection.
         var sagaId = UUID.randomUUID();
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
-        var annihilatedId = UUID.randomUUID();
+        var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         var stabilizingPlayerId = UUID.randomUUID();
-        var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
+        var futureEvent = deadHeatFutureEvent(affectedEventId, outcomeIds, 20, 40, 40, false);
         var submission = new Submission(stabilizingPlayerId, "STABILIZE", CardGrade.I, affectedEventId, null);
         var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
@@ -846,7 +829,7 @@ class ParadoxResolutionSagaImplTest {
                 ERA_NUMBER,
                 ParadoxResolutionPhaseStatus.WAITING,
                 List.of(new PendingParadox(
-                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                        paradoxId, ParadoxType.DEAD_HEAT, outcomeIds.subList(1, 3), affectedEventId, 0)),
                 List.of(),
                 List.of(),
                 List.of(submission),
@@ -880,7 +863,7 @@ class ParadoxResolutionSagaImplTest {
         var affectedEventId = UUID.randomUUID();
         var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         var stabilizingPlayerId = UUID.randomUUID();
-        var futureEvent = futureEventWithWeights(affectedEventId, outcomeIds, 24, 38, 38, false);
+        var futureEvent = deadHeatFutureEvent(affectedEventId, outcomeIds, 24, 38, 38, false);
         var submission = new Submission(stabilizingPlayerId, "STABILIZE", CardGrade.I, affectedEventId, null);
         var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
@@ -930,7 +913,7 @@ class ParadoxResolutionSagaImplTest {
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
         var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
-        var futureEvent = futureEventWithWeights(affectedEventId, outcomeIds, 20, 40, 40, true);
+        var futureEvent = deadHeatFutureEvent(affectedEventId, outcomeIds, 20, 40, 40, true);
         var submission = new Submission(UUID.randomUUID(), "STABILIZE", CardGrade.I, affectedEventId, null);
         var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
@@ -994,9 +977,9 @@ class ParadoxResolutionSagaImplTest {
 
         given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
         given(futureEvents.findById(stabilizedEventId))
-                .willReturn(futureEventWithWeights(stabilizedEventId, stabilizedOutcomeIds, 24, 38, 38, false));
+                .willReturn(deadHeatFutureEvent(stabilizedEventId, stabilizedOutcomeIds, 24, 38, 38, false));
         given(futureEvents.findById(untouchedEventId))
-                .willReturn(futureEventWithWeights(untouchedEventId, untouchedOutcomeIds, 24, 38, 38, false));
+                .willReturn(deadHeatFutureEvent(untouchedEventId, untouchedOutcomeIds, 24, 38, 38, false));
         given(random.nextLong()).willReturn(70L);
 
         saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
@@ -1024,7 +1007,7 @@ class ParadoxResolutionSagaImplTest {
         var affectedEventId = UUID.randomUUID();
         var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         var pendingOutcomeId = outcomeIds.get(1);
-        var futureEvent = futureEventWithWeights(affectedEventId, outcomeIds, 24, 38, 38, false);
+        var futureEvent = deadHeatFutureEvent(affectedEventId, outcomeIds, 24, 38, 38, false);
         var submission = new Submission(UUID.randomUUID(), "STABILIZE", CardGrade.I, affectedEventId, null);
         var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
@@ -1099,16 +1082,54 @@ class ParadoxResolutionSagaImplTest {
                 .toList();
     }
 
-    private static FutureEvent futureEventWithWeights(
+    /** The second and third outcomes were equalized by a Collide this era. */
+    private static FutureEvent deadHeatFutureEvent(
             UUID eventId, List<UUID> outcomeIds, int first, int second, int third, boolean firstAnnihilated) {
+        var outcomes = List.of(
+                new Outcome(outcomeIds.get(0), "first", first, false, firstAnnihilated),
+                new Outcome(outcomeIds.get(1), "second", second),
+                new Outcome(outcomeIds.get(2), "third", third));
         return FutureEvent.replay(
                 eventId,
-                List.of(new FutureEventDrafted(
-                        eventId,
-                        List.of(
-                                new Outcome(outcomeIds.get(0), "first", first, false, firstAnnihilated),
-                                new Outcome(outcomeIds.get(1), "second", second),
-                                new Outcome(outcomeIds.get(2), "third", third)))));
+                List.of(
+                        new FutureEventDrafted(eventId, outcomes),
+                        new OutcomesCollided(eventId, outcomes, outcomeIds.get(1), outcomeIds.get(2))));
+    }
+
+    @Test
+    void handlePlayerSubmitted_stabilizeTargetsEventWhoseEligibleOutcomeHasNoWeight_cascadesInsteadOfThrowing() {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
+        var secondOutcomeId = UUID.randomUUID();
+        var futureEvent = twoErasuresFutureEvent(affectedEventId, annihilatedId, secondOutcomeId, UUID.randomUUID());
+        var submission = new Submission(UUID.randomUUID(), "STABILIZE", CardGrade.I, affectedEventId, null);
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId,
+                        ParadoxType.IMPOSSIBLE_ERASURE,
+                        List.of(annihilatedId, secondOutcomeId),
+                        affectedEventId,
+                        0)),
+                List.of(),
+                List.of(),
+                List.of(submission),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
+
+        then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
+        var payloads = publishedPayloads(2);
+        assertThat(((ParadoxCascaded) payloads.get(0)).paradoxIds()).containsExactly(paradoxId);
+        assertThat(payloads).noneMatch(ParadoxResolved.class::isInstance).noneMatch(OutcomeApplied.class::isInstance);
     }
 
     @Test
@@ -1121,9 +1142,7 @@ class ParadoxResolutionSagaImplTest {
         var secondOutcomeId = UUID.randomUUID();
         var thirdOutcomeId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
-        var firstParadoxId = UUID.randomUUID();
-        var secondParadoxId = UUID.randomUUID();
-        var thirdParadoxId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
         var futureEvent =
                 allOutcomesAnnihilatedFutureEvent(affectedEventId, firstOutcomeId, secondOutcomeId, thirdOutcomeId);
         var submission = new Submission(stabilizingPlayerId, "STABILIZE", CardGrade.I, affectedEventId, null);
@@ -1132,25 +1151,12 @@ class ParadoxResolutionSagaImplTest {
                 GAME_ID,
                 ERA_NUMBER,
                 ParadoxResolutionPhaseStatus.WAITING,
-                List.of(
-                        new PendingParadox(
-                                firstParadoxId,
-                                ParadoxType.IMPOSSIBLE_ERASURE,
-                                List.of(firstOutcomeId),
-                                affectedEventId,
-                                0),
-                        new PendingParadox(
-                                secondParadoxId,
-                                ParadoxType.IMPOSSIBLE_ERASURE,
-                                List.of(secondOutcomeId),
-                                affectedEventId,
-                                0),
-                        new PendingParadox(
-                                thirdParadoxId,
-                                ParadoxType.IMPOSSIBLE_ERASURE,
-                                List.of(thirdOutcomeId),
-                                affectedEventId,
-                                0)),
+                List.of(new PendingParadox(
+                        paradoxId,
+                        ParadoxType.IMPOSSIBLE_ERASURE,
+                        List.of(firstOutcomeId, secondOutcomeId, thirdOutcomeId),
+                        affectedEventId,
+                        0)),
                 List.of(),
                 List.of(),
                 List.of(submission),
@@ -1170,8 +1176,7 @@ class ParadoxResolutionSagaImplTest {
                 .map(TimelineEventEnvelope::payload)
                 .toList();
         var cascaded = (ParadoxCascaded) payloads.get(0);
-        assertThat(cascaded.paradoxId()).isEqualTo(firstParadoxId);
-        assertThat(cascaded.paradoxIds()).containsExactly(firstParadoxId, secondParadoxId, thirdParadoxId);
+        assertThat(cascaded.paradoxIds()).containsExactly(paradoxId);
         assertThat(payloads).noneMatch(ParadoxResolved.class::isInstance).noneMatch(OutcomeApplied.class::isInstance);
         var barrier = (EraResolutionCompleted) payloads.get(1);
         assertThat(barrier.terminalResolutions())
@@ -1252,10 +1257,10 @@ class ParadoxResolutionSagaImplTest {
         var sagaId = UUID.randomUUID();
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
-        var annihilatedId = UUID.randomUUID();
+        var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         var stabilizingPlayerId = UUID.randomUUID();
         var detonatingPlayerId = UUID.randomUUID();
-        var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
+        var futureEvent = deadHeatFutureEvent(affectedEventId, outcomeIds, 20, 40, 40, false);
         var stabilizeSubmission = new Submission(stabilizingPlayerId, "STABILIZE", CardGrade.I, affectedEventId, null);
         var detonateSubmission = new Submission(detonatingPlayerId, "DETONATE", CardGrade.I, affectedEventId, null);
         var phase = ParadoxResolutionPhase.withKnownRoster(
@@ -1264,7 +1269,7 @@ class ParadoxResolutionSagaImplTest {
                 ERA_NUMBER,
                 ParadoxResolutionPhaseStatus.WAITING,
                 List.of(new PendingParadox(
-                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                        paradoxId, ParadoxType.DEAD_HEAT, outcomeIds.subList(1, 3), affectedEventId, 0)),
                 List.of(),
                 List.of(),
                 List.of(stabilizeSubmission, detonateSubmission),
@@ -1286,7 +1291,7 @@ class ParadoxResolutionSagaImplTest {
         assertThat(payloads.get(0)).isInstanceOf(ParadoxResolved.class);
     }
 
-    /** Three outcomes, the first annihilated and at least tied with the other two — triggers IMPOSSIBLE_ERASURE. */
+    /** The annihilated outcome holds all the weight, leaving nothing to draw — triggers IMPOSSIBLE_ERASURE. */
     private static FutureEvent impossibleErasureFutureEvent(UUID eventId, UUID annihilatedOutcomeId) {
         return impossibleErasureFutureEvent(eventId, annihilatedOutcomeId, UUID.randomUUID(), UUID.randomUUID());
     }
@@ -1298,12 +1303,25 @@ class ParadoxResolutionSagaImplTest {
                 List.of(new FutureEventDrafted(
                         eventId,
                         List.of(
-                                new Outcome(annihilatedOutcomeId, "annihilated", 50, false, true),
-                                new Outcome(secondOutcomeId, "second", 30),
-                                new Outcome(thirdOutcomeId, "third", 20)))));
+                                new Outcome(annihilatedOutcomeId, "annihilated", 100, false, true),
+                                new Outcome(secondOutcomeId, "second", 0),
+                                new Outcome(thirdOutcomeId, "third", 0)))));
     }
 
-    /** All three outcomes annihilated — no eligible outcome remains, trips IMPOSSIBLE_ERASURE for each one. */
+    /** Two annihilated outcomes hold all the weight; the eligible third sits at 0 — trips IMPOSSIBLE_ERASURE. */
+    private static FutureEvent twoErasuresFutureEvent(
+            UUID eventId, UUID firstOutcomeId, UUID secondOutcomeId, UUID thirdOutcomeId) {
+        return FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(firstOutcomeId, "first", 60, false, true),
+                                new Outcome(secondOutcomeId, "second", 40, false, true),
+                                new Outcome(thirdOutcomeId, "third", 0)))));
+    }
+
+    /** All three outcomes annihilated — no eligible outcome remains, trips IMPOSSIBLE_ERASURE. */
     private static FutureEvent allOutcomesAnnihilatedFutureEvent(
             UUID eventId, UUID firstOutcomeId, UUID secondOutcomeId, UUID thirdOutcomeId) {
         return FutureEvent.replay(

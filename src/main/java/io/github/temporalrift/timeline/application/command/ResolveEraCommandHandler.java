@@ -135,7 +135,11 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             return;
         }
         var detected = ParadoxDetector.detect(
-                futureEvent.outcomes(), futureEvent.sealBreach(), futureEvent.id(), activeChains);
+                futureEvent.outcomes(),
+                futureEvent.sealBreach(),
+                futureEvent.collidedPairs(),
+                futureEvent.id(),
+                activeChains);
         if (detected.isEmpty()) {
             var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
             weaverChainSaga.resolvePendingLink(gameId, eraNumber, futureEvent.id(), outcomeApplied.winningOutcomeId());

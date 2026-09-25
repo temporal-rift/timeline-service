@@ -118,11 +118,11 @@ class ParadoxResolutionMissingRosterIT {
                 eraNumber,
                 paradoxedEventId,
                 annihilatedOutcomeId,
-                60,
+                100,
                 UUID.randomUUID(),
-                25,
+                0,
                 UUID.randomUUID(),
-                15);
+                0);
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
                                 "SELECT COUNT(*) FROM future_event_era_index WHERE game_id = ? AND era_number = ?",
@@ -131,7 +131,7 @@ class ParadoxResolutionMissingRosterIT {
                                 eraNumber))
                         .isEqualTo(1));
 
-        // Annihilating the highest-probability outcome trips IMPOSSIBLE_ERASURE.
+        // Annihilating the outcome holding all the weight leaves nothing to draw: IMPOSSIBLE_ERASURE.
         publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
         publisher.actionRoundClosed(gameId, eraNumber, 1);
         publisher.resolutionStarted(gameId, eraNumber, UUID.randomUUID());

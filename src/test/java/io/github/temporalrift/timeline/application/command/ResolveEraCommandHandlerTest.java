@@ -175,8 +175,8 @@ class ResolveEraCommandHandlerTest {
                 List.of(new FutureEventDrafted(
                         eventId,
                         List.of(
-                                new Outcome(annihilatedHighest, "highest", 60),
-                                new Outcome(UUID.randomUUID(), "second", 40)))));
+                                new Outcome(annihilatedHighest, "highest", 100),
+                                new Outcome(UUID.randomUUID(), "second", 0)))));
         futureEvent.annihilateOutcome(annihilatedHighest);
 
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
@@ -405,11 +405,7 @@ class ResolveEraCommandHandlerTest {
     }
 
     @Test
-    void resolve_annihilatedOutcomeAtHighestProbability_publishesParadoxInsteadOfExcludingAndResolving() {
-        // Before paradox detection, this exact case (annihilated outcome holds the top probability) resolved
-        // by excluding the annihilated outcome and picking the next-highest — see FutureEventTest for that
-        // exclusion rule still holding within resolve() itself. At this layer, that same input is now the
-        // IMPOSSIBLE_ERASURE condition and is intercepted before resolve() is called at all.
+    void resolve_annihilatedLeaderWithEligibleWeightLeft_drawsAmongEligibleWithoutParadox() {
         var eventId = UUID.randomUUID();
         var annihilatedHighest = UUID.randomUUID();
         var eligibleSecond = UUID.randomUUID();
@@ -420,6 +416,35 @@ class ResolveEraCommandHandlerTest {
                         List.of(
                                 new Outcome(annihilatedHighest, "highest", 60),
                                 new Outcome(eligibleSecond, "second", 40)))));
+        futureEvent.annihilateOutcome(annihilatedHighest);
+
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+
+        handler.resolve(GAME_ID, ERA_NUMBER);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeastOnce()).publish(captor.capture());
+        var payloads = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .toList();
+        assertThat(payloads).noneMatch(ParadoxDetected.class::isInstance);
+        assertThat(futureEvent.resolution())
+                .hasValueSatisfying(r -> assertThat(r.winningOutcomeId()).isEqualTo(eligibleSecond));
+    }
+
+    @Test
+    void resolve_annihilationLeavingNoEligibleWeight_publishesParadoxInsteadOfResolving() {
+        var eventId = UUID.randomUUID();
+        var annihilatedHighest = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(annihilatedHighest, "highest", 100),
+                                new Outcome(UUID.randomUUID(), "second", 0)))));
         futureEvent.annihilateOutcome(annihilatedHighest);
 
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
@@ -440,9 +465,10 @@ class ResolveEraCommandHandlerTest {
                 .map(ParadoxDetected.class::cast)
                 .findFirst()
                 .orElseThrow();
-        assertThat(paradoxDetected.paradoxes())
-                .singleElement()
-                .satisfies(paradox -> assertThat(paradox.affectedOutcomeIds()).containsExactly(annihilatedHighest));
+        assertThat(paradoxDetected.paradoxes()).singleElement().satisfies(paradox -> {
+            assertThat(paradox.type()).isEqualTo(ParadoxType.IMPOSSIBLE_ERASURE);
+            assertThat(paradox.affectedOutcomeIds()).containsExactly(annihilatedHighest);
+        });
     }
 
     @Test
@@ -454,8 +480,8 @@ class ResolveEraCommandHandlerTest {
                 List.of(new FutureEventDrafted(
                         paradoxedEventId,
                         List.of(
-                                new Outcome(annihilatedOutcomeId, "annihilated", 60),
-                                new Outcome(UUID.randomUUID(), "second", 40)))));
+                                new Outcome(annihilatedOutcomeId, "annihilated", 100),
+                                new Outcome(UUID.randomUUID(), "second", 0)))));
         paradoxedEvent.annihilateOutcome(annihilatedOutcomeId);
 
         var eventId1 = UUID.randomUUID();
@@ -547,8 +573,8 @@ class ResolveEraCommandHandlerTest {
                 List.of(new FutureEventDrafted(
                         eventId,
                         List.of(
-                                new Outcome(annihilatedOutcomeId, "annihilated", 60),
-                                new Outcome(UUID.randomUUID(), "second", 40)))));
+                                new Outcome(annihilatedOutcomeId, "annihilated", 100),
+                                new Outcome(UUID.randomUUID(), "second", 0)))));
         futureEvent.annihilateOutcome(annihilatedOutcomeId);
 
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
@@ -577,8 +603,7 @@ class ResolveEraCommandHandlerTest {
     void resolve_annihilatedPendingLink_publishesChainConflictParadox() {
         var eventId = UUID.randomUUID();
         var pendingOutcomeId = UUID.randomUUID();
-        // Three outcomes, pendingOutcomeId not the highest — annihilating it trips only CHAIN_CONFLICT, not
-        // IMPOSSIBLE_ERASURE too (that requires the annihilated outcome to hold the highest probability).
+        // Annihilating the pending outcome leaves eligible weight, so it trips only CHAIN_CONFLICT.
         var futureEvent = FutureEvent.replay(
                 eventId,
                 List.of(new FutureEventDrafted(
