@@ -10,4 +10,5 @@ public record ChainLinkAddedEvent(
         UUID linkedEventId,
         UUID linkedOutcomeId,
         int chainLength,
-        UUID previousLinkEventId) {}
+        UUID previousLinkEventId,
+        int eraNumber) {}

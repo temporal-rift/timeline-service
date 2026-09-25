@@ -264,6 +264,7 @@ class WeaverChainSagaTest {
         var added = published(ChainLinkAddedEvent.class);
         assertThat(added.linkedEventId()).isEqualTo(pending.eventId());
         assertThat(added.chainLength()).isEqualTo(1);
+        assertThat(added.eraNumber()).isEqualTo(ERA);
     }
 
     @Test

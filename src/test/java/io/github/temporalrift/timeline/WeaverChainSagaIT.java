@@ -90,7 +90,7 @@ class WeaverChainSagaIT {
         var chainId = added.get(0).get("chainId").toString();
         assertThat(added)
                 .allSatisfy(payload -> assertThat(payload.get("chainId")).hasToString(chainId));
-        assertThat(added.get(0)).containsEntry("chainLength", 1);
+        assertThat(added.get(0)).containsEntry("chainLength", 1).containsEntry("eraNumber", 2);
         assertThat(added.get(1)).containsEntry("chainLength", 2);
         assertThat(added.get(2)).containsEntry("chainLength", 3);
         assertThat(added.get(0).get("linkedEventId")).hasToString(era2Event.toString());
