@@ -307,8 +307,8 @@ public final class FutureEvent {
 
     private static int clampedTotal(Map<UUID, Integer> combined, Map<UUID, int[]> bounds, int offset) {
         return bounds.entrySet().stream()
-                .mapToInt(bound ->
-                        Math.clamp(combined.get(bound.getKey()) - offset, bound.getValue()[0], bound.getValue()[1]))
+                .mapToInt(bound -> Math.clamp(
+                        (long) combined.get(bound.getKey()) - offset, bound.getValue()[0], bound.getValue()[1]))
                 .sum();
     }
 
