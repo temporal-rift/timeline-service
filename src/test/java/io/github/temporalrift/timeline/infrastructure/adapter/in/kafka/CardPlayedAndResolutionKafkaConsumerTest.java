@@ -209,7 +209,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                     null,
                     targetPlayerId,
                     null,
-                    cardType == CardType.REDIRECT ? UUID.randomUUID() : null);
+                    null);
             given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
             consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));

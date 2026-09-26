@@ -813,11 +813,11 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
-                        playerTargetedCard(redirectingPlayer, "REDIRECT", pushingPlayer, b, at(0))));
+                        playerTargetedCard(redirectingPlayer, "REDIRECT", pushingPlayer, null, at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        // REDIRECT was submitted before PUSH but still changes the named player's destination to b.
+        // REDIRECT was submitted before PUSH but still advances its destination from a to b.
         assertThat(probabilityOf(futureEvent, b)).isEqualTo(50);
         assertThat(probabilityOf(futureEvent, a) + probabilityOf(futureEvent, b) + probabilityOf(futureEvent, c))
                 .isEqualTo(100);
@@ -826,8 +826,7 @@ class ReplayRoundActionsCommandHandlerTest {
     @Test
     void replay_redirectTargetingSkippedPlayer_isNoOp() {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                .willReturn(List.of(playerTargetedCard(
-                        UUID.randomUUID(), "REDIRECT", UUID.randomUUID(), UUID.randomUUID(), at(0))));
+                .willReturn(List.of(playerTargetedCard(UUID.randomUUID(), "REDIRECT", UUID.randomUUID(), null, at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -844,7 +843,7 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         cardPlayedBy(targetPlayer, "SCAN", scannedEventId, null, null, at(0)),
-                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", targetPlayer, UUID.randomUUID(), at(1))));
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", targetPlayer, null, at(1))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -867,7 +866,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 .willReturn(List.of(
                         specialAction("SEAL", eventId, b, at(0)),
                         cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
-                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, b, at(2))));
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, null, at(2))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -878,13 +877,59 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_redirectToUnknownOutcome_keepsTheOriginalDestination() {
+    void replay_redirectWrapsAcrossDeclaredOutcomeOrder() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
         var c = UUID.randomUUID();
         var pushingPlayer = UUID.randomUUID();
-        var unknownOutcomeId = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, c, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, null, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(70);
+    }
+
+    @Test
+    void replay_redirectPreservesSwingSourceAndSkipsItWhenSelectingDestination() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var swingingPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.swingShift(CardGrade.II)).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(swingingPlayer, "SWING", eventId, a, b, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", swingingPlayer, null, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(40);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(30);
+        assertThat(probabilityOf(futureEvent, c)).isEqualTo(30);
+    }
+
+    @Test
+    void replay_nullifiedRedirectLeavesNamedShiftAtSubmittedDestination() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var redirectingPlayer = UUID.randomUUID();
         var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
         given(rules.pushShift(CardGrade.II)).willReturn(20);
@@ -893,11 +938,136 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
-                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, unknownOutcomeId, at(1))));
+                        playerTargetedCard(redirectingPlayer, "REDIRECT", pushingPlayer, null, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", redirectingPlayer, null, at(2))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(70);
+    }
+
+    @Test
+    void replay_redirectTargetingCollide_isNoOp() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var collidingPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(collidingPlayer, "COLLIDE", eventId, a, b, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", collidingPlayer, null, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(40);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(40);
+    }
+
+    @Test
+    void replay_corruptThenRedirectUsesEffectiveDestinationAndConfirmsSubmittedTarget() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var targetPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.suppressShift(CardGrade.II)).willReturn(-10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(targetPlayer, "PUSH", eventId, null, a, at(0)),
+                        corrupt(UUID.randomUUID(), targetPlayer, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", targetPlayer, null, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(20);
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should().publish(captor.capture());
+        var confirmed = (CorruptInversionConfirmed) captor.getValue().payload();
+        assertThat(confirmed.targetOutcomeId()).isEqualTo(a);
+        assertThat(confirmed.tookEffect()).isTrue();
+    }
+
+    @Test
+    void replay_amplifyAppliesToTheRedirectedShift() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var targetPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.amplifyMultiplier(CardGrade.II)).willReturn(2.0);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(targetPlayer, "PUSH", eventId, null, a, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", targetPlayer, null, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", targetPlayer, null, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(50);
+    }
+
+    @Test
+    void replay_rallyBoostsTheRedirectedDestination() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var targetPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.rallyMultiplier()).willReturn(1.5);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        rally(UUID.randomUUID(), eventId, b, at(0)),
+                        cardPlayedBy(targetPlayer, "PUSH", eventId, null, a, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", targetPlayer, null, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(60);
+    }
+
+    @Test
+    void replay_mimicKeepsTheSubmittedDestinationWhileTheOriginalIsRedirected() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var targetPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(targetPlayer, "PUSH", eventId, null, a, at(0)),
+                        mimic(UUID.randomUUID(), eventId, a, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", targetPlayer, null, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // Both measure from 50/30/20: the copy pushes A (+20/-12/-8), the redirected original pushes B (-14/+20/-6).
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(56);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(38);
+        assertThat(probabilityOf(futureEvent, c)).isEqualTo(6);
     }
 
     @Test
