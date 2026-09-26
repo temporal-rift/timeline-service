@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +15,9 @@ import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
 
 class ParadoxDetectorTest {
+
+    private static final Pattern UUID_PATTERN =
+            Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
     @Test
     void detect_annihilatedOutcomeStrictlyHighest_reportsNoParadox() {
@@ -65,6 +69,7 @@ class ParadoxDetectorTest {
         assertThat(paradoxes).singleElement().satisfies(p -> {
             assertThat(p.type()).isEqualTo(ParadoxType.IMPOSSIBLE_ERASURE);
             assertThat(p.affectedOutcomeIds()).containsExactly(annihilatedA, annihilatedB);
+            assertWithholdsWeights(p);
         });
     }
 
@@ -110,6 +115,24 @@ class ParadoxDetectorTest {
         assertThat(paradoxes).singleElement().satisfies(p -> {
             assertThat(p.type()).isEqualTo(ParadoxType.DEAD_HEAT);
             assertThat(p.affectedOutcomeIds()).containsExactlyInAnyOrder(firstTiedId, secondTiedId);
+            assertWithholdsWeights(p);
+        });
+    }
+
+    @Test
+    void detect_collidedTieAfterSuppress_deadHeatDescriptionWithholdsTiedWeight() {
+        var firstTiedId = UUID.randomUUID();
+        var secondTiedId = UUID.randomUUID();
+        var outcomes = List.of(
+                new Outcome(UUID.randomUUID(), "suppressed", 24),
+                new Outcome(firstTiedId, "first", 38),
+                new Outcome(secondTiedId, "second", 38));
+
+        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of(new CollidedPair(firstTiedId, secondTiedId)));
+
+        assertThat(paradoxes).singleElement().satisfies(p -> {
+            assertThat(p.type()).isEqualTo(ParadoxType.DEAD_HEAT);
+            assertWithholdsWeights(p);
         });
     }
 
@@ -226,6 +249,7 @@ class ParadoxDetectorTest {
         assertThat(paradoxes).hasSize(1);
         assertThat(paradoxes.getFirst().type()).isEqualTo(ParadoxType.SEAL_BREACH);
         assertThat(paradoxes.getFirst().affectedOutcomeIds()).containsExactly(sealedId);
+        assertWithholdsWeights(paradoxes.getFirst());
     }
 
     @Test
@@ -255,7 +279,10 @@ class ParadoxDetectorTest {
         assertThat(paradoxes)
                 .filteredOn(p -> p.type() == ParadoxType.CHAIN_CONFLICT)
                 .singleElement()
-                .satisfies(p -> assertThat(p.affectedOutcomeIds()).containsExactly(pendingOutcomeId));
+                .satisfies(p -> {
+                    assertThat(p.affectedOutcomeIds()).containsExactly(pendingOutcomeId);
+                    assertWithholdsWeights(p);
+                });
     }
 
     @Test
@@ -319,6 +346,11 @@ class ParadoxDetectorTest {
                 outcomes, false, List.of(), eventId, List.of(brokenChainLinking(eventId, outcomeId)));
 
         assertThat(paradoxes).noneMatch(p -> p.type() == ParadoxType.CHAIN_CONFLICT);
+    }
+
+    // ParadoxDetected is public; ids are stripped first because UUIDs contain digits.
+    private static void assertWithholdsWeights(DetectedParadox paradox) {
+        assertThat(UUID_PATTERN.matcher(paradox.description()).replaceAll("")).doesNotContainPattern("\\d");
     }
 
     private static WeaverChain pendingChainLinking(UUID eventId, UUID outcomeId) {

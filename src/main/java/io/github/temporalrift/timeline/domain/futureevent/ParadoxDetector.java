@@ -153,6 +153,6 @@ public final class ParadoxDetector {
         return List.of(new DetectedParadox(
                 ParadoxType.SEAL_BREACH,
                 sealedOutcomeIds,
-                "Sealed outcome(s) " + sealedOutcomeIds + " had a probability change attempted against them"));
+                "Sealed outcome(s) " + sealedOutcomeIds + " had their probability changed"));
     }
 }
