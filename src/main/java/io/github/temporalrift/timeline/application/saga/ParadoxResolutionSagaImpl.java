@@ -9,6 +9,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.random.RandomGenerator;
 
@@ -204,12 +206,13 @@ class ParadoxResolutionSagaImpl {
             return;
         }
 
-        var resolvedByPlayerIdByEvent = applySubmissions(phase);
+        applySubmissions(phase);
+        var resolversByEvent = resolversByEvent(phase);
 
         var activeChains = loadActiveChains(phase.gameId());
         var terminalResolutions = new ArrayList<TerminalResolution>();
         for (var affectedEventId : distinctAffectedEventIds(phase)) {
-            closeEvent(phase, affectedEventId, resolvedByPlayerIdByEvent, activeChains, terminalResolutions);
+            closeEvent(phase, affectedEventId, resolversByEvent, activeChains, terminalResolutions);
         }
 
         stateManager.complete(phase);
@@ -230,12 +233,9 @@ class ParadoxResolutionSagaImpl {
     /**
      * Applies every recorded submission's {@code PUSH}/{@code SUPPRESS} effect to its target event, all of one
      * event's shifts simultaneously so submission order never changes its weights; anything else (an unsupported
-     * card type, or a still-pending non-submitter — simply absent from {@code submissions}) is skipped. Returns the
-     * last {@code PUSH}/{@code SUPPRESS}/{@code STABILIZE} submitter per affected event, in submission-record order,
-     * for {@code ParadoxResolved.resolvedByPlayerId}.
+     * card type, or a still-pending non-submitter — simply absent from {@code submissions}) is skipped.
      */
-    private Map<UUID, UUID> applySubmissions(ParadoxResolutionPhase phase) {
-        var resolvedByPlayerIdByEvent = new HashMap<UUID, UUID>();
+    private void applySubmissions(ParadoxResolutionPhase phase) {
         var shiftsByEvent = new LinkedHashMap<UUID, List<SimultaneousShift>>();
         for (var submission : phase.submissions()) {
             var shift = toProbabilityShift(submission);
@@ -244,12 +244,32 @@ class ParadoxResolutionSagaImpl {
                         .computeIfAbsent(submission.targetEventId(), _ -> new ArrayList<>())
                         .add(new SimultaneousShift(shift, magnitudeFor(submission)));
             }
-            if (shift != null || STABILIZE.equals(submission.cardType())) {
-                resolvedByPlayerIdByEvent.put(submission.targetEventId(), submission.playerId());
-            }
         }
         shiftsByEvent.forEach(this::applyShifts);
-        return resolvedByPlayerIdByEvent;
+    }
+
+    /**
+     * Each event's credited resolvers for {@code ParadoxResolved}: its STABILIZE submitters when any targeted it,
+     * otherwise its PUSH/SUPPRESS submitters — distinct and sorted, so submission order never matters.
+     */
+    private static Map<UUID, List<UUID>> resolversByEvent(ParadoxResolutionPhase phase) {
+        var stabilizersByEvent = new HashMap<UUID, SortedSet<UUID>>();
+        var shiftersByEvent = new HashMap<UUID, SortedSet<UUID>>();
+        for (var submission : phase.submissions()) {
+            if (STABILIZE.equals(submission.cardType())) {
+                stabilizersByEvent
+                        .computeIfAbsent(submission.targetEventId(), _ -> new TreeSet<>())
+                        .add(submission.playerId());
+            } else if (toProbabilityShift(submission) != null) {
+                shiftersByEvent
+                        .computeIfAbsent(submission.targetEventId(), _ -> new TreeSet<>())
+                        .add(submission.playerId());
+            }
+        }
+        var resolvers = new HashMap<UUID, List<UUID>>();
+        shiftersByEvent.forEach((eventId, players) -> resolvers.put(eventId, List.copyOf(players)));
+        stabilizersByEvent.forEach((eventId, players) -> resolvers.put(eventId, List.copyOf(players)));
+        return resolvers;
     }
 
     private void applyShifts(UUID eventId, List<SimultaneousShift> shifts) {
@@ -295,7 +315,7 @@ class ParadoxResolutionSagaImpl {
     private void closeEvent(
             ParadoxResolutionPhase phase,
             UUID affectedEventId,
-            Map<UUID, UUID> resolvedByPlayerIdByEvent,
+            Map<UUID, List<UUID>> resolversByEvent,
             List<WeaverChain> activeChains,
             List<TerminalResolution> terminalResolutions) {
         var eventPendingParadoxes = phase.pendingParadoxes().stream()
@@ -319,7 +339,7 @@ class ParadoxResolutionSagaImpl {
                 affectedEventId,
                 eventPendingParadoxes,
                 freshParadoxes,
-                resolvedByPlayerIdByEvent.get(affectedEventId));
+                resolversByEvent.getOrDefault(affectedEventId, List.of()));
 
         if (persistingIds.isEmpty()) {
             var outcomeApplied = futureEvent.resolve(phase.gameId(), phase.eraNumber(), random.nextLong());
@@ -365,7 +385,7 @@ class ParadoxResolutionSagaImpl {
             UUID affectedEventId,
             List<PendingParadox> pendingParadoxes,
             List<DetectedParadox> freshParadoxes,
-            UUID resolvedByPlayerId) {
+            List<UUID> resolvedByPlayerIds) {
         var unmatchedFresh = new ArrayList<>(freshParadoxes);
         var persistingIds = new ArrayList<UUID>();
         for (var pending : pendingParadoxes) {
@@ -387,7 +407,8 @@ class ParadoxResolutionSagaImpl {
                         FUTURE_EVENT_AGGREGATE_TYPE,
                         phase.gameId(),
                         TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                        new ParadoxResolved(phase.gameId(), phase.eraNumber(), pending.paradoxId(), resolvedByPlayerId),
+                        new ParadoxResolved(
+                                phase.gameId(), phase.eraNumber(), pending.paradoxId(), resolvedByPlayerIds),
                         clock));
                 if (pending.type() == ParadoxType.CHAIN_CONFLICT) {
                     weaverChainSaga.confirmParadoxResolvedLink(

@@ -67,15 +67,15 @@ class TimelineEventWireMapperTest {
     void toWire_paradoxResolved_mapsEveryField() {
         var gameId = UUID.randomUUID();
         var paradoxId = UUID.randomUUID();
-        var resolvedByPlayerId = UUID.randomUUID();
-        var event = new ParadoxResolved(gameId, 1, paradoxId, resolvedByPlayerId);
+        var resolvedByPlayerIds = List.of(UUID.randomUUID(), UUID.randomUUID());
+        var event = new ParadoxResolved(gameId, 1, paradoxId, resolvedByPlayerIds);
 
         var wire = mapper.toWire(event);
 
         assertThat(wire.gameId()).isEqualTo(gameId);
         assertThat(wire.eraNumber()).isEqualTo(1);
         assertThat(wire.paradoxId()).isEqualTo(paradoxId);
-        assertThat(wire.resolvedByPlayerId()).isEqualTo(resolvedByPlayerId);
+        assertThat(wire.resolvedByPlayerIds()).isEqualTo(resolvedByPlayerIds);
     }
 
     @Test
