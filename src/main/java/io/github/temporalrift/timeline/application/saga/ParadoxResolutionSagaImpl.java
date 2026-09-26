@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,7 @@ import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxDetector;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
+import io.github.temporalrift.timeline.domain.futureevent.SimultaneousShift;
 import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -226,33 +228,35 @@ class ParadoxResolutionSagaImpl {
     }
 
     /**
-     * Applies every recorded submission's {@code PUSH}/{@code SUPPRESS} effect to its target event;
-     * anything else (an unsupported card type, or a still-pending non-submitter — simply absent from
-     * {@code submissions}) is skipped. Returns the last {@code PUSH}/{@code SUPPRESS}/{@code STABILIZE} submitter per
-     * affected event, in submission-record order, for {@code ParadoxResolved.resolvedByPlayerId}.
+     * Applies every recorded submission's {@code PUSH}/{@code SUPPRESS} effect to its target event, all of one
+     * event's shifts simultaneously so submission order never changes its weights; anything else (an unsupported
+     * card type, or a still-pending non-submitter — simply absent from {@code submissions}) is skipped. Returns the
+     * last {@code PUSH}/{@code SUPPRESS}/{@code STABILIZE} submitter per affected event, in submission-record order,
+     * for {@code ParadoxResolved.resolvedByPlayerId}.
      */
     private Map<UUID, UUID> applySubmissions(ParadoxResolutionPhase phase) {
         var resolvedByPlayerIdByEvent = new HashMap<UUID, UUID>();
+        var shiftsByEvent = new LinkedHashMap<UUID, List<SimultaneousShift>>();
         for (var submission : phase.submissions()) {
             var shift = toProbabilityShift(submission);
             if (shift != null) {
-                applyShift(submission, shift);
+                shiftsByEvent
+                        .computeIfAbsent(submission.targetEventId(), _ -> new ArrayList<>())
+                        .add(new SimultaneousShift(shift, magnitudeFor(submission)));
             }
             if (shift != null || STABILIZE.equals(submission.cardType())) {
                 resolvedByPlayerIdByEvent.put(submission.targetEventId(), submission.playerId());
             }
         }
+        shiftsByEvent.forEach(this::applyShifts);
         return resolvedByPlayerIdByEvent;
     }
 
-    private void applyShift(Submission submission, ProbabilityShift shift) {
-        var futureEvent = futureEvents.findById(submission.targetEventId());
-        var event = futureEvent.applyShift(
-                shift,
-                magnitudeFor(submission),
-                probabilityRules.probabilityFloor(),
-                probabilityRules.probabilityCeiling());
-        futureEvents.append(submission.targetEventId(), event);
+    private void applyShifts(UUID eventId, List<SimultaneousShift> shifts) {
+        var futureEvent = futureEvents.findById(eventId);
+        var result = futureEvent.applySimultaneousShifts(
+                shifts, probabilityRules.probabilityFloor(), probabilityRules.probabilityCeiling());
+        result.events().forEach(event -> futureEvents.append(eventId, event));
     }
 
     private int magnitudeFor(Submission submission) {

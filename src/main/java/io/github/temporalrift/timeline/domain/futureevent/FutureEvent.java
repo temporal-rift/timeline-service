@@ -1,10 +1,13 @@
 package io.github.temporalrift.timeline.domain.futureevent;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import io.github.temporalrift.timeline.domain.event.EraStateCleared;
@@ -212,6 +215,101 @@ public final class FutureEvent {
                 yield event;
             }
         };
+    }
+
+    /**
+     * Resolves one round's probability effects on this event simultaneously: each shift is evaluated alone against
+     * the current weights under {@link #applyShift}'s rules, the resulting weight changes are summed, and the sum is
+     * fitted once into {@code [floor, ceiling]}. Input order never affects the result. Identical {@code COLLIDE}
+     * pairs count once, and a collided pair is recorded only if it is still equal after the combined result.
+     */
+    public SimultaneousShiftResult applySimultaneousShifts(List<SimultaneousShift> shifts, int floor, int ceiling) {
+        if (resolved()) {
+            throw new FutureEventAlreadyResolvedException(id);
+        }
+        var start = outcomes;
+        var combined = new LinkedHashMap<UUID, Integer>();
+        start.forEach(o -> combined.put(o.outcomeId(), o.probability()));
+        var countedCollides = new HashSet<Set<UUID>>();
+        var equalizedPairs = new ArrayList<CollidedPair>();
+        var movedAlone = new ArrayList<Boolean>();
+        for (var simultaneous : shifts) {
+            var scratch = new FutureEvent(id, start, null, stalled, sealBreach, collidedPairs);
+            var aloneResult = scratch.applyShift(simultaneous.shift(), simultaneous.magnitude(), floor, ceiling);
+            movedAlone.add(!scratch.outcomes.equals(start));
+            if (simultaneous.shift() instanceof ProbabilityShift.Collide(var a, var b)
+                    && !countedCollides.add(Set.of(a, b))) {
+                continue;
+            }
+            scratch.outcomes.forEach(o -> combined.merge(o.outcomeId(), o.probability(), Integer::sum));
+            start.forEach(o -> combined.merge(o.outcomeId(), -o.probability(), Integer::sum));
+            if (aloneResult instanceof OutcomesCollided collided) {
+                equalizedPairs.add(new CollidedPair(collided.firstOutcomeId(), collided.secondOutcomeId()));
+            }
+        }
+        this.outcomes = replaceProbabilities(fitWithinBounds(start, combined, floor, ceiling));
+        var events = new ArrayList<Object>();
+        events.add(new ProbabilityShifted(id, outcomes));
+        var pairs = new ArrayList<>(collidedPairs);
+        for (var pair : equalizedPairs) {
+            if (outcomeById(pair.firstOutcomeId()).probability()
+                    == outcomeById(pair.secondOutcomeId()).probability()) {
+                pairs.add(pair);
+                events.add(new OutcomesCollided(id, outcomes, pair.firstOutcomeId(), pair.secondOutcomeId()));
+            }
+        }
+        this.collidedPairs = List.copyOf(pairs);
+        return new SimultaneousShiftResult(events, movedAlone);
+    }
+
+    /**
+     * Integer water-filling: every unsealed weight moves by one common offset, clamped to its bounds, so the
+     * unsealed total is preserved; points left over by integer rounding come from outcomes still movable, in
+     * declared outcome order. Each outcome's bounds widen to include its starting weight, so the starting state is
+     * always feasible and a weight that began outside {@code [floor, ceiling]} is never pushed further than it was.
+     * Weights already in bounds are returned unchanged.
+     */
+    private Map<UUID, Integer> fitWithinBounds(
+            List<Outcome> start, Map<UUID, Integer> combined, int floor, int ceiling) {
+        var bounds = new LinkedHashMap<UUID, int[]>();
+        start.stream()
+                .filter(o -> !o.sealed())
+                .forEach(o -> bounds.put(
+                        o.outcomeId(),
+                        new int[] {Math.min(floor, o.probability()), Math.max(ceiling, o.probability())}));
+        if (bounds.entrySet().stream().allMatch(bound -> {
+            int probability = combined.get(bound.getKey());
+            return probability >= bound.getValue()[0] && probability <= bound.getValue()[1];
+        })) {
+            return combined;
+        }
+        int freeTotal = bounds.keySet().stream().mapToInt(combined::get).sum();
+        int offset = bounds.entrySet().stream()
+                .mapToInt(bound -> combined.get(bound.getKey()) - bound.getValue()[0])
+                .max()
+                .orElseThrow();
+        while (clampedTotal(combined, bounds, offset) < freeTotal) {
+            offset--;
+        }
+        var fitted = new LinkedHashMap<>(combined);
+        int surplus = clampedTotal(combined, bounds, offset) - freeTotal;
+        for (var bound : bounds.entrySet()) {
+            int shifted = combined.get(bound.getKey()) - offset;
+            int value = Math.clamp(shifted, bound.getValue()[0], bound.getValue()[1]);
+            if (surplus > 0 && shifted > bound.getValue()[0] && shifted <= bound.getValue()[1]) {
+                value--;
+                surplus--;
+            }
+            fitted.put(bound.getKey(), value);
+        }
+        return fitted;
+    }
+
+    private static int clampedTotal(Map<UUID, Integer> combined, Map<UUID, int[]> bounds, int offset) {
+        return bounds.entrySet().stream()
+                .mapToInt(bound ->
+                        Math.clamp(combined.get(bound.getKey()) - offset, bound.getValue()[0], bound.getValue()[1]))
+                .sum();
     }
 
     private boolean conflictsWithSealedOutcome(Map<UUID, Integer> targetProbabilities) {

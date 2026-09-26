@@ -572,6 +572,50 @@ class ParadoxResolutionSagaImplTest {
     }
 
     @Test
+    void handlePlayerSubmitted_cappedPushAndSuppressOnOneEvent_resolveIdenticallyInEitherSubmissionOrder() {
+        var affectedEventId = UUID.randomUUID();
+        var first = UUID.randomUUID();
+        var second = UUID.randomUUID();
+        var third = UUID.randomUUID();
+        var push = new Submission(UUID.randomUUID(), "PUSH", CardGrade.II, affectedEventId, first);
+        var suppress = new Submission(UUID.randomUUID(), "SUPPRESS", CardGrade.II, affectedEventId, first);
+        given(probabilityRules.pushShift(CardGrade.II)).willReturn(20);
+        given(probabilityRules.suppressShift(CardGrade.II)).willReturn(-20);
+        given(probabilityRules.probabilityFloor()).willReturn(0);
+        given(probabilityRules.probabilityCeiling()).willReturn(90);
+
+        for (var order : List.of(List.of(push, suppress), List.of(suppress, push))) {
+            var futureEvent = FutureEvent.replay(
+                    affectedEventId,
+                    List.of(new FutureEventDrafted(
+                            affectedEventId,
+                            List.of(
+                                    new Outcome(first, "first", 80),
+                                    new Outcome(second, "second", 12),
+                                    new Outcome(third, "third", 8)))));
+            var phase = ParadoxResolutionPhase.withKnownRoster(
+                    UUID.randomUUID(),
+                    GAME_ID,
+                    ERA_NUMBER,
+                    ParadoxResolutionPhaseStatus.WAITING,
+                    List.of(new PendingParadox(
+                            UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(), affectedEventId, 0)),
+                    List.of(),
+                    List.of(),
+                    order,
+                    clock.instant());
+            given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, order.getLast()))
+                    .willReturn(Optional.of(phase));
+            given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+
+            saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, order.getLast());
+
+            // The PUSH alone can only add 10 below the ceiling; the SUPPRESS alone removes 20.
+            assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(70, 18, 12);
+        }
+    }
+
+    @Test
     void handlePlayerSubmitted_allSubmitted_appliedCardDoesNotClearParadox_stillCascades() {
         var sagaId = UUID.randomUUID();
         var paradoxId = UUID.randomUUID();
