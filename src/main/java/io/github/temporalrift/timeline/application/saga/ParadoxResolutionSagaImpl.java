@@ -328,11 +328,7 @@ class ParadoxResolutionSagaImpl {
         var freshParadoxes = stabilized
                 ? List.<DetectedParadox>of()
                 : ParadoxDetector.detect(
-                        futureEvent.outcomes(),
-                        futureEvent.sealBreach(),
-                        futureEvent.collidedPairs(),
-                        futureEvent.id(),
-                        activeChains);
+                        futureEvent.outcomes(), futureEvent.collidedPairs(), futureEvent.id(), activeChains);
 
         var persistingIds = reconcileFindings(
                 phase,

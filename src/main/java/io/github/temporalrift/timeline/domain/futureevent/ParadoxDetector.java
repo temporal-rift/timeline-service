@@ -20,14 +20,11 @@ public final class ParadoxDetector {
     private ParadoxDetector() {}
 
     /**
-     * {@code sealBreach} is {@link FutureEvent#sealBreach()} — whether an effect application already recorded a
-     * {@code SealBreachRecorded} against this event — and {@code collidedPairs} is
-     * {@link FutureEvent#collidedPairs()}. Detection itself stays a pure function of these inputs so it can run
-     * independently of the aggregate.
+     * {@code collidedPairs} is {@link FutureEvent#collidedPairs()}. Detection stays a pure function of
+     * the final outcome state and this era's collision history.
      */
-    public static List<DetectedParadox> detect(
-            List<Outcome> outcomes, boolean sealBreach, List<CollidedPair> collidedPairs) {
-        return detect(outcomes, sealBreach, collidedPairs, null, List.of());
+    public static List<DetectedParadox> detect(List<Outcome> outcomes, List<CollidedPair> collidedPairs) {
+        return detect(outcomes, collidedPairs, null, List.of());
     }
 
     /**
@@ -36,16 +33,11 @@ public final class ParadoxDetector {
      * {@code eventId} participate; a null event id or empty chain input reports no conflict.
      */
     public static List<DetectedParadox> detect(
-            List<Outcome> outcomes,
-            boolean sealBreach,
-            List<CollidedPair> collidedPairs,
-            UUID eventId,
-            List<WeaverChain> chains) {
+            List<Outcome> outcomes, List<CollidedPair> collidedPairs, UUID eventId, List<WeaverChain> chains) {
         var paradoxes = new ArrayList<DetectedParadox>();
         paradoxes.addAll(detectDeadHeat(outcomes, collidedPairs));
         paradoxes.addAll(detectImpossibleErasure(outcomes));
         paradoxes.addAll(detectChainConflict(eventId, outcomes, chains));
-        paradoxes.addAll(detectSealBreach(outcomes, sealBreach));
         return List.copyOf(paradoxes);
     }
 
@@ -134,25 +126,5 @@ public final class ParadoxDetector {
         return pending != null
                 && eventId.equals(pending.eventId())
                 && annihilatedOutcomeIds.contains(pending.outcomeId());
-    }
-
-    /**
-     * Reports one {@link DetectedParadox} of type {@code SEAL_BREACH} when {@code sealBreach} is set,
-     * with {@code affectedOutcomeIds} containing the event's sealed outcome id(s). The flag means a sealed
-     * outcome's probability actually changed — see {@link FutureEvent#sealOutcome}: blocked shifts are
-     * ordinary failures that leave weights (and the flag) untouched.
-     */
-    private static List<DetectedParadox> detectSealBreach(List<Outcome> outcomes, boolean sealBreach) {
-        if (!sealBreach) {
-            return List.of();
-        }
-        var sealedOutcomeIds = outcomes.stream()
-                .filter(Outcome::sealed)
-                .map(Outcome::outcomeId)
-                .toList();
-        return List.of(new DetectedParadox(
-                ParadoxType.SEAL_BREACH,
-                sealedOutcomeIds,
-                "Sealed outcome(s) " + sealedOutcomeIds + " had their probability changed"));
     }
 }

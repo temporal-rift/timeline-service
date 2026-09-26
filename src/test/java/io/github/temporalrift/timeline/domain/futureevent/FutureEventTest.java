@@ -429,7 +429,7 @@ class FutureEventTest {
         assertThat(byId(event, b.outcomeId())).isEqualTo(40);
         assertThat(byId(event, c.outcomeId())).isEqualTo(20);
         assertThat(sum(event)).isEqualTo(100);
-        var paradoxes = ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs());
+        var paradoxes = ParadoxDetector.detect(event.outcomes(), event.collidedPairs());
         assertThat(paradoxes).singleElement().satisfies(paradox -> {
             assertThat(paradox.type()).isEqualTo(ParadoxType.DEAD_HEAT);
             assertThat(paradox.affectedOutcomeIds()).containsExactlyInAnyOrder(a.outcomeId(), b.outcomeId());
@@ -450,7 +450,7 @@ class FutureEventTest {
         assertThat(byId(event, b.outcomeId())).isEqualTo(25);
         assertThat(byId(event, c.outcomeId())).isEqualTo(50);
         assertThat(sum(event)).isEqualTo(100);
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .isEmpty();
     }
 
@@ -494,7 +494,6 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(50);
         assertThat(byId(event, b.outcomeId())).isEqualTo(31);
         assertThat(byId(event, c.outcomeId())).isEqualTo(19);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -514,7 +513,6 @@ class FutureEventTest {
         assertThat(byId(event, b.outcomeId())).isEqualTo(30);
         assertThat(byId(event, c.outcomeId())).isEqualTo(40);
         assertThat(sum(event)).isEqualTo(100);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -535,7 +533,6 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(50);
         assertThat(byId(event, b.outcomeId())).isEqualTo(30);
         assertThat(byId(event, c.outcomeId())).isEqualTo(20);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -555,7 +552,6 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(90);
         assertThat(byId(event, b.outcomeId())).isEqualTo(5);
         assertThat(byId(event, c.outcomeId())).isEqualTo(5);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -575,7 +571,6 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(90);
         assertThat(byId(event, b.outcomeId())).isEqualTo(5);
         assertThat(byId(event, c.outcomeId())).isEqualTo(5);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -596,13 +591,11 @@ class FutureEventTest {
         assertThat(byId(event, b.outcomeId())).isEqualTo(60);
         assertThat(byId(event, c.outcomeId())).isEqualTo(20);
         assertThat(sum(event)).isEqualTo(100);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
     void detect_sealedAndBlockedPush_reportsNoParadox() {
-        // Acceptance for the stated rule: a sealed outcome plus a blocked shift detects nothing — only
-        // an actually changed sealed weight would report SEAL_BREACH.
+        // A sealed outcome plus a blocked shift detects nothing.
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
         var b = new Outcome(UUID.randomUUID(), "b", 30);
@@ -612,7 +605,7 @@ class FutureEventTest {
         event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
 
         assertThat(byId(event, a.outcomeId())).isEqualTo(50);
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .isEmpty();
     }
 
@@ -631,7 +624,7 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(70);
         assertThat(byId(event, b.outcomeId())).isEqualTo(30);
         assertThat(byId(event, c.outcomeId())).isZero();
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .isEmpty();
     }
 
@@ -650,7 +643,6 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(40);
         assertThat(byId(event, b.outcomeId())).isEqualTo(40);
         assertThat(byId(event, c.outcomeId())).isEqualTo(20);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -729,7 +721,6 @@ class FutureEventTest {
         assertThat(result).isInstanceOf(ProbabilityShifted.class);
         assertThat(byId(event, a.outcomeId())).isEqualTo(50);
         assertThat(byId(event, b.outcomeId())).isEqualTo(30);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -907,7 +898,6 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(70);
         assertThat(byId(event, b.outcomeId())).isEqualTo(18);
         assertThat(byId(event, c.outcomeId())).isEqualTo(12);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -937,7 +927,6 @@ class FutureEventTest {
                         .orElseThrow()
                         .sealed())
                 .isTrue();
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -1010,7 +999,6 @@ class FutureEventTest {
                         .orElseThrow()
                         .sealed())
                 .isTrue();
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -1048,7 +1036,6 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(50);
         assertThat(byId(event, b.outcomeId())).isEqualTo(30);
         assertThat(byId(event, c.outcomeId())).isEqualTo(20);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -1063,7 +1050,6 @@ class FutureEventTest {
         event.applyShift(new ProbabilityShift.Suppress(b.outcomeId()), -20, 0, 90);
 
         assertThat(byId(event, b.outcomeId())).isEqualTo(30);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -1079,7 +1065,6 @@ class FutureEventTest {
 
         assertThat(byId(event, source.outcomeId())).isEqualTo(50);
         assertThat(byId(event, target.outcomeId())).isEqualTo(30);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -1095,7 +1080,6 @@ class FutureEventTest {
 
         assertThat(byId(event, source.outcomeId())).isEqualTo(50);
         assertThat(byId(event, target.outcomeId())).isEqualTo(30);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -1120,7 +1104,6 @@ class FutureEventTest {
                         .orElseThrow()
                         .sealed())
                 .isTrue();
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -1141,7 +1124,6 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(50);
         assertThat(byId(event, b.outcomeId())).isEqualTo(30);
         assertThat(byId(event, c.outcomeId())).isEqualTo(20);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -1163,11 +1145,10 @@ class FutureEventTest {
                         .orElseThrow()
                         .sealed())
                 .isTrue();
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
-    void replay_reconstructsSealedAnnihilatedAndSealBreachState() {
+    void replay_legacyBreachFactPreservesOtherStateWithoutCreatingParadox() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
         var b = new Outcome(UUID.randomUUID(), "b", 30);
@@ -1197,18 +1178,18 @@ class FutureEventTest {
                         .orElseThrow()
                         .annihilated())
                 .isTrue();
-        assertThat(event.sealBreach()).isTrue();
         assertThat(event.resolved()).isFalse();
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
+                .isEmpty();
     }
 
     @Test
-    void clearEraState_clearsSealAndAnnihilationAndBreach() {
+    void clearEraState_clearsSealAndAnnihilationAfterLegacyFact() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
         var b = new Outcome(UUID.randomUUID(), "b", 30);
         var c = new Outcome(UUID.randomUUID(), "c", 20);
-        // No current shift path sets the breach flag (blocked shifts are ordinary failures), so replay
-        // a recorded breach from history to prove the era carry clears it alongside seal/annihilation.
+        // The legacy fact remains replayable but creates no per-era state.
         var event = FutureEvent.replay(
                 id,
                 List.of(
@@ -1221,13 +1202,11 @@ class FutureEventTest {
                                         new Outcome(a.outcomeId(), "a", 50, true, false),
                                         new Outcome(b.outcomeId(), "b", 30, false, true),
                                         c))));
-        assertThat(event.sealBreach()).isTrue();
 
         var fact = event.clearEraState();
 
         assertThat(event.outcomes().stream().noneMatch(Outcome::sealed)).isTrue();
         assertThat(event.outcomes().stream().noneMatch(Outcome::annihilated)).isTrue();
-        assertThat(event.sealBreach()).isFalse();
         assertThat(fact.eventId()).isEqualTo(id);
         assertThat(fact.outcomes()).allSatisfy(o -> {
             assertThat(o.sealed()).isFalse();
@@ -1264,7 +1243,6 @@ class FutureEventTest {
         event.clearEraState();
 
         assertThat(byId(event, a.outcomeId())).isEqualTo(100);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test
@@ -1290,7 +1268,6 @@ class FutureEventTest {
         var event = FutureEvent.replay(id, List.of(drafted, sealed, breach, cleared));
 
         assertThat(event.outcomes().stream().noneMatch(Outcome::sealed)).isTrue();
-        assertThat(event.sealBreach()).isFalse();
         assertThat(event.resolved()).isFalse();
     }
 
@@ -1425,14 +1402,14 @@ class FutureEventTest {
         var a = new Outcome(UUID.randomUUID(), "a", 38);
         var b = new Outcome(UUID.randomUUID(), "b", 38);
         var event = drafted(id, suppressed, a, b);
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .isEmpty();
 
         var result = event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
 
         assertThat(result).isInstanceOf(OutcomesCollided.class);
         assertThat(event.outcomes()).extracting(Outcome::probability).containsExactly(24, 38, 38);
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .extracting(DetectedParadox::type)
                 .containsExactly(ParadoxType.DEAD_HEAT);
     }
@@ -1500,7 +1477,7 @@ class FutureEventTest {
         assertThat(byId(event, a.outcomeId())).isEqualTo(38);
         assertThat(byId(event, b.outcomeId())).isEqualTo(38);
         assertThat(byId(event, leader.outcomeId())).isEqualTo(24);
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .isEmpty();
     }
 
@@ -1514,7 +1491,7 @@ class FutureEventTest {
 
         event.annihilateOutcome(leader.outcomeId());
 
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .isEmpty();
     }
 
@@ -1526,7 +1503,7 @@ class FutureEventTest {
         var c = new Outcome(UUID.randomUUID(), "c", 19);
         var event = drafted(id, a, b, c);
         event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0, 0, 90);
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .extracting(DetectedParadox::type)
                 .containsExactly(ParadoxType.DEAD_HEAT);
 
@@ -1534,12 +1511,12 @@ class FutureEventTest {
 
         assertThat(byId(event, a.outcomeId())).isEqualTo(40);
         assertThat(byId(event, b.outcomeId())).isEqualTo(40);
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .isEmpty();
 
         event.applyShift(new ProbabilityShift.Collide(b.outcomeId(), a.outcomeId()), 0, 0, 90);
 
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .extracting(DetectedParadox::type)
                 .containsExactly(ParadoxType.DEAD_HEAT);
     }
@@ -1557,7 +1534,7 @@ class FutureEventTest {
 
         assertThat(byId(event, b.outcomeId())).isEqualTo(49);
         assertThat(byId(event, c.outcomeId())).isEqualTo(49);
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
+        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .isEmpty();
     }
 
@@ -1695,7 +1672,6 @@ class FutureEventTest {
 
         assertThat(event.outcomes()).extracting(Outcome::probability).containsExactly(60, 30, 10);
         assertThat(result.movedAlone()).containsExactly(true, false, true);
-        assertThat(event.sealBreach()).isFalse();
     }
 
     @Test

@@ -30,8 +30,8 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 /**
  * Consumes {@code EventsDrawn} from {@code game.events}, drafting each event unless a {@code STALL} or paradox
  * cascade carried it into this era. A carried event already has its aggregate and era-index entry, so drafting it
- * again would corrupt its event stream and conflict with the era index; instead its per-era state (seal,
- * annihilation, seal-breach) is cleared for the new era before anything else in this era touches it — then any
+ * again would corrupt its event stream and conflict with the era index; instead its per-era state (seal and
+ * annihilation) is cleared for the new era before anything else in this era touches it — then any
  * CASCADE pending for this era re-applies its erasure on top of that clearing.
  */
 @Component

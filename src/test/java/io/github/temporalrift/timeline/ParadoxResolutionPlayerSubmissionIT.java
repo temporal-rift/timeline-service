@@ -145,8 +145,8 @@ class ParadoxResolutionPlayerSubmissionIT {
         awaitFutureEventsIndexed(gameId, eraNumber, 1);
         awaitEraPlayersIndexed(gameId, eraNumber, players.size());
 
-        // Seal one outcome, then PUSH it — the blocked shift is an ordinary failure that records no
-        // SEAL_BREACH, so the only paradox below comes from the annihilation.
+        // Seal one outcome, then PUSH it — the blocked shift is an ordinary failure, so the only
+        // paradox below comes from the annihilation.
         publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "SEAL", sealedOutcomeId);
         publisher.cardPlayed(gameId, eraNumber, paradoxedEventId, "PUSH", null, sealedOutcomeId);
         // Annihilate the outcome holding all the weight — IMPOSSIBLE_ERASURE, the event's sole paradox.
@@ -165,7 +165,7 @@ class ParadoxResolutionPlayerSubmissionIT {
         var paradoxes = (List<?>) paradoxDetected.get("paradoxes");
         assertThat(paradoxes).hasSize(1);
 
-        // Both players submit a card that clears IMPOSSIBLE_ERASURE — with no seal breach in the way, the
+        // Both players submit a card that clears IMPOSSIBLE_ERASURE — with no other paradox in the way, the
         // event resolves normally instead of cascading.
         for (var playerId : players) {
             publisher.paradoxResolutionCardPlayed(

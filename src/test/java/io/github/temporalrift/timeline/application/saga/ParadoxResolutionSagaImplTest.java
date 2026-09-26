@@ -766,7 +766,7 @@ class ParadoxResolutionSagaImplTest {
         // The original IMPOSSIBLE_ERASURE finding cleared...
         var resolved = (ParadoxResolved) payloads.get(0);
         assertThat(resolved.paradoxId()).isEqualTo(paradoxId);
-        // ...and with no SEAL_BREACH in its place, the event resolves normally (the weighted draw's winner
+        // ...and with no other paradox in its place, the event resolves normally (the weighted draw's winner
         // is random, so only the terminal state and event are asserted, never the winning outcome).
         assertThat(payloads.get(1)).isInstanceOf(OutcomeApplied.class);
         var barrier = (EraResolutionCompleted) payloads.get(2);
