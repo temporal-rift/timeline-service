@@ -152,7 +152,6 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         assertThat(probabilityOf(futureEvent, target)).isEqualTo(50);
-        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     @Test
@@ -542,7 +541,6 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
-        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     @Test
@@ -662,7 +660,6 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
-        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     @Test
@@ -873,7 +870,6 @@ class ReplayRoundActionsCommandHandlerTest {
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
         assertThat(probabilityOf(futureEvent, b)).isEqualTo(30);
         assertThat(probabilityOf(futureEvent, c)).isEqualTo(20);
-        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     @Test
@@ -1092,7 +1088,6 @@ class ReplayRoundActionsCommandHandlerTest {
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
         assertThat(probabilityOf(futureEvent, b)).isEqualTo(30);
         assertThat(probabilityOf(futureEvent, c)).isEqualTo(20);
-        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     @Test

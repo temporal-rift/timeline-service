@@ -31,21 +31,14 @@ public final class FutureEvent {
     private List<Outcome> outcomes;
     private Resolution resolution;
     private boolean stalled;
-    private boolean sealBreach;
     private List<CollidedPair> collidedPairs;
 
     private FutureEvent(
-            UUID id,
-            List<Outcome> outcomes,
-            Resolution resolution,
-            boolean stalled,
-            boolean sealBreach,
-            List<CollidedPair> collidedPairs) {
+            UUID id, List<Outcome> outcomes, Resolution resolution, boolean stalled, List<CollidedPair> collidedPairs) {
         this.id = id;
         this.outcomes = outcomes;
         this.resolution = resolution;
         this.stalled = stalled;
-        this.sealBreach = sealBreach;
         this.collidedPairs = List.copyOf(collidedPairs);
     }
 
@@ -69,30 +62,26 @@ public final class FutureEvent {
                 throw new IllegalStateException("Event replayed outside the drafted and unresolved state for " + id);
             }
             state = switch (event) {
-                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), null, false, false, List.of());
+                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), null, false, List.of());
                 case OutcomeApplied e ->
                     new FutureEvent(
                             id,
                             e.finalOutcomes(),
                             new Resolution(e.winningOutcomeId(), e.eraNumber()),
                             false,
-                            state.sealBreach(),
                             state.collidedPairs());
                 case ProbabilityShifted e -> state.withOutcomes(e.outcomes());
                 case OutcomesCollided e -> {
                     var pairs = new ArrayList<>(state.collidedPairs());
                     pairs.add(new CollidedPair(e.firstOutcomeId(), e.secondOutcomeId()));
-                    yield new FutureEvent(id, e.outcomes(), null, state.stalled(), state.sealBreach(), pairs);
+                    yield new FutureEvent(id, e.outcomes(), null, state.stalled(), pairs);
                 }
-                case EventStalled _ ->
-                    new FutureEvent(id, state.outcomes(), null, true, state.sealBreach(), state.collidedPairs());
-                case EventUnstalled _ ->
-                    new FutureEvent(id, state.outcomes(), null, false, state.sealBreach(), state.collidedPairs());
+                case EventStalled _ -> new FutureEvent(id, state.outcomes(), null, true, state.collidedPairs());
+                case EventUnstalled _ -> new FutureEvent(id, state.outcomes(), null, false, state.collidedPairs());
                 case OutcomeSealed e -> state.withOutcomes(e.outcomes());
                 case OutcomeAnnihilated e -> state.withOutcomes(e.outcomes());
-                case SealBreachRecorded _ ->
-                    new FutureEvent(id, state.outcomes(), null, state.stalled(), true, state.collidedPairs());
-                case EraStateCleared e -> new FutureEvent(id, e.outcomes(), null, state.stalled(), false, List.of());
+                case SealBreachRecorded _ -> state;
+                case EraStateCleared e -> new FutureEvent(id, e.outcomes(), null, state.stalled(), List.of());
                 default -> throw new IllegalArgumentException("Unknown FutureEvent domain event: " + event.getClass());
             };
         }
@@ -103,7 +92,7 @@ public final class FutureEvent {
     }
 
     private FutureEvent withOutcomes(List<Outcome> replayedOutcomes) {
-        return new FutureEvent(id, replayedOutcomes, null, stalled, sealBreach, collidedPairs);
+        return new FutureEvent(id, replayedOutcomes, null, stalled, collidedPairs);
     }
 
     /**
@@ -193,19 +182,19 @@ public final class FutureEvent {
         }
         return switch (shift) {
             case ProbabilityShift.Push(var targetOutcomeId) ->
-                shiftSingleOrBreach(targetOutcomeId, magnitude, floor, ceiling);
+                shiftSingleOrDecline(targetOutcomeId, magnitude, floor, ceiling);
             case ProbabilityShift.Suppress(var targetOutcomeId) ->
-                shiftSingleOrBreach(targetOutcomeId, magnitude, floor, ceiling);
+                shiftSingleOrDecline(targetOutcomeId, magnitude, floor, ceiling);
             case ProbabilityShift.Swing(var sourceOutcomeId, var targetOutcomeId) ->
-                swingOrBreach(sourceOutcomeId, targetOutcomeId, magnitude, floor, ceiling);
+                swingOrDecline(sourceOutcomeId, targetOutcomeId, magnitude, floor, ceiling);
             case ProbabilityShift.Collide(var outcomeAId, var outcomeBId) ->
-                collideOrBreach(outcomeAId, outcomeBId, floor, ceiling);
+                collideOrDecline(outcomeAId, outcomeBId, floor, ceiling);
             case ProbabilityShift.Restore(var targetProbabilities) -> {
                 // A snapshot predates any SEAL cast on this event since — restoring it verbatim would
                 // silently overwrite a sealed outcome's now-frozen probability if the two disagree. Decline
                 // the whole restore rather than partially rebuild the other two around a value we're not
                 // allowed to change (undo/REDIRECT/CORRUPT all funnel through here, so this protects all
-                // three, not just CORRUPT) — an ordinary failure with weights unchanged and no breach.
+                // three, not just CORRUPT) — an ordinary failure with weights unchanged.
                 if (conflictsWithSealedOutcome(targetProbabilities)) {
                     yield unchanged();
                 }
@@ -234,7 +223,7 @@ public final class FutureEvent {
         var equalizedPairs = new ArrayList<CollidedPair>();
         var movedAlone = new ArrayList<Boolean>();
         for (var simultaneous : shifts) {
-            var scratch = new FutureEvent(id, start, null, stalled, sealBreach, collidedPairs);
+            var scratch = new FutureEvent(id, start, null, stalled, collidedPairs);
             var aloneResult = scratch.applyShift(simultaneous.shift(), simultaneous.magnitude(), floor, ceiling);
             movedAlone.add(!scratch.outcomes.equals(start));
             if (simultaneous.shift() instanceof ProbabilityShift.Collide(var a, var b)
@@ -325,9 +314,9 @@ public final class FutureEvent {
      * but a sealed "other" can't absorb any of it either, so: both others sealed → nowhere to put the
      * movement, declined unchanged; exactly one sealed → the sole unsealed other absorbs all of it;
      * neither sealed → the existing proportional 3-way split. A fully clamped zero move that touches no
-     * sealed weight is likewise an ordinary no-op, not a breach.
+     * sealed weight is likewise an ordinary no-op.
      */
-    private Object shiftSingleOrBreach(UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
+    private Object shiftSingleOrDecline(UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
         var target = outcomeById(targetOutcomeId);
         if (target.sealed()) {
             return unchanged();
@@ -364,7 +353,7 @@ public final class FutureEvent {
         return event;
     }
 
-    private Object swingOrBreach(UUID sourceOutcomeId, UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
+    private Object swingOrDecline(UUID sourceOutcomeId, UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
         if (Objects.equals(sourceOutcomeId, targetOutcomeId)) {
             throw new IllegalArgumentException("SWING requires distinct source and target outcomes");
         }
@@ -386,7 +375,7 @@ public final class FutureEvent {
      * edge keeps total and bounds via a deterministic outcome-id-ordered fallback without guaranteeing equality.
      * A result that leaves the pair equal is an {@link OutcomesCollided}, the Dead Heat trigger input.
      */
-    private Object collideOrBreach(UUID outcomeAId, UUID outcomeBId, int floor, int ceiling) {
+    private Object collideOrDecline(UUID outcomeAId, UUID outcomeBId, int floor, int ceiling) {
         if (Objects.equals(outcomeAId, outcomeBId)) {
             throw new IllegalArgumentException("COLLIDE requires distinct outcomes");
         }
@@ -450,7 +439,7 @@ public final class FutureEvent {
 
     /**
      * A shift declined for seal reasons returns the current outcomes unchanged (the same ordinary-failure
-     * shape as a fully clamped zero move), without recording a breach.
+     * shape as a fully clamped zero move).
      */
     private ProbabilityShifted unchanged() {
         return new ProbabilityShifted(id, outcomes());
@@ -459,9 +448,7 @@ public final class FutureEvent {
     /**
      * Locks {@code outcomeId} ({@code SEAL}) through the end of the era: the sealed outcome's probability
      * cannot move. A later shift that would have to move it is declined with weights unchanged as an
-     * ordinary failure — no paradox. A Seal Breach is recorded only if a sealed outcome's probability
-     * actually changes; no current shift path does so (every path above declines instead), so the breach
-     * flag, its event, and its detection stay reserved for an explicit future seal-breaker.
+     * ordinary failure — no paradox. No legal effect changes a sealed outcome's probability.
      */
     public OutcomeSealed sealOutcome(UUID outcomeId) {
         if (resolved()) {
@@ -479,8 +466,8 @@ public final class FutureEvent {
     }
 
     /**
-     * Clears this event's per-era state — every outcome's sealed/annihilated flag, the seal-breach flag, and the
-     * collided pairs — when it carries into a new era. Identity, outcome set, and
+     * Clears this event's per-era state — every outcome's sealed/annihilated flag and the collided pairs —
+     * when it carries into a new era. Identity, outcome set, and
      * probabilities are preserved; only the flags a new era must not inherit are cleared.
      */
     public EraStateCleared clearEraState() {
@@ -492,7 +479,6 @@ public final class FutureEvent {
                 .toList();
         var event = new EraStateCleared(id, cleared);
         this.outcomes = cleared;
-        this.sealBreach = false;
         this.collidedPairs = List.of();
         return event;
     }
@@ -619,10 +605,6 @@ public final class FutureEvent {
 
     public boolean stalled() {
         return stalled;
-    }
-
-    public boolean sealBreach() {
-        return sealBreach;
     }
 
     /** Pairs a {@code COLLIDE} left equal this era, in application order; cleared on carry. */
