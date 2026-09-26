@@ -26,7 +26,7 @@ class ParadoxDetectorTest {
                 new Outcome(UUID.randomUUID(), "second", 30),
                 new Outcome(UUID.randomUUID(), "third", 20));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of());
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of());
 
         assertThat(paradoxes).isEmpty();
     }
@@ -38,7 +38,7 @@ class ParadoxDetectorTest {
                 new Outcome(UUID.randomUUID(), "second", 33),
                 new Outcome(UUID.randomUUID(), "leader", 34, false, true));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of());
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of());
 
         assertThat(paradoxes).isEmpty();
     }
@@ -50,7 +50,7 @@ class ParadoxDetectorTest {
                 new Outcome(UUID.randomUUID(), "annihilatedB", 49, false, true),
                 new Outcome(UUID.randomUUID(), "eligible", 1));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of());
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of());
 
         assertThat(paradoxes).isEmpty();
     }
@@ -64,7 +64,7 @@ class ParadoxDetectorTest {
                 new Outcome(annihilatedB, "annihilatedB", 50, false, true),
                 new Outcome(UUID.randomUUID(), "eligible", 0));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of());
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of());
 
         assertThat(paradoxes).singleElement().satisfies(p -> {
             assertThat(p.type()).isEqualTo(ParadoxType.IMPOSSIBLE_ERASURE);
@@ -81,7 +81,7 @@ class ParadoxDetectorTest {
                 new Outcome(ids.get(1), "b", 35, false, true),
                 new Outcome(ids.get(2), "c", 25, false, true));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of());
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of());
 
         assertThat(paradoxes).singleElement().satisfies(p -> {
             assertThat(p.type()).isEqualTo(ParadoxType.IMPOSSIBLE_ERASURE);
@@ -96,7 +96,7 @@ class ParadoxDetectorTest {
                 new Outcome(UUID.randomUUID(), "second", 10),
                 new Outcome(UUID.randomUUID(), "third", 0));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of());
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of());
 
         assertThat(paradoxes).isEmpty();
     }
@@ -110,7 +110,7 @@ class ParadoxDetectorTest {
                 new Outcome(secondTiedId, "second", 40),
                 new Outcome(UUID.randomUUID(), "third", 20));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of(new CollidedPair(secondTiedId, firstTiedId)));
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of(new CollidedPair(secondTiedId, firstTiedId)));
 
         assertThat(paradoxes).singleElement().satisfies(p -> {
             assertThat(p.type()).isEqualTo(ParadoxType.DEAD_HEAT);
@@ -128,7 +128,7 @@ class ParadoxDetectorTest {
                 new Outcome(firstTiedId, "first", 38),
                 new Outcome(secondTiedId, "second", 38));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of(new CollidedPair(firstTiedId, secondTiedId)));
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of(new CollidedPair(firstTiedId, secondTiedId)));
 
         assertThat(paradoxes).singleElement().satisfies(p -> {
             assertThat(p.type()).isEqualTo(ParadoxType.DEAD_HEAT);
@@ -144,7 +144,7 @@ class ParadoxDetectorTest {
                 new Outcome(UUID.randomUUID(), "first", 38),
                 new Outcome(UUID.randomUUID(), "second", 38));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of());
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of());
 
         assertThat(paradoxes).isEmpty();
     }
@@ -158,7 +158,7 @@ class ParadoxDetectorTest {
                 new Outcome(secondId, "second", 25),
                 new Outcome(UUID.randomUUID(), "highest", 50));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of(new CollidedPair(firstId, secondId)));
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of(new CollidedPair(firstId, secondId)));
 
         assertThat(paradoxes).isEmpty();
     }
@@ -172,7 +172,7 @@ class ParadoxDetectorTest {
                 new Outcome(secondId, "second", 35),
                 new Outcome(UUID.randomUUID(), "third", 20));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of(new CollidedPair(firstId, secondId)));
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of(new CollidedPair(firstId, secondId)));
 
         assertThat(paradoxes).isEmpty();
     }
@@ -185,7 +185,7 @@ class ParadoxDetectorTest {
         var c = UUID.randomUUID();
         var outcomes = List.of(new Outcome(a, "a", 40), new Outcome(b, "b", 40), new Outcome(c, "c", 20));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of(new CollidedPair(b, c)));
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of(new CollidedPair(b, c)));
 
         assertThat(paradoxes).isEmpty();
     }
@@ -200,7 +200,7 @@ class ParadoxDetectorTest {
                 new Outcome(secondId, "second", 30),
                 new Outcome(thirdId, "third", 30));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of(new CollidedPair(firstId, thirdId)));
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of(new CollidedPair(firstId, thirdId)));
 
         assertThat(paradoxes).singleElement().satisfies(p -> {
             assertThat(p.type()).isEqualTo(ParadoxType.DEAD_HEAT);
@@ -217,7 +217,7 @@ class ParadoxDetectorTest {
                 new Outcome(eligibleId, "eligible", 40),
                 new Outcome(UUID.randomUUID(), "third", 20));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of(new CollidedPair(annihilatedId, eligibleId)));
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of(new CollidedPair(annihilatedId, eligibleId)));
 
         assertThat(paradoxes).isEmpty();
     }
@@ -231,35 +231,20 @@ class ParadoxDetectorTest {
                 new Outcome(secondId, "second", 0),
                 new Outcome(thirdId, "third", 0));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of(new CollidedPair(secondId, thirdId)));
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of(new CollidedPair(secondId, thirdId)));
 
         assertThat(paradoxes).extracting(DetectedParadox::type).containsExactly(ParadoxType.IMPOSSIBLE_ERASURE);
     }
 
     @Test
-    void detect_sealBreachSet_reportsSealBreachWithSealedOutcomeIds() {
+    void detect_sealedOutcome_reportsNoRetiredParadox() {
         var sealedId = UUID.randomUUID();
         var outcomes = List.of(
                 new Outcome(sealedId, "sealed", 40, true, false),
                 new Outcome(UUID.randomUUID(), "second", 35),
                 new Outcome(UUID.randomUUID(), "third", 25));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, true, List.of());
-
-        assertThat(paradoxes).hasSize(1);
-        assertThat(paradoxes.getFirst().type()).isEqualTo(ParadoxType.SEAL_BREACH);
-        assertThat(paradoxes.getFirst().affectedOutcomeIds()).containsExactly(sealedId);
-        assertWithholdsWeights(paradoxes.getFirst());
-    }
-
-    @Test
-    void detect_sealBreachNotSet_reportsNoSealBreach() {
-        var outcomes = List.of(
-                new Outcome(UUID.randomUUID(), "sealed", 40, true, false),
-                new Outcome(UUID.randomUUID(), "second", 35),
-                new Outcome(UUID.randomUUID(), "third", 25));
-
-        var paradoxes = ParadoxDetector.detect(outcomes, false, List.of());
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of());
 
         assertThat(paradoxes).isEmpty();
     }
@@ -274,7 +259,7 @@ class ParadoxDetectorTest {
                 new Outcome(UUID.randomUUID(), "third", 25));
 
         var paradoxes = ParadoxDetector.detect(
-                outcomes, false, List.of(), eventId, List.of(pendingChainLinking(eventId, pendingOutcomeId)));
+                outcomes, List.of(), eventId, List.of(pendingChainLinking(eventId, pendingOutcomeId)));
 
         assertThat(paradoxes)
                 .filteredOn(p -> p.type() == ParadoxType.CHAIN_CONFLICT)
@@ -295,7 +280,7 @@ class ParadoxDetectorTest {
                 new Outcome(UUID.randomUUID(), "third", 25));
 
         var paradoxes = ParadoxDetector.detect(
-                outcomes, false, List.of(), eventId, List.of(pendingChainLinking(eventId, pendingOutcomeId)));
+                outcomes, List.of(), eventId, List.of(pendingChainLinking(eventId, pendingOutcomeId)));
 
         assertThat(paradoxes).noneMatch(p -> p.type() == ParadoxType.CHAIN_CONFLICT);
     }
@@ -309,11 +294,7 @@ class ParadoxDetectorTest {
                 new Outcome(UUID.randomUUID(), "third", 25));
 
         var paradoxes = ParadoxDetector.detect(
-                outcomes,
-                false,
-                List.of(),
-                eventId,
-                List.of(pendingChainLinking(UUID.randomUUID(), UUID.randomUUID())));
+                outcomes, List.of(), eventId, List.of(pendingChainLinking(UUID.randomUUID(), UUID.randomUUID())));
 
         assertThat(paradoxes).noneMatch(p -> p.type() == ParadoxType.CHAIN_CONFLICT);
     }
@@ -328,7 +309,7 @@ class ParadoxDetectorTest {
                 new Outcome(UUID.randomUUID(), "third", 25));
 
         var paradoxes = ParadoxDetector.detect(
-                outcomes, false, List.of(), eventId, List.of(confirmedChainLinking(eventId, confirmedOutcomeId)));
+                outcomes, List.of(), eventId, List.of(confirmedChainLinking(eventId, confirmedOutcomeId)));
 
         assertThat(paradoxes).noneMatch(p -> p.type() == ParadoxType.CHAIN_CONFLICT);
     }
@@ -342,8 +323,8 @@ class ParadoxDetectorTest {
                 new Outcome(UUID.randomUUID(), "second", 35),
                 new Outcome(UUID.randomUUID(), "third", 25));
 
-        var paradoxes = ParadoxDetector.detect(
-                outcomes, false, List.of(), eventId, List.of(brokenChainLinking(eventId, outcomeId)));
+        var paradoxes =
+                ParadoxDetector.detect(outcomes, List.of(), eventId, List.of(brokenChainLinking(eventId, outcomeId)));
 
         assertThat(paradoxes).noneMatch(p -> p.type() == ParadoxType.CHAIN_CONFLICT);
     }
@@ -383,16 +364,19 @@ class ParadoxDetectorTest {
     }
 
     @Test
-    void detect_combinedTypes_reportsBothImpossibleErasureAndSealBreach() {
+    void detect_combinedTypes_reportsImpossibleErasureAndChainConflict() {
+        var eventId = UUID.randomUUID();
+        var pendingOutcomeId = UUID.randomUUID();
         var outcomes = List.of(
-                new Outcome(UUID.randomUUID(), "annihilatedA", 60, false, true),
+                new Outcome(pendingOutcomeId, "annihilatedA", 60, false, true),
                 new Outcome(UUID.randomUUID(), "annihilatedB", 40, false, true),
                 new Outcome(UUID.randomUUID(), "sealed", 0, true, false));
 
-        var paradoxes = ParadoxDetector.detect(outcomes, true, List.of());
+        var paradoxes = ParadoxDetector.detect(
+                outcomes, List.of(), eventId, List.of(pendingChainLinking(eventId, pendingOutcomeId)));
 
         assertThat(paradoxes)
                 .extracting(DetectedParadox::type)
-                .containsExactlyInAnyOrder(ParadoxType.IMPOSSIBLE_ERASURE, ParadoxType.SEAL_BREACH);
+                .containsExactlyInAnyOrder(ParadoxType.IMPOSSIBLE_ERASURE, ParadoxType.CHAIN_CONFLICT);
     }
 }

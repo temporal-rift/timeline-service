@@ -69,7 +69,6 @@ class ApplyMomentumBonusCommandHandlerTest {
         handler.apply(eventId, a);
 
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
-        assertThat(futureEvent.sealBreach()).isFalse();
     }
 
     private static FutureEvent drafted(UUID id, Outcome... outcomes) {
