@@ -31,7 +31,6 @@ import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
-import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.ThreadRejectedEvent;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
@@ -86,7 +85,6 @@ class TimelineEventPublisherAdapter implements TimelineEventPublisher {
             case ChainReAnchoredEvent e -> publish("ChainReAnchored", mapper.toWire(e), event);
             case CascadeCarriedForwardEvent e -> publish("CascadeCarriedForward", mapper.toWire(e), event);
             case ResolutionFailed e -> publish("ResolutionFailed", mapper.toWire(e), event);
-            case ResolutionWarning e -> publish("ResolutionWarning", mapper.toWire(e), event);
             default ->
                 throw new IllegalArgumentException(
                         "Unsupported timeline event payload: " + event.payload().getClass());

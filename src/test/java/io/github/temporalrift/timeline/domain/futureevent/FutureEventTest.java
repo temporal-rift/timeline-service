@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -1558,6 +1559,191 @@ class FutureEventTest {
         assertThat(byId(event, c.outcomeId())).isEqualTo(49);
         assertThat(ParadoxDetector.detect(event.outcomes(), event.sealBreach(), event.collidedPairs()))
                 .isEmpty();
+    }
+
+    @Test
+    void applySimultaneousShifts_loneShift_matchesApplyShift() {
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var sequential = drafted(UUID.randomUUID(), a, b, c);
+        var simultaneous = drafted(UUID.randomUUID(), a, b, c);
+
+        sequential.applyShift(new ProbabilityShift.Push(a.outcomeId()), 30, 0, 90);
+        var result = simultaneous.applySimultaneousShifts(
+                List.of(new SimultaneousShift(new ProbabilityShift.Push(a.outcomeId()), 30)), 0, 90);
+
+        assertThat(simultaneous.outcomes()).isEqualTo(sequential.outcomes());
+        assertThat(result.movedAlone()).containsExactly(true);
+    }
+
+    @Test
+    void applySimultaneousShifts_opposingPushAndSuppress_cancelInEitherOrder() {
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var push = new SimultaneousShift(new ProbabilityShift.Push(a.outcomeId()), 20);
+        var suppress = new SimultaneousShift(new ProbabilityShift.Suppress(a.outcomeId()), -20);
+
+        for (var order : List.of(List.of(push, suppress), List.of(suppress, push))) {
+            var event = drafted(UUID.randomUUID(), a, b, c);
+            event.applySimultaneousShifts(order, 0, 90);
+
+            assertThat(event.outcomes()).extracting(Outcome::probability).containsExactly(50, 30, 20);
+        }
+    }
+
+    @Test
+    void applySimultaneousShifts_cappedPushAndSuppress_combineFromStartingWeightsInEitherOrder() {
+        var a = new Outcome(UUID.randomUUID(), "a", 80);
+        var b = new Outcome(UUID.randomUUID(), "b", 12);
+        var c = new Outcome(UUID.randomUUID(), "c", 8);
+        var push = new SimultaneousShift(new ProbabilityShift.Push(a.outcomeId()), 20);
+        var suppress = new SimultaneousShift(new ProbabilityShift.Suppress(a.outcomeId()), -20);
+
+        for (var order : List.of(List.of(push, suppress), List.of(suppress, push))) {
+            var event = drafted(UUID.randomUUID(), a, b, c);
+            event.applySimultaneousShifts(order, 0, 90);
+
+            // PUSH alone can only add 10 below the 90 ceiling; SUPPRESS alone removes 20.
+            assertThat(event.outcomes()).extracting(Outcome::probability).containsExactly(70, 18, 12);
+        }
+    }
+
+    @Test
+    void applySimultaneousShifts_combinedOverflow_isFittedIntoBoundsPreservingTotal() {
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(UUID.randomUUID(), a, b, c);
+        var push = new SimultaneousShift(new ProbabilityShift.Push(a.outcomeId()), 30);
+
+        event.applySimultaneousShifts(List.of(push, push, push), 5, 90);
+
+        assertThat(event.outcomes()).extracting(Outcome::probability).containsExactly(90, 5, 5);
+    }
+
+    @Test
+    void applySimultaneousShifts_fitRemainder_goesByDeclaredOutcomeOrder() {
+        var a = new Outcome(UUID.randomUUID(), "a", 51);
+        var b = new Outcome(UUID.randomUUID(), "b", 25);
+        var c = new Outcome(UUID.randomUUID(), "c", 24);
+        var event = drafted(UUID.randomUUID(), a, b, c);
+        var push = new SimultaneousShift(new ProbabilityShift.Push(a.outcomeId()), 9);
+
+        event.applySimultaneousShifts(List.of(push, push), 0, 60);
+
+        // Summed 69/15/16: A caps at 60 and B/C share the 9 overflow points equally; the odd point stays off B.
+        assertThat(event.outcomes()).extracting(Outcome::probability).containsExactly(60, 19, 21);
+    }
+
+    @Test
+    void applySimultaneousShifts_sameRoundPushOnCollidedPair_breaksTheTie() {
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(UUID.randomUUID(), a, b, c);
+
+        var result = event.applySimultaneousShifts(
+                List.of(
+                        new SimultaneousShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0),
+                        new SimultaneousShift(new ProbabilityShift.Push(b.outcomeId()), 20)),
+                0,
+                90);
+
+        assertThat(event.outcomes()).extracting(Outcome::probability).containsExactly(26, 60, 14);
+        assertThat(event.collidedPairs()).isEmpty();
+        assertThat(result.events()).singleElement().isInstanceOf(ProbabilityShifted.class);
+    }
+
+    @Test
+    void applySimultaneousShifts_duplicateCollides_countOnceAndRecordThePair() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(id, a, b, c);
+
+        var result = event.applySimultaneousShifts(
+                List.of(
+                        new SimultaneousShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0),
+                        new SimultaneousShift(new ProbabilityShift.Collide(b.outcomeId(), a.outcomeId()), 0)),
+                0,
+                90);
+
+        assertThat(event.outcomes()).extracting(Outcome::probability).containsExactly(40, 40, 20);
+        assertThat(event.collidedPairs()).containsExactly(new CollidedPair(a.outcomeId(), b.outcomeId()));
+        assertThat(result.events()).hasSize(2).last().isInstanceOf(OutcomesCollided.class);
+        assertThat(result.movedAlone()).containsExactly(true, true);
+    }
+
+    @Test
+    void applySimultaneousShifts_sealedOutcome_staysFixedAndDeclinedShiftDidNotMove() {
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(UUID.randomUUID(), a, b, c);
+        event.sealOutcome(b.outcomeId());
+
+        var result = event.applySimultaneousShifts(
+                List.of(
+                        new SimultaneousShift(new ProbabilityShift.Push(a.outcomeId()), 20),
+                        new SimultaneousShift(new ProbabilityShift.Push(b.outcomeId()), 20),
+                        new SimultaneousShift(new ProbabilityShift.Suppress(a.outcomeId()), -10)),
+                0,
+                90);
+
+        assertThat(event.outcomes()).extracting(Outcome::probability).containsExactly(60, 30, 10);
+        assertThat(result.movedAlone()).containsExactly(true, false, true);
+        assertThat(event.sealBreach()).isFalse();
+    }
+
+    @Test
+    void applySimultaneousShifts_everyInputOrder_producesTheSameStateAndReplaysIdentically() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 45);
+        var b = new Outcome(UUID.randomUUID(), "b", 35);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var shifts = List.of(
+                new SimultaneousShift(new ProbabilityShift.Collide(a.outcomeId(), b.outcomeId()), 0),
+                new SimultaneousShift(new ProbabilityShift.Swing(c.outcomeId(), a.outcomeId()), 15),
+                new SimultaneousShift(new ProbabilityShift.Push(a.outcomeId()), 30),
+                new SimultaneousShift(new ProbabilityShift.Suppress(b.outcomeId()), -10));
+        var reference = drafted(id, a, b, c);
+        reference.applySimultaneousShifts(shifts, 5, 60);
+
+        for (var order : permutations(shifts)) {
+            var event = drafted(id, a, b, c);
+            var result = event.applySimultaneousShifts(order, 5, 60);
+            var history = new ArrayList<Object>();
+            history.add(new FutureEventDrafted(id, List.of(a, b, c)));
+            history.addAll(result.events());
+            var replayed = FutureEvent.replay(id, history);
+
+            assertThat(event.outcomes()).isEqualTo(reference.outcomes());
+            assertThat(event.collidedPairs()).isEqualTo(reference.collidedPairs());
+            assertThat(replayed.outcomes()).isEqualTo(reference.outcomes());
+            assertThat(replayed.collidedPairs()).isEqualTo(reference.collidedPairs());
+            assertThat(sum(event)).isEqualTo(100);
+        }
+    }
+
+    private static <T> List<List<T>> permutations(List<T> items) {
+        if (items.isEmpty()) {
+            return List.of(List.of());
+        }
+        var result = new ArrayList<List<T>>();
+        for (int i = 0; i < items.size(); i++) {
+            var rest = new ArrayList<>(items);
+            var head = rest.remove(i);
+            for (var tail : permutations(rest)) {
+                var permutation = new ArrayList<T>();
+                permutation.add(head);
+                permutation.addAll(tail);
+                result.add(permutation);
+            }
+        }
+        return result;
     }
 
     private static int byId(FutureEvent event, UUID outcomeId) {

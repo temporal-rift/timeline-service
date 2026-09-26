@@ -12,8 +12,10 @@ import static org.mockito.Mockito.times;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Function;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,7 +30,6 @@ import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
-import io.github.temporalrift.timeline.domain.event.ResolutionWarning;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
@@ -441,33 +442,61 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_mimicSelectsEarliestOfMultipleQualifyingCards() {
+    void replay_mimicSelectsStrongestQualifyingCardRegardlessOfSubmissionOrder() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
         var c = UUID.randomUUID();
-        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
-        given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        given(rules.pushShift(CardGrade.II)).willReturn(20);
-        given(rules.swingShift(CardGrade.II)).willReturn(15);
+        given(rules.pushShift(CardGrade.I)).willReturn(10);
+        given(rules.pushShift(CardGrade.III)).willReturn(30);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
-        var pushingPlayer = UUID.randomUUID();
-        var swingingPlayer = UUID.randomUUID();
+        var weakPlayer = UUID.randomUUID();
+        var strongPlayer = UUID.randomUUID();
         var mimicPlayer = UUID.randomUUID();
-        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                .willReturn(List.of(
-                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
-                        cardPlayedBy(swingingPlayer, "SWING", eventId, c, a, at(1)),
-                        mimic(mimicPlayer, eventId, a, at(2))));
 
-        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+        for (var weakFirst : List.of(true, false)) {
+            var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+            given(futureEvents.findById(eventId)).willReturn(futureEvent);
+            given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                    .willReturn(List.of(
+                            cardPlayedByGraded(
+                                    weakPlayer, "PUSH", CardGrade.I, eventId, null, a, at(weakFirst ? 0 : 2)),
+                            cardPlayedByGraded(
+                                    strongPlayer, "PUSH", CardGrade.III, eventId, null, a, at(weakFirst ? 2 : 0)),
+                            mimic(mimicPlayer, eventId, a, at(1))));
 
-        // If MIMIC had instead correlated to the later SWING, `b` would be untouched by it — the exact
-        // values below only result from copying the earliest candidate, the PUSH.
-        assertThat(probabilityOf(futureEvent, a)).isEqualTo(90);
-        assertThat(probabilityOf(futureEvent, b)).isEqualTo(6);
-        assertThat(probabilityOf(futureEvent, c)).isEqualTo(4);
+            handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+            // Copying the grade I PUSH instead would fit to 90/5/5.
+            assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(90, 3, 7);
+        }
+    }
+
+    @Test
+    void replay_mimicPrefersARaisingCardOverAnEquallyStrongSuppress() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.suppressShift(CardGrade.II)).willReturn(-20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+
+        for (var pushFirst : List.of(true, false)) {
+            var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+            given(futureEvents.findById(eventId)).willReturn(futureEvent);
+            given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                    .willReturn(List.of(
+                            cardPlayed("PUSH", eventId, null, a, at(pushFirst ? 0 : 2)),
+                            cardPlayed("SUPPRESS", eventId, null, a, at(pushFirst ? 2 : 0)),
+                            mimic(UUID.randomUUID(), eventId, a, at(1))));
+
+            handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+            assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(70, 18, 12);
+        }
     }
 
     @Test
@@ -1016,7 +1045,7 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_mimicKeepsTheSubmittedDestinationBeforeRedirectedShift() {
+    void replay_mimicKeepsTheSubmittedDestinationWhileTheOriginalIsRedirected() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
@@ -1035,9 +1064,10 @@ class ReplayRoundActionsCommandHandlerTest {
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        assertThat(probabilityOf(futureEvent, a)).isEqualTo(53);
+        // Both measure from 50/30/20: the copy pushes A (+20/-12/-8), the redirected original pushes B (-14/+20/-6).
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(56);
         assertThat(probabilityOf(futureEvent, b)).isEqualTo(38);
-        assertThat(probabilityOf(futureEvent, c)).isEqualTo(9);
+        assertThat(probabilityOf(futureEvent, c)).isEqualTo(6);
     }
 
     @Test
@@ -1208,26 +1238,63 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_identicalOccurredAtTieInRemainingTier_publishesResolutionWarning() {
-        var eventId1 = UUID.randomUUID();
-        var eventId2 = UUID.randomUUID();
-        var tiedInstant = at(0);
-        given(futureEvents.findById(any()))
-                .willReturn(drafted(
-                        eventId1,
-                        outcome(UUID.randomUUID(), 33),
-                        outcome(UUID.randomUUID(), 33),
-                        outcome(UUID.randomUUID(), 34)));
+    void replay_collideSwingCappedPushSuppressAndStall_everySubmissionOrderResolvesIdentically() {
+        var eventId = UUID.randomUUID();
+        var stalledEventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        given(rules.pushShift(CardGrade.III)).willReturn(30);
+        given(rules.swingShift(CardGrade.I)).willReturn(15);
+        given(rules.suppressShift(CardGrade.II)).willReturn(-20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        List<Function<Instant, BufferedAction>> actions = List.of(
+                t -> cardPlayed("COLLIDE", eventId, b, c, t),
+                t -> cardPlayedByGraded(UUID.randomUUID(), "SWING", CardGrade.I, eventId, a, c, t),
+                t -> cardPlayedByGraded(UUID.randomUUID(), "PUSH", CardGrade.III, eventId, null, a, t),
+                t -> cardPlayed("SUPPRESS", eventId, null, b, t),
+                t -> cardPlayed("STALL", stalledEventId, null, null, t));
+
+        for (var order : permutations(List.of(0, 1, 2, 3, 4))) {
+            var futureEvent = drafted(eventId, outcome(a, 70), outcome(b, 20), outcome(c, 10));
+            var stalledEvent = drafted(stalledEventId, outcome(a, 34), outcome(b, 33), outcome(c, 33));
+            given(futureEvents.findById(eventId)).willReturn(futureEvent);
+            given(futureEvents.findById(stalledEventId)).willReturn(stalledEvent);
+            given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                    .willReturn(order.stream()
+                            .map(index -> actions.get(index).apply(at(order.indexOf(index))))
+                            .toList());
+
+            handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+            // Summed alone-effects 93/-18/25 are fitted into [0, 90]: the 18-point deficit is shared by A and C.
+            assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(84, 0, 16);
+            assertThat(futureEvent.collidedPairs()).isEmpty();
+            assertThat(stalledEvent.stalled()).isTrue();
+        }
+    }
+
+    @Test
+    void replay_collideSubmittedLast_doesNotGuaranteeTheTie() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
-                        cardPlayed("STALL", eventId1, null, null, tiedInstant),
-                        cardPlayed("STALL", eventId2, null, null, tiedInstant)));
+                        cardPlayed("PUSH", eventId, null, b, at(0)), cardPlayed("COLLIDE", eventId, a, b, at(59))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should().publish(captor.capture());
-        assertThat(captor.getValue().payload()).isInstanceOf(ResolutionWarning.class);
+        assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(26, 60, 14);
+        assertThat(futureEvent.collidedPairs()).isEmpty();
+        then(publisher).should(never()).publish(any());
     }
 
     @Test
@@ -1490,6 +1557,24 @@ class ReplayRoundActionsCommandHandlerTest {
 
         then(scanEntitlements).should().upsert(GAME_ID, ERA_NUMBER, player, knownEventId);
         then(scanEntitlements).should(never()).upsert(GAME_ID, ERA_NUMBER, player, unknownEventId);
+    }
+
+    private static <T> List<List<T>> permutations(List<T> items) {
+        if (items.isEmpty()) {
+            return List.of(List.of());
+        }
+        var result = new ArrayList<List<T>>();
+        for (int i = 0; i < items.size(); i++) {
+            var rest = new ArrayList<>(items);
+            var head = rest.remove(i);
+            for (var tail : permutations(rest)) {
+                var permutation = new ArrayList<T>();
+                permutation.add(head);
+                permutation.addAll(tail);
+                result.add(permutation);
+            }
+        }
+        return result;
     }
 
     private static FutureEvent drafted(UUID id, Outcome... outcomes) {
