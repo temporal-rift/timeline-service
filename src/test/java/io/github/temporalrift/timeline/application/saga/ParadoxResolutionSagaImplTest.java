@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -519,7 +520,7 @@ class ParadoxResolutionSagaImplTest {
 
         var resolved = (ParadoxResolved) payloads.get(0);
         assertThat(resolved.paradoxId()).isEqualTo(paradoxId);
-        assertThat(resolved.resolvedByPlayerId()).isEqualTo(playerId);
+        assertThat(resolved.resolvedByPlayerIds()).containsExactly(playerId);
 
         assertThat(payloads.get(1)).isInstanceOf(OutcomeApplied.class);
 
@@ -528,6 +529,50 @@ class ParadoxResolutionSagaImplTest {
                 .extracting(TerminalResolution::terminalState)
                 .containsExactly(TerminalResolution.TerminalState.OUTCOME_APPLIED);
         then(settleCascades).should().settle(GAME_ID, ERA_NUMBER, barrier.terminalResolutions());
+    }
+
+    @Test
+    void handlePlayerSubmitted_twoShiftersClearTogether_creditsBothInPlayerIdOrderRegardlessOfSubmissionOrder() {
+        var affectedEventId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
+        var firstPlayer = UUID.randomUUID();
+        var secondPlayer = UUID.randomUUID();
+        var first = new Submission(firstPlayer, "SUPPRESS", CardGrade.II, affectedEventId, annihilatedId);
+        var second = new Submission(secondPlayer, "SUPPRESS", CardGrade.II, affectedEventId, annihilatedId);
+        given(probabilityRules.suppressShift(CardGrade.II)).willReturn(-40);
+        given(probabilityRules.probabilityFloor()).willReturn(0);
+        given(probabilityRules.probabilityCeiling()).willReturn(90);
+        var expected = firstPlayer.compareTo(secondPlayer) < 0
+                ? List.of(firstPlayer, secondPlayer)
+                : List.of(secondPlayer, firstPlayer);
+
+        for (var order : List.of(List.of(first, second), List.of(second, first))) {
+            var phase = ParadoxResolutionPhase.withKnownRoster(
+                    UUID.randomUUID(),
+                    GAME_ID,
+                    ERA_NUMBER,
+                    ParadoxResolutionPhaseStatus.WAITING,
+                    List.of(new PendingParadox(
+                            UUID.randomUUID(),
+                            ParadoxType.IMPOSSIBLE_ERASURE,
+                            List.of(annihilatedId),
+                            affectedEventId,
+                            0)),
+                    List.of(),
+                    List.of(),
+                    order,
+                    clock.instant());
+            given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, order.getLast()))
+                    .willReturn(Optional.of(phase));
+            given(futureEvents.findById(affectedEventId))
+                    .willReturn(impossibleErasureFutureEvent(affectedEventId, annihilatedId));
+            clearInvocations(publisher);
+
+            saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, order.getLast());
+
+            var resolved = (ParadoxResolved) publishedPayloads(3).get(0);
+            assertThat(resolved.resolvedByPlayerIds()).isEqualTo(expected);
+        }
     }
 
     @Test
@@ -890,7 +935,7 @@ class ParadoxResolutionSagaImplTest {
         var payloads = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .toList();
-        assertThat(((ParadoxResolved) payloads.get(0)).resolvedByPlayerId()).isEqualTo(stabilizingPlayerId);
+        assertThat(((ParadoxResolved) payloads.get(0)).resolvedByPlayerIds()).containsExactly(stabilizingPlayerId);
         assertThat(payloads.get(1)).isInstanceOf(OutcomeApplied.class);
         var barrier = (EraResolutionCompleted) payloads.get(2);
         assertThat(barrier.terminalResolutions())
@@ -935,7 +980,7 @@ class ParadoxResolutionSagaImplTest {
         var payloads = publishedPayloads(3);
         var resolved = (ParadoxResolved) payloads.get(0);
         assertThat(resolved.paradoxId()).isEqualTo(paradoxId);
-        assertThat(resolved.resolvedByPlayerId()).isEqualTo(stabilizingPlayerId);
+        assertThat(resolved.resolvedByPlayerIds()).containsExactly(stabilizingPlayerId);
         var outcomeApplied = (OutcomeApplied) payloads.get(1);
         assertThat(outcomeApplied.winningOutcomeId()).isEqualTo(expectedWinnerId);
         assertThat(outcomeApplied.finalOutcomes())
@@ -1115,7 +1160,7 @@ class ParadoxResolutionSagaImplTest {
         saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, stabilize);
 
         var resolved = (ParadoxResolved) publishedPayloads(3).get(0);
-        assertThat(resolved.resolvedByPlayerId()).isEqualTo(stabilizingPlayerId);
+        assertThat(resolved.resolvedByPlayerIds()).containsExactly(stabilizingPlayerId);
     }
 
     private List<Object> publishedPayloads(int expectedCount) {

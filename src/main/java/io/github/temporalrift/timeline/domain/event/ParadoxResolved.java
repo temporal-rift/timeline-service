@@ -1,5 +1,6 @@
 package io.github.temporalrift.timeline.domain.event;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -7,4 +8,9 @@ import java.util.UUID;
  * affected event proceeds to normal outcome resolution this era. Not event-sourced, built and published by
  * {@code ParadoxResolutionSaga}.
  */
-public record ParadoxResolved(UUID gameId, int eraNumber, UUID paradoxId, UUID resolvedByPlayerId) {}
+public record ParadoxResolved(UUID gameId, int eraNumber, UUID paradoxId, List<UUID> resolvedByPlayerIds) {
+
+    public ParadoxResolved {
+        resolvedByPlayerIds = List.copyOf(resolvedByPlayerIds);
+    }
+}
