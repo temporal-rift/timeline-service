@@ -78,6 +78,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final Set<String> AMPLIFIABLE_SHIFTER_TYPES =
             Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING, CARD_TYPE_COLLIDE);
 
+    /** REDIRECT applies only to directional shifts; COLLIDE equalizes a pair and has no destination to retarget. */
+    private static final Set<String> REDIRECTABLE_SHIFTER_TYPES =
+            Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING);
+
     /** CORRUPT correlates only to these — COLLIDE is never invertible by it. */
     private static final Set<String> CORRUPT_INVERTIBLE_TYPES =
             Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING);
@@ -155,7 +159,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
         var corruptTargets = resolveCorruptTargets(sorted, cancelled);
         var amplifyMultipliers = resolveAmplifyMultipliers(sorted, selectedActionByPlayer, cancelled);
-        var redirectDestinations = resolveRedirectDestinations(sorted, selectedActionByPlayer, cancelled);
+        var redirectedActions = resolveRedirectedActions(sorted, selectedActionByPlayer, cancelled);
         var mimicCorrelations = resolveMimicTargets(sorted, cancelled);
         // Defensive, not just relying on the producer-side invariant that RALLY is only ever buffered into
         // round 1 — even if a RALLY entry somehow reached another round's buffer, it would not be consulted.
@@ -175,7 +179,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                     a,
                     corruptTargets.containsKey(a.envelopeEventId()),
                     amplifierMultiplier,
-                    redirectDestinations.get(a.envelopeEventId()),
+                    redirectedActions.contains(a.envelopeEventId()),
                     rallyDeclaredOutcomes,
                     touchedEventIds,
                     tookEffectEnvelopeIds);
@@ -540,19 +544,19 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         return multipliers;
     }
 
-    private static Map<UUID, UUID> resolveRedirectDestinations(
+    private static Set<UUID> resolveRedirectedActions(
             List<BufferedAction> sorted, Map<UUID, BufferedAction> selectedActionByPlayer, Set<UUID> cancelled) {
-        var destinations = new LinkedHashMap<UUID, UUID>();
+        var redirectedActionIds = new HashSet<UUID>();
         for (var redirect : sorted) {
             if (!isCardType(redirect, CARD_TYPE_REDIRECT) || cancelled.contains(redirect.envelopeEventId())) {
                 continue;
             }
-            var target = findLiveShifter(selectedActionByPlayer, redirect.targetPlayerId(), cancelled);
+            var target = findLiveRedirectableShifter(selectedActionByPlayer, redirect.targetPlayerId(), cancelled);
             if (target != null) {
-                destinations.put(target.envelopeEventId(), redirect.targetOutcomeId());
+                redirectedActionIds.add(target.envelopeEventId());
             }
         }
-        return destinations;
+        return redirectedActionIds;
     }
 
     private static boolean isLiveShifter(BufferedAction action, Set<UUID> cancelled) {
@@ -568,11 +572,22 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         return isLiveShifter(selected, cancelled) ? selected : null;
     }
 
+    private static BufferedAction findLiveRedirectableShifter(
+            Map<UUID, BufferedAction> selectedActionByPlayer, UUID targetPlayerId, Set<UUID> cancelled) {
+        var selected = selectedActionByPlayer.get(targetPlayerId);
+        return selected != null
+                        && selected.kind() == ActionKind.CARD_PLAYED
+                        && REDIRECTABLE_SHIFTER_TYPES.contains(selected.cardType())
+                        && !cancelled.contains(selected.envelopeEventId())
+                ? selected
+                : null;
+    }
+
     private void applyRemainingTierAction(
             BufferedAction a,
             boolean inverted,
             double amplifierMultiplier,
-            UUID redirectedTargetOutcomeId,
+            boolean redirected,
             Set<UUID> rallyDeclaredOutcomes,
             Set<UUID> touchedEventIds,
             Set<UUID> tookEffectEnvelopeIds) {
@@ -585,7 +600,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                         a,
                         inverted,
                         amplifierMultiplier,
-                        redirectedTargetOutcomeId,
+                        redirected,
                         rallyDeclaredOutcomes,
                         touchedEventIds,
                         tookEffectEnvelopeIds);
@@ -603,7 +618,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             BufferedAction a,
             boolean inverted,
             double amplifierMultiplier,
-            UUID redirectedTargetOutcomeId,
+            boolean redirected,
             Set<UUID> rallyDeclaredOutcomes,
             Set<UUID> touchedEventIds,
             Set<UUID> tookEffectEnvelopeIds) {
@@ -611,11 +626,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var effectiveKind = effectiveKind(kind, inverted);
         tryFindEvent(a.targetEventId()).ifPresent(futureEvent -> {
             var sourceOutcomeId = appliedSourceOutcomeId(effectiveKind, inverted, a);
-            var targetOutcomeId = redirectedTargetOutcomeId != null
-                            && futureEvent.outcomes().stream()
-                                    .anyMatch(o -> o.outcomeId().equals(redirectedTargetOutcomeId))
-                    ? redirectedTargetOutcomeId
-                    : appliedTargetOutcomeId(effectiveKind, inverted, a);
+            var submittedTargetOutcomeId = appliedTargetOutcomeId(effectiveKind, inverted, a);
+            var targetOutcomeId = redirected
+                    ? redirectDestination(futureEvent, sourceOutcomeId, submittedTargetOutcomeId)
+                    : submittedTargetOutcomeId;
             var shift = toProbabilityShift(effectiveKind, sourceOutcomeId, targetOutcomeId);
             int amplifiedMagnitude = (int) Math.round(baseMagnitude(effectiveKind, a.grade()) * amplifierMultiplier);
             int magnitude =
@@ -630,6 +644,35 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 tookEffectEnvelopeIds.add(a.envelopeEventId());
             }
         });
+    }
+
+    /**
+     * Advances cyclically through the event's declared outcome order. A sealed outcome remains selectable so the
+     * aggregate's ordinary blocked-shift handling leaves weights unchanged; annihilated outcomes never receive a
+     * redirected shift. Returning the submitted destination means REDIRECT is a no-op if there is no alternative.
+     */
+    private static UUID redirectDestination(
+            FutureEvent futureEvent, UUID sourceOutcomeId, UUID submittedTargetOutcomeId) {
+        var outcomes = futureEvent.outcomes();
+        int submittedTargetIndex = -1;
+        for (int index = 0; index < outcomes.size(); index++) {
+            if (outcomes.get(index).outcomeId().equals(submittedTargetOutcomeId)) {
+                submittedTargetIndex = index;
+                break;
+            }
+        }
+        if (submittedTargetIndex < 0) {
+            return submittedTargetOutcomeId;
+        }
+        for (int offset = 1; offset < outcomes.size(); offset++) {
+            var candidate = outcomes.get((submittedTargetIndex + offset) % outcomes.size());
+            if (!candidate.annihilated()
+                    && !candidate.outcomeId().equals(submittedTargetOutcomeId)
+                    && !candidate.outcomeId().equals(sourceOutcomeId)) {
+                return candidate.outcomeId();
+            }
+        }
+        return submittedTargetOutcomeId;
     }
 
     private static Map<UUID, Integer> probabilitiesByOutcome(FutureEvent futureEvent) {
