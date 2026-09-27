@@ -513,6 +513,19 @@ class WeaverChainSagaTest {
     }
 
     @Test
+    void breakChainOnCascadedParadox_thenCascadeExpiry_publishesNoInvalidation() {
+        var chainId = openChainWithPendingLink();
+        var pending = chains.findById(chainId).pendingLink();
+
+        saga.breakChainOnCascadedParadox(GAME_ID, ERA, pending.eventId(), pending.outcomeId(), UUID.randomUUID());
+        saga.expireWinnerlessPendingLink(GAME_ID, ERA, pending.eventId());
+
+        assertThat(chains.findById(chainId).status()).isEqualTo(ChainStatus.BROKEN);
+        published(ChainBrokenEvent.class);
+        publishedNever(ChainLinkInvalidatedEvent.class);
+    }
+
+    @Test
     void breakChainOnCascadedParadox_nonMatching_noOp() {
         openChainWithPendingLink();
 
