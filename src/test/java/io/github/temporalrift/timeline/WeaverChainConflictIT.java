@@ -218,8 +218,8 @@ class WeaverChainConflictIT {
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(payloadsOf(gameId, PARADOX_DETECTED))
                         .flatMap(payload -> (List<?>) payload.get("paradoxes"))
-                        .anySatisfy(paradox ->
-                                assertThat(((Map<?, ?>) paradox).get("type")).isEqualTo(type)));
+                        .extracting(paradox -> String.valueOf(((Map<?, ?>) paradox).get("type")))
+                        .contains(type));
     }
 
     private void awaitWinner(UUID gameId, UUID eventId, UUID winnerId) {
