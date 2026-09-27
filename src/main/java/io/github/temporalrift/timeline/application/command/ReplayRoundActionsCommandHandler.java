@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.AdjustedBandsPublished;
+import io.github.temporalrift.timeline.domain.event.AnnihilationResolved;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
@@ -150,7 +151,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var cancelled = computeNullifyCancellations(sorted, selectedActionByPlayer);
 
         applyTier(sorted, cancelled, a -> isSpecial(a, "SEAL"), this::applySeal);
-        applyAnnihilateTier(gameId, eraNumber, sorted, cancelled);
+        applyAnnihilateTier(gameId, eraNumber, roundNumber, sorted, cancelled);
         applyCascadeTier(gameId, eraNumber, sorted, cancelled);
 
         var corruptTargets = resolveCorruptTargets(sorted, cancelled);
@@ -344,11 +345,28 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * chain link on the removed outcome is invalidated (or TAPESTRY-consumed). Runs here — not at
      * SpecialActionPlayed consumption — so a NULLIFY-cancelled ANNIHILATE never invalidates a chain.
      */
-    private void applyAnnihilateTier(UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
-        for (var a : sorted) {
-            if (!isSpecial(a, "ANNIHILATE") || cancelled.contains(a.envelopeEventId())) {
-                continue;
+    private void applyAnnihilateTier(
+            UUID gameId, int eraNumber, int roundNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
+        var live = sorted.stream()
+                .filter(a -> isSpecial(a, "ANNIHILATE") && !cancelled.contains(a.envelopeEventId()))
+                .toList();
+        // Read before any of this round's Annihilates apply, so neither value depends on submission order.
+        var resolutions = new ArrayList<AnnihilationResolved>();
+        for (var a : live) {
+            if (a.targetOutcomeId() != null) {
+                tryFindEvent(a.targetEventId())
+                        .ifPresent(futureEvent -> resolutions.add(new AnnihilationResolved(
+                                gameId,
+                                eraNumber,
+                                roundNumber,
+                                a.playerId(),
+                                a.targetEventId(),
+                                a.targetOutcomeId(),
+                                futureEvent.isEligible(a.targetOutcomeId()),
+                                futureEvent.isLeadingEligible(a.targetOutcomeId()))));
             }
+        }
+        for (var a : live) {
             tryFindEvent(a.targetEventId()).ifPresent(futureEvent -> {
                 futureEvents.append(a.targetEventId(), futureEvent.annihilateOutcome(a.targetOutcomeId()));
                 if (a.targetOutcomeId() != null) {
@@ -356,6 +374,13 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 }
             });
         }
+        resolutions.forEach(resolution -> publisher.publish(TimelineEventEnvelope.create(
+                resolution.targetEventId(),
+                FUTURE_EVENT_AGGREGATE_TYPE,
+                gameId,
+                TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                resolution,
+                clock)));
     }
 
     /**

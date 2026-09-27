@@ -12,6 +12,7 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 
 import io.github.temporalrift.timeline.domain.event.AdjustedBandsPublished;
+import io.github.temporalrift.timeline.domain.event.AnnihilationResolved;
 import io.github.temporalrift.timeline.domain.event.CascadeCarriedForwardEvent;
 import io.github.temporalrift.timeline.domain.event.ChainBrokenEvent;
 import io.github.temporalrift.timeline.domain.event.ChainCompletedEvent;
@@ -73,6 +74,7 @@ class TimelineEventPublisherAdapter implements TimelineEventPublisher {
             case ParadoxResolved e -> publish("ParadoxResolved", mapper.toWire(e), event);
             case AdjustedBandsPublished e -> publish("AdjustedBandsPublished", mapper.toWire(e), event);
             case CorruptInversionConfirmed e -> publish("CorruptInversionConfirmed", mapper.toWire(e), event);
+            case AnnihilationResolved e -> publish("AnnihilationResolved", mapper.toWire(e), event);
             case ChainLinkThreadedEvent e -> publish("ChainLinkThreaded", mapper.toWire(e), event);
             case ChainLinkAddedEvent e -> publish("ChainLinkAdded", mapper.toWire(e), event);
             case ChainCompletedEvent e -> publish("ChainCompleted", mapper.toWire(e), event);
