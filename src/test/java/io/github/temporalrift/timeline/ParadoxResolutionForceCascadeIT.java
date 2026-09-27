@@ -68,9 +68,9 @@ class ParadoxResolutionForceCascadeIT {
                 eraNumber,
                 paradoxedEventId,
                 annihilatedOutcomeId,
-                100,
+                60,
                 secondOutcomeId,
-                0,
+                40,
                 eventId1,
                 winnerOutcomeId1,
                 70,
@@ -83,7 +83,8 @@ class ParadoxResolutionForceCascadeIT {
                 35);
         awaitFutureEventsIndexed(gameId, eraNumber, 3);
 
-        publishSpecialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
+        // A COLLIDE equalizing the leading pair trips DEAD_HEAT on the paradoxed event.
+        publishCardPlayed(gameId, eraNumber, paradoxedEventId, "COLLIDE", annihilatedOutcomeId, secondOutcomeId);
         publishActionRoundClosed(gameId, eraNumber, 1);
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
@@ -146,7 +147,7 @@ class ParadoxResolutionForceCascadeIT {
                 .isEqualTo(1);
 
         // Resolving the next era directly proves the carried event is active again with its paradox state
-        // intact: nothing restored eligible weight, so the same IMPOSSIBLE_ERASURE paradox is re-detected
+        // intact: the collided pair is still tied highest, so the same DEAD_HEAT paradox is re-detected
         // from the exact carried outcome state — not silently dropped or force-resolved.
         var nextEraResolutionEventId = UUID.randomUUID();
         publishResolutionStarted(gameId, eraNumber + 1, nextEraResolutionEventId);
@@ -165,7 +166,7 @@ class ParadoxResolutionForceCascadeIT {
     }
 
     @Test
-    void carriedEventLosesAllEligibleOutcomes_stabilizeCannotForceResolution_cascadesAcrossRepeatedEras() {
+    void finalErasureRejected_eventResolvesNormally_neverCascades() {
         var gameId = UUID.randomUUID();
         var eventId = UUID.randomUUID();
         var outcomeA = UUID.randomUUID();
@@ -176,82 +177,49 @@ class ParadoxResolutionForceCascadeIT {
         publishEventsDrawnSingleThreeOutcomeEvent(gameId, 1, eventId, outcomeA, 100, outcomeB, 0, outcomeC, 0);
         awaitFutureEventsIndexed(gameId, 1, 1);
 
-        // Annihilating the outcome holding all the weight leaves nothing to draw: IMPOSSIBLE_ERASURE.
+        // Annihilating the outcome holding all the weight would leave nothing to draw, so the erasure is
+        // rejected instead of tripping a paradox: the event resolves normally and never cascades.
         publishSpecialActionPlayed(gameId, 1, eventId, "ANNIHILATE", outcomeA);
         publishActionRoundClosed(gameId, 1, 1);
         publishResolutionStarted(gameId, 1, UUID.randomUUID());
-        awaitEventCascaded(gameId, 1, eventId);
-        awaitCarriedForwardToEra(gameId, eventId, 2);
 
-        publishSpecialActionPlayed(gameId, 2, eventId, "ANNIHILATE", outcomeB);
-        publishActionRoundClosed(gameId, 2, 1);
-        publishResolutionStarted(gameId, 2, UUID.randomUUID());
-        awaitEventCascaded(gameId, 2, eventId);
-        awaitCarriedForwardToEra(gameId, eventId, 3);
-
-        // Annihilating C leaves no eligible outcome; STABILIZE against it must not force a draw.
-        publishSpecialActionPlayed(gameId, 3, eventId, "ANNIHILATE", outcomeC);
-        publishActionRoundClosed(gameId, 3, 1);
-        publishResolutionStarted(gameId, 3, UUID.randomUUID());
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(eventTypesForEra(gameId, 3))
-                        .contains(PARADOX_DETECTED, PARADOX_RESOLUTION_PHASE_STARTED));
-        publishParadoxResolutionCardPlayed(gameId, 3, eventId, "STABILIZE");
-        awaitEventCascaded(gameId, 3, eventId);
-        awaitCarriedForwardToEra(gameId, eventId, 4);
+                .untilAsserted(() -> assertThat(eventTypesForEra(gameId, 1))
+                        .contains("SpecialRejected", "OutcomeApplied", ERA_RESOLUTION_COMPLETED));
+        var rejected = messagesFor(gameId).stream()
+                .filter(m -> "SpecialRejected".equals(m.eventType()))
+                .map(TimelineEventsTestCollector.CollectedMessage::payload)
+                .filter(p -> Integer.valueOf(1).equals(p.get("eraNumber")))
+                .findFirst()
+                .orElseThrow();
+        assertThat(rejected)
+                .containsEntry("specialAction", "ANNIHILATE")
+                .containsEntry("reason", "LAST_ELIGIBLE_OUTCOME")
+                .containsEntry("targetEventId", eventId.toString())
+                .containsEntry("targetOutcomeId", outcomeA.toString());
 
-        publishResolutionStarted(gameId, 4, UUID.randomUUID());
-        awaitEventCascaded(gameId, 4, eventId);
-        awaitCarriedForwardToEra(gameId, eventId, 5);
+        // The untouched weights still draw: the rejected target holds all the weight, so it wins outright.
+        var barrier = messagesFor(gameId).stream()
+                .filter(m -> ERA_RESOLUTION_COMPLETED.equals(m.eventType()))
+                .map(TimelineEventsTestCollector.CollectedMessage::payload)
+                .filter(p -> Integer.valueOf(1).equals(p.get("eraNumber")))
+                .findFirst()
+                .orElseThrow();
+        var terminalResolutions = (List<?>) barrier.get("terminalResolutions");
+        assertThat(terminalResolutionFor(terminalResolutions, eventId))
+                .containsEntry("terminalState", "OUTCOME_APPLIED")
+                .containsEntry("winningOutcomeId", outcomeA.toString());
 
-        publishResolutionStarted(gameId, 5, UUID.randomUUID());
-        await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(eventTypesForEra(gameId, 5))
-                        .contains(PARADOX_DETECTED, PARADOX_RESOLUTION_PHASE_STARTED));
-        publishParadoxResolutionCardPlayed(gameId, 5, eventId, "STABILIZE");
-        awaitEventCascaded(gameId, 5, eventId);
-        awaitCarriedForwardToEra(gameId, eventId, 6);
-
-        // Across every era, this event never resolved to an outcome and never published ParadoxResolved.
+        // No paradox was ever detected, resolved, or cascaded for this event.
+        assertThat(messagesFor(gameId))
+                .filteredOn(m -> PARADOX_DETECTED.equals(m.eventType())
+                        || "ParadoxResolved".equals(m.eventType())
+                        || PARADOX_CASCADED.equals(m.eventType()))
+                .isEmpty();
         assertThat(messagesFor(gameId))
                 .filteredOn(m -> "OutcomeApplied".equals(m.eventType())
                         && eventId.toString().equals(m.payload().get("eventId")))
-                .isEmpty();
-        assertThat(messagesFor(gameId))
-                .filteredOn(m -> "ParadoxResolved".equals(m.eventType()))
-                .isEmpty();
-    }
-
-    private void awaitEventCascaded(UUID gameId, int eraNumber, UUID eventId) {
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
-            var cascadedThisEra = messagesFor(gameId).stream()
-                    .filter(m -> PARADOX_CASCADED.equals(m.eventType()))
-                    .map(TimelineEventsTestCollector.CollectedMessage::payload)
-                    .filter(p -> Integer.valueOf(eraNumber).equals(p.get("eraNumber")))
-                    .filter(p -> eventId.toString().equals(p.get("affectedEventId")))
-                    .toList();
-            assertThat(cascadedThisEra).isNotEmpty();
-
-            var barrier = messagesFor(gameId).stream()
-                    .filter(m -> ERA_RESOLUTION_COMPLETED.equals(m.eventType()))
-                    .map(TimelineEventsTestCollector.CollectedMessage::payload)
-                    .filter(p -> Integer.valueOf(eraNumber).equals(p.get("eraNumber")))
-                    .findFirst();
-            assertThat(barrier).isPresent();
-            var terminalResolutions = (List<?>) barrier.get().get("terminalResolutions");
-            assertThat(terminalResolutionFor(terminalResolutions, eventId))
-                    .containsEntry("terminalState", "CASCADED")
-                    .doesNotContainKey("winningOutcomeId");
-        });
-    }
-
-    private void awaitCarriedForwardToEra(UUID gameId, UUID eventId, int eraNumber) {
-        var sql = "SELECT COUNT(*) FROM future_event_era_index "
-                + "WHERE game_id = ? AND event_id = ? AND era_number = ?";
-        await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(
-                        () -> assertThat(jdbcTemplate.queryForObject(sql, Integer.class, gameId, eventId, eraNumber))
-                                .isEqualTo(1));
+                .hasSize(1);
     }
 
     private List<String> eventTypesForEra(UUID gameId, int eraNumber) {
@@ -312,17 +280,25 @@ class ParadoxResolutionForceCascadeIT {
                                                 probabilityC))))));
     }
 
-    private void publishParadoxResolutionCardPlayed(UUID gameId, int eraNumber, UUID targetEventId, String cardType) {
+    private void publishCardPlayed(
+            UUID gameId,
+            int eraNumber,
+            UUID targetEventId,
+            String cardType,
+            UUID sourceOutcomeId,
+            UUID targetOutcomeId) {
         var payload = new HashMap<String, Object>();
         payload.put("gameId", gameId);
         payload.put("eraNumber", eraNumber);
+        payload.put("roundNumber", 1);
         payload.put("playerId", UUID.randomUUID());
         payload.put("cardInstanceId", UUID.randomUUID());
         payload.put("cardType", cardType);
-        payload.put("grade", "I");
+        payload.put("grade", "II");
         payload.put("targetEventId", targetEventId);
-        payload.put("targetOutcomeId", UUID.randomUUID());
-        publish(gameId, "ParadoxResolutionCardPlayed", payload);
+        payload.put("sourceOutcomeId", sourceOutcomeId);
+        payload.put("targetOutcomeId", targetOutcomeId);
+        publish(gameId, "CardPlayed", payload);
     }
 
     private void awaitFutureEventsIndexed(UUID gameId, int eraNumber, int expectedCount) {
