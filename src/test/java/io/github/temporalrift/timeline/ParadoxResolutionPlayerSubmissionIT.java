@@ -53,18 +53,19 @@ class ParadoxResolutionPlayerSubmissionIT {
         var gameId = UUID.randomUUID();
         var eraNumber = 1;
         var paradoxedEventId = UUID.randomUUID();
-        var annihilatedOutcomeId = UUID.randomUUID();
+        var firstOutcomeId = UUID.randomUUID();
         var secondOutcomeId = UUID.randomUUID();
         var thirdOutcomeId = UUID.randomUUID();
         var players = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
 
         publisher.eraStarted(gameId, eraNumber, players);
         publisher.threeOutcomeEventDrawn(
-                gameId, eraNumber, paradoxedEventId, annihilatedOutcomeId, 100, secondOutcomeId, 0, thirdOutcomeId, 0);
+                gameId, eraNumber, paradoxedEventId, firstOutcomeId, 50, secondOutcomeId, 31, thirdOutcomeId, 19);
         awaitFutureEventsIndexed(gameId, eraNumber, 1);
         awaitEraPlayersIndexed(gameId, eraNumber, players.size());
 
-        publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
+        // A COLLIDE equalizing the leading pair trips DEAD_HEAT.
+        publisher.cardPlayed(gameId, eraNumber, paradoxedEventId, "COLLIDE", firstOutcomeId, secondOutcomeId);
         publisher.actionRoundClosed(gameId, eraNumber, 1);
         publisher.resolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
@@ -72,11 +73,10 @@ class ParadoxResolutionPlayerSubmissionIT {
                 .untilAsserted(() -> assertThat(eventTypesOf(messagesFor(gameId)))
                         .contains(PARADOX_DETECTED, PARADOX_RESOLUTION_PHASE_STARTED));
 
-        // Every player submits a SUPPRESS on the annihilated outcome — each frees weight to the eligible
-        // outcomes, clearing IMPOSSIBLE_ERASURE well before the 2s test timer.
+        // Every player submits a SUPPRESS breaking the tie — clearing DEAD_HEAT well before the 2s test timer.
         for (var playerId : players) {
             publisher.paradoxResolutionCardPlayed(
-                    gameId, eraNumber, playerId, "SUPPRESS", paradoxedEventId, annihilatedOutcomeId);
+                    gameId, eraNumber, playerId, "SUPPRESS", paradoxedEventId, firstOutcomeId);
         }
 
         await().atMost(Duration.ofSeconds(5))
@@ -93,18 +93,19 @@ class ParadoxResolutionPlayerSubmissionIT {
         var gameId = UUID.randomUUID();
         var eraNumber = 1;
         var paradoxedEventId = UUID.randomUUID();
-        var annihilatedOutcomeId = UUID.randomUUID();
+        var firstOutcomeId = UUID.randomUUID();
         var secondOutcomeId = UUID.randomUUID();
         var thirdOutcomeId = UUID.randomUUID();
         var players = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
 
         publisher.eraStarted(gameId, eraNumber, players);
         publisher.threeOutcomeEventDrawn(
-                gameId, eraNumber, paradoxedEventId, annihilatedOutcomeId, 100, secondOutcomeId, 0, thirdOutcomeId, 0);
+                gameId, eraNumber, paradoxedEventId, firstOutcomeId, 50, secondOutcomeId, 31, thirdOutcomeId, 19);
         awaitFutureEventsIndexed(gameId, eraNumber, 1);
         awaitEraPlayersIndexed(gameId, eraNumber, players.size());
 
-        publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
+        // A COLLIDE equalizing the leading pair trips DEAD_HEAT.
+        publisher.cardPlayed(gameId, eraNumber, paradoxedEventId, "COLLIDE", firstOutcomeId, secondOutcomeId);
         publisher.actionRoundClosed(gameId, eraNumber, 1);
         publisher.resolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
@@ -112,10 +113,10 @@ class ParadoxResolutionPlayerSubmissionIT {
                 .untilAsserted(
                         () -> assertThat(eventTypesOf(messagesFor(gameId))).contains(PARADOX_RESOLUTION_PHASE_STARTED));
 
-        // Only the first player submits — a SUPPRESS on an eligible outcome already at 0 changes nothing, so the
+        // Only the first player submits — a DETONATE moves no weight, so the dead heat persists and the
         // phase must be force-cascaded by the timer.
         publisher.paradoxResolutionCardPlayed(
-                gameId, eraNumber, players.get(0), "SUPPRESS", paradoxedEventId, secondOutcomeId);
+                gameId, eraNumber, players.get(0), "DETONATE", paradoxedEventId, secondOutcomeId);
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(eventTypesOf(messagesFor(gameId)))
@@ -129,28 +130,27 @@ class ParadoxResolutionPlayerSubmissionIT {
     }
 
     @Test
-    void blockedPushAgainstSeal_recordsNoBreach_eventResolvesAfterErasureClears() {
+    void blockedPushAgainstSeal_recordsNoBreach_eventResolvesAfterTieClears() {
         var gameId = UUID.randomUUID();
         var eraNumber = 1;
         var paradoxedEventId = UUID.randomUUID();
         var sealedOutcomeId = UUID.randomUUID();
-        var annihilatedOutcomeId = UUID.randomUUID();
-        var thirdOutcomeId = UUID.randomUUID();
+        var firstOutcomeId = UUID.randomUUID();
+        var secondOutcomeId = UUID.randomUUID();
         var players = List.of(UUID.randomUUID(), UUID.randomUUID());
 
         publisher.eraStarted(gameId, eraNumber, players);
-        // annihilatedOutcomeId holds all the weight, so ANNIHILATE-ing it trips IMPOSSIBLE_ERASURE.
         publisher.threeOutcomeEventDrawn(
-                gameId, eraNumber, paradoxedEventId, sealedOutcomeId, 0, annihilatedOutcomeId, 100, thirdOutcomeId, 0);
+                gameId, eraNumber, paradoxedEventId, sealedOutcomeId, 20, firstOutcomeId, 50, secondOutcomeId, 30);
         awaitFutureEventsIndexed(gameId, eraNumber, 1);
         awaitEraPlayersIndexed(gameId, eraNumber, players.size());
 
         // Seal one outcome, then PUSH it — the blocked shift is an ordinary failure, so the only
-        // paradox below comes from the annihilation.
+        // paradox below comes from the Collide.
         publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "SEAL", sealedOutcomeId);
         publisher.cardPlayed(gameId, eraNumber, paradoxedEventId, "PUSH", null, sealedOutcomeId);
-        // Annihilate the outcome holding all the weight — IMPOSSIBLE_ERASURE, the event's sole paradox.
-        publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
+        // A COLLIDE equalizing the leading pair trips DEAD_HEAT, the event's sole paradox.
+        publisher.cardPlayed(gameId, eraNumber, paradoxedEventId, "COLLIDE", firstOutcomeId, secondOutcomeId);
         publisher.actionRoundClosed(gameId, eraNumber, 1);
         publisher.resolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
@@ -165,11 +165,11 @@ class ParadoxResolutionPlayerSubmissionIT {
         var paradoxes = (List<?>) paradoxDetected.get("paradoxes");
         assertThat(paradoxes).hasSize(1);
 
-        // Both players submit a card that clears IMPOSSIBLE_ERASURE — with no other paradox in the way, the
+        // Both players submit a card that breaks the tie — with no other paradox in the way, the
         // event resolves normally instead of cascading.
         for (var playerId : players) {
             publisher.paradoxResolutionCardPlayed(
-                    gameId, eraNumber, playerId, "SUPPRESS", paradoxedEventId, annihilatedOutcomeId);
+                    gameId, eraNumber, playerId, "SUPPRESS", paradoxedEventId, firstOutcomeId);
         }
 
         await().atMost(Duration.ofSeconds(5))

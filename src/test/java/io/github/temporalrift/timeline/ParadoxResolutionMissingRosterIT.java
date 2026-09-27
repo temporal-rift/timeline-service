@@ -48,15 +48,16 @@ class ParadoxResolutionMissingRosterIT {
         var gameId = UUID.randomUUID();
         var eraNumber = 1;
         var paradoxedEventId = UUID.randomUUID();
-        var annihilatedOutcomeId = UUID.randomUUID();
+        var firstOutcomeId = UUID.randomUUID();
+        var secondOutcomeId = UUID.randomUUID();
         var players = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
 
         // No EraStarted at all: the roster never lands, so the phase opens — and stays — roster-unknown.
-        openParadoxResolutionPhase(gameId, eraNumber, paradoxedEventId, annihilatedOutcomeId);
+        openParadoxResolutionPhase(gameId, eraNumber, paradoxedEventId, firstOutcomeId, secondOutcomeId);
         assertThat(pendingPlayerIdsOf(gameId, eraNumber)).isNull();
 
         players.forEach(playerId -> publisher.paradoxResolutionCardPlayed(
-                gameId, eraNumber, playerId, "SUPPRESS", paradoxedEventId, annihilatedOutcomeId));
+                gameId, eraNumber, playerId, "SUPPRESS", paradoxedEventId, firstOutcomeId));
 
         // Every submission is recorded against the still-open phase — under the bug this fix addresses, the
         // first one would have closed it and the other two would have been dropped.
@@ -80,14 +81,15 @@ class ParadoxResolutionMissingRosterIT {
         var gameId = UUID.randomUUID();
         var eraNumber = 1;
         var paradoxedEventId = UUID.randomUUID();
-        var annihilatedOutcomeId = UUID.randomUUID();
+        var firstOutcomeId = UUID.randomUUID();
+        var secondOutcomeId = UUID.randomUUID();
         var players = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
 
-        openParadoxResolutionPhase(gameId, eraNumber, paradoxedEventId, annihilatedOutcomeId);
+        openParadoxResolutionPhase(gameId, eraNumber, paradoxedEventId, firstOutcomeId, secondOutcomeId);
         assertThat(pendingPlayerIdsOf(gameId, eraNumber)).isNull();
 
         publisher.paradoxResolutionCardPlayed(
-                gameId, eraNumber, players.getFirst(), "SUPPRESS", paradoxedEventId, annihilatedOutcomeId);
+                gameId, eraNumber, players.getFirst(), "SUPPRESS", paradoxedEventId, firstOutcomeId);
         await().atMost(Duration.ofSeconds(10))
                 .untilAsserted(() ->
                         assertThat(recordedSubmissionCountOf(gameId, eraNumber)).isEqualTo(1));
@@ -97,14 +99,14 @@ class ParadoxResolutionMissingRosterIT {
         publisher.eraStarted(gameId, eraNumber, players);
         awaitEraPlayersIndexed(gameId, eraNumber);
         publisher.paradoxResolutionCardPlayed(
-                gameId, eraNumber, players.get(1), "SUPPRESS", paradoxedEventId, annihilatedOutcomeId);
+                gameId, eraNumber, players.get(1), "SUPPRESS", paradoxedEventId, firstOutcomeId);
         await().atMost(Duration.ofSeconds(10))
                 .untilAsserted(
                         () -> assertThat(pendingPlayerIdsOf(gameId, eraNumber)).isEqualTo(1));
 
         // With the roster known, the last submission closes the phase — well inside the 15s timer.
         publisher.paradoxResolutionCardPlayed(
-                gameId, eraNumber, players.get(2), "SUPPRESS", paradoxedEventId, annihilatedOutcomeId);
+                gameId, eraNumber, players.get(2), "SUPPRESS", paradoxedEventId, firstOutcomeId);
         await().atMost(Duration.ofSeconds(10))
                 .untilAsserted(() -> assertThat(collector.eventTypesFor(gameId)).contains(ERA_RESOLUTION_COMPLETED));
         assertThat(recordedSubmissionCountOf(gameId, eraNumber)).isEqualTo(players.size());
@@ -112,17 +114,9 @@ class ParadoxResolutionMissingRosterIT {
 
     /** Drives an era far enough to detect a paradox and open its resolution phase, without any {@code EraStarted}. */
     private void openParadoxResolutionPhase(
-            UUID gameId, int eraNumber, UUID paradoxedEventId, UUID annihilatedOutcomeId) {
+            UUID gameId, int eraNumber, UUID paradoxedEventId, UUID firstOutcomeId, UUID secondOutcomeId) {
         publisher.threeOutcomeEventDrawn(
-                gameId,
-                eraNumber,
-                paradoxedEventId,
-                annihilatedOutcomeId,
-                100,
-                UUID.randomUUID(),
-                0,
-                UUID.randomUUID(),
-                0);
+                gameId, eraNumber, paradoxedEventId, firstOutcomeId, 50, secondOutcomeId, 31, UUID.randomUUID(), 19);
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
                                 "SELECT COUNT(*) FROM future_event_era_index WHERE game_id = ? AND era_number = ?",
@@ -131,8 +125,8 @@ class ParadoxResolutionMissingRosterIT {
                                 eraNumber))
                         .isEqualTo(1));
 
-        // Annihilating the outcome holding all the weight leaves nothing to draw: IMPOSSIBLE_ERASURE.
-        publisher.specialActionPlayed(gameId, eraNumber, paradoxedEventId, "ANNIHILATE", annihilatedOutcomeId);
+        // A COLLIDE equalizing the leading pair trips DEAD_HEAT.
+        publisher.cardPlayed(gameId, eraNumber, paradoxedEventId, "COLLIDE", firstOutcomeId, secondOutcomeId);
         publisher.actionRoundClosed(gameId, eraNumber, 1);
         publisher.resolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
