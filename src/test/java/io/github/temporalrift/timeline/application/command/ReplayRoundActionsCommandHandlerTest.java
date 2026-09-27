@@ -476,13 +476,13 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_mimicPrefersARaisingCardOverAnEquallyStrongSuppress() {
+    void replay_mimicIgnoresStrongerSuppress_copiesPushRegardlessOfOrder() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
         var b = UUID.randomUUID();
         var c = UUID.randomUUID();
-        given(rules.pushShift(CardGrade.II)).willReturn(20);
-        given(rules.suppressShift(CardGrade.II)).willReturn(-20);
+        given(rules.pushShift(CardGrade.I)).willReturn(10);
+        given(rules.suppressShift(CardGrade.III)).willReturn(-30);
         given(rules.probabilityFloor()).willReturn(0);
         given(rules.probabilityCeiling()).willReturn(90);
 
@@ -491,14 +491,137 @@ class ReplayRoundActionsCommandHandlerTest {
             given(futureEvents.findById(eventId)).willReturn(futureEvent);
             given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                     .willReturn(List.of(
-                            cardPlayed("PUSH", eventId, null, a, at(pushFirst ? 0 : 2)),
-                            cardPlayed("SUPPRESS", eventId, null, a, at(pushFirst ? 2 : 0)),
+                            cardPlayedByGraded(
+                                    UUID.randomUUID(), "PUSH", CardGrade.I, eventId, null, a, at(pushFirst ? 0 : 2)),
+                            cardPlayedByGraded(
+                                    UUID.randomUUID(),
+                                    "SUPPRESS",
+                                    CardGrade.III,
+                                    eventId,
+                                    null,
+                                    a,
+                                    at(pushFirst ? 2 : 0)),
                             mimic(UUID.randomUUID(), eventId, a, at(1))));
 
             handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-            assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(70, 18, 12);
+            // The grade III SUPPRESS still applies once as an ordinary card, but MIMIC copies only the
+            // grade I PUSH: two +10 pushes against one -30 suppress from 50/30/20.
+            assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(40, 36, 24);
         }
+    }
+
+    @Test
+    void replay_mimicWithOnlySuppress_hasNoEffect() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.suppressShift(CardGrade.II)).willReturn(-20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayed("SUPPRESS", eventId, null, a, at(0)), mimic(UUID.randomUUID(), eventId, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // Only the SUPPRESS itself applies; a MIMIC naming a suppressed outcome copies nothing.
+        assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(30, 42, 28);
+    }
+
+    @Test
+    void replay_mimicIgnoresSwingAwayFromTheNamedOutcome() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.swingShift(CardGrade.II)).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayed("SWING", eventId, a, b, at(0)), mimic(UUID.randomUUID(), eventId, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // Only the SWING away from a applies (10 moved from a to b); MIMIC naming the source copies nothing.
+        assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(40, 40, 20);
+    }
+
+    @Test
+    void replay_mimicCopiesSwingIntoTheNamedOutcome() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.swingShift(CardGrade.II)).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayed("SWING", eventId, c, a, at(0)), mimic(UUID.randomUUID(), eventId, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // The SWING and its copy each move 10 from c to a.
+        assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(70, 30, 0);
+    }
+
+    @Test
+    void replay_mimicCopyIgnoresCorruptOnTheOriginal() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.suppressShift(CardGrade.II)).willReturn(-20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        var pushingPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
+                        corrupt(UUID.randomUUID(), pushingPlayer, at(1)),
+                        mimic(UUID.randomUUID(), eventId, a, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // The original resolves inverted (-20) while the copy keeps the submitted +20: they cancel exactly.
+        assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(50, 30, 20);
+    }
+
+    @Test
+    void replay_mimicCopyIgnoresAmplifyOnTheOriginal() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.I)).willReturn(10);
+        given(rules.amplifyMultiplier(CardGrade.I)).willReturn(1.5);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        var pushingPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedByGraded(pushingPlayer, "PUSH", CardGrade.I, eventId, null, a, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.I, pushingPlayer, null, at(1)),
+                        mimic(UUID.randomUUID(), eventId, a, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // The original applies amplified (+15) while the copy keeps the base +10.
+        assertThat(futureEvent.outcomes()).extracting(Outcome::probability).containsExactly(75, 15, 10);
     }
 
     @Test

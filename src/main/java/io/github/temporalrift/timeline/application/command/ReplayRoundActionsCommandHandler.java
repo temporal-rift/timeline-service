@@ -86,12 +86,12 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING);
 
     /**
-     * MIMIC correlates only to these — the same "direct transfer" vocabulary Rally
-     * boosts, though Rally's own eligibility additionally excludes
-     * SUPPRESS and a SWING's source side because Rally and Momentum share the same direct-transfer eligibility.
+     * MIMIC correlates only to inward transfers — a {@code PUSH} targeting the named outcome, or a {@code SWING}
+     * whose destination is the named outcome. This is the same destination-based eligibility Rally uses: a
+     * {@code SUPPRESS} has no destination outcome (it moves weight away), and a {@code SWING} away from the named
+     * outcome never qualifies, so a Mimic always raises what it names or does nothing.
      */
-    private static final Set<String> DIRECT_TRANSFER_TYPES =
-            Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING);
+    private static final Set<String> DIRECT_TRANSFER_TYPES = Set.of(CARD_TYPE_PUSH, CARD_TYPE_SWING);
 
     private final RoundActionBufferPort buffer;
     private final FutureEventRepository futureEvents;
@@ -468,10 +468,11 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     /**
-     * Maps each {@code MIMIC}'s {@code envelopeEventId} to the same-round {@code PUSH}/{@code SUPPRESS}/
-     * {@code SWING} played by a different player targeting the same outcome of the same {@code FutureEvent}. Among
-     * several, the strongest is copied — never the earliest, so submission timing cannot decide whose card is
-     * mimicked. A {@code MIMIC} with no matching card in that round has no effect.
+     * Maps each {@code MIMIC}'s {@code envelopeEventId} to the same-round inward transfer ({@code PUSH} targeting,
+     * or {@code SWING} destined for, the named outcome of the same {@code FutureEvent}) played by a different
+     * player. Among several, the strongest base magnitude is copied — never the earliest, so submission timing
+     * cannot decide whose card is mimicked, and never a card moving away from the named outcome. A {@code MIMIC}
+     * with no matching inward transfer in that round has no effect.
      */
     private Map<UUID, BufferedAction> resolveMimicTargets(List<BufferedAction> sorted, Set<UUID> cancelled) {
         var correlations = new LinkedHashMap<UUID, BufferedAction>();
@@ -491,11 +492,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         return correlations;
     }
 
-    /** Largest configured base magnitude, then a card raising the mimicked outcome over SUPPRESS, then player id. */
+    /** Largest configured base magnitude, then lowest player id — never submission time. */
     private Comparator<BufferedAction> strongestMimicCandidateFirst() {
         return Comparator.<BufferedAction>comparingInt(
                         c -> -Math.abs(baseMagnitude(ShiftKind.valueOf(c.cardType()), c.grade())))
-                .thenComparing(c -> CARD_TYPE_SUPPRESS.equals(c.cardType()))
                 .thenComparing(BufferedAction::playerId);
     }
 
