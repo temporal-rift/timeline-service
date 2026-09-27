@@ -623,6 +623,24 @@ public final class FutureEvent {
         return outcomes.stream().anyMatch(o -> o.outcomeId().equals(outcomeId) && !o.annihilated());
     }
 
+    /** True when {@code outcomeId} is one of this event's outcomes and is already annihilated. */
+    public boolean isAnnihilated(UUID outcomeId) {
+        return outcomes.stream().anyMatch(o -> o.outcomeId().equals(outcomeId) && o.annihilated());
+    }
+
+    /**
+     * True when erasing {@code outcomeId} would leave no eligible outcome weight to draw — the exact
+     * condition {@code IMPOSSIBLE_ERASURE} detection reports, covering both no outcome remaining and
+     * outcomes remaining but weightless.
+     */
+    public boolean wouldRemoveLastDrawableWeight(UUID outcomeId) {
+        return outcomes.stream()
+                        .filter(o -> !o.annihilated() && !o.outcomeId().equals(outcomeId))
+                        .mapToInt(Outcome::probability)
+                        .sum()
+                <= 0;
+    }
+
     /** True when {@code outcomeId} is eligible and no eligible outcome has a higher probability; a tie leads. */
     public boolean isLeadingEligible(UUID outcomeId) {
         if (!isEligible(outcomeId)) {

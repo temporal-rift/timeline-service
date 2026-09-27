@@ -380,10 +380,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var rejectedKeys = new HashSet<AnnihilationKey>();
         for (var a : live) {
             tryFindEvent(a.targetEventId()).ifPresent(futureEvent -> {
-                if (isAlreadyAnnihilated(futureEvent, a.targetOutcomeId())) {
+                if (futureEvent.isAnnihilated(a.targetOutcomeId())) {
                     return;
                 }
-                if (wouldRemoveLastDrawableWeight(futureEvent, a.targetOutcomeId())) {
+                if (futureEvent.wouldRemoveLastDrawableWeight(a.targetOutcomeId())) {
                     publishAnnihilateRejected(gameId, eraNumber, a);
                     rejectedKeys.add(new AnnihilationKey(a.playerId(), a.targetEventId(), a.targetOutcomeId()));
                     return;
@@ -403,23 +403,6 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                         TimelineEventEnvelope.SCHEMA_VERSION_V1,
                         resolution,
                         clock)));
-    }
-
-    private static boolean isAlreadyAnnihilated(FutureEvent futureEvent, UUID targetOutcomeId) {
-        return futureEvent.outcomes().stream().anyMatch(o -> o.outcomeId().equals(targetOutcomeId) && o.annihilated());
-    }
-
-    /**
-     * True when erasing {@code targetOutcomeId} would leave no eligible outcome weight to draw — the exact
-     * condition {@code IMPOSSIBLE_ERASURE} detection reports. Mirrors the detector rather than merely counting
-     * live outcomes so a remaining-but-weightless state is rejected too.
-     */
-    private static boolean wouldRemoveLastDrawableWeight(FutureEvent futureEvent, UUID targetOutcomeId) {
-        return futureEvent.outcomes().stream()
-                        .filter(o -> !o.annihilated() && !o.outcomeId().equals(targetOutcomeId))
-                        .mapToInt(Outcome::probability)
-                        .sum()
-                <= 0;
     }
 
     private void publishAnnihilateRejected(UUID gameId, int eraNumber, BufferedAction a) {
