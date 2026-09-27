@@ -118,6 +118,39 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
+    void replay_targetlessDecoy_isBufferedNoOpWithNoProbabilityEffect() {
+        // Since action-event 6, a DECOY CardPlayed carries only a disguise category and no target of any
+        // kind. Replay must accept the missing target without failure and apply no probability effect —
+        // exactly as it treats DECOY today.
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(List.of(targetlessDecoy(at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).shouldHaveNoInteractions();
+        then(publisher).should(never()).publish(any());
+        then(weaverChainSaga).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void replay_targetlessDecoyAlongsidePush_leavesPushEffectUnchanged() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(targetlessDecoy(at(0)), cardPlayed("PUSH", eventId, null, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(70);
+    }
+
+    @Test
     void replay_push_appliesConfiguredMagnitude() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
@@ -1857,6 +1890,28 @@ class ReplayRoundActionsCommandHandlerTest {
     private static BufferedAction cardPlayed(
             String cardType, UUID targetEventId, UUID sourceOutcomeId, UUID targetOutcomeId, Instant occurredAt) {
         return cardPlayedBy(UUID.randomUUID(), cardType, targetEventId, sourceOutcomeId, targetOutcomeId, occurredAt);
+    }
+
+    /**
+     * A buffered {@code DECOY} in its post-action-event-6 shape: no target of any kind, only the
+     * disguise category the round summary shows — which this service never consults, so it is not
+     * stored on the buffered action.
+     */
+    private static BufferedAction targetlessDecoy(Instant occurredAt) {
+        return new BufferedAction(
+                ActionKind.CARD_PLAYED,
+                "DECOY",
+                null,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                CardGrade.II,
+                occurredAt,
+                UUID.randomUUID());
     }
 
     private static BufferedAction cardPlayedBy(
