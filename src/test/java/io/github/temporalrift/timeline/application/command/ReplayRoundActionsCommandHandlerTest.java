@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.atLeast;
@@ -1394,6 +1395,91 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
+    void replay_annihilateRemovingLastDrawableOutcome_rejectedWithoutStateChange() {
+        var eventId = UUID.randomUUID();
+        var lastLive = UUID.randomUUID();
+        var player = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(lastLive, "last", 50),
+                                new Outcome(UUID.randomUUID(), "erased-b", 30, false, true),
+                                new Outcome(UUID.randomUUID(), "erased-c", 20, false, true)))));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialActionBy(player, "ANNIHILATE", eventId, lastLive, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).append(any(), any());
+        then(weaverChainSaga).should(never()).annihilateOutcome(any(), anyInt(), any(), any());
+        assertThat(annihilationResolutions()).isEmpty();
+        assertThat(specialRejections())
+                .extracting(
+                        SpecialRejectedEvent::specialAction,
+                        SpecialRejectedEvent::playerId,
+                        SpecialRejectedEvent::targetEventId,
+                        SpecialRejectedEvent::targetOutcomeId,
+                        SpecialRejectedEvent::reason)
+                .containsExactly(tuple("ANNIHILATE", player, eventId, lastLive, "LAST_ELIGIBLE_OUTCOME"));
+    }
+
+    @Test
+    void replay_annihilateLeavingDrawableWeight_appliesNormally() {
+        var eventId = UUID.randomUUID();
+        var target = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(target, "target", 50),
+                                new Outcome(UUID.randomUUID(), "other", 30),
+                                new Outcome(UUID.randomUUID(), "erased", 20, false, true)))));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialAction("ANNIHILATE", eventId, target, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents)
+                .should()
+                .append(eq(eventId), any(io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated.class));
+        assertThat(annihilationResolutions())
+                .extracting(AnnihilationResolved::erased, AnnihilationResolved::wasLeading)
+                .containsExactly(tuple(true, true));
+        assertThat(specialRejections()).isEmpty();
+    }
+
+    @Test
+    void replay_annihilateNamingAlreadyErasedOutcome_silentNoOp() {
+        var eventId = UUID.randomUUID();
+        var erased = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(erased, "erased", 50, false, true),
+                                new Outcome(UUID.randomUUID(), "live-b", 30),
+                                new Outcome(UUID.randomUUID(), "live-c", 20)))));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialAction("ANNIHILATE", eventId, erased, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(annihilationResolutions())
+                .extracting(AnnihilationResolved::erased, AnnihilationResolved::wasLeading)
+                .containsExactly(tuple(false, false));
+        assertThat(specialRejections()).isEmpty();
+        then(futureEvents).should(never()).append(any(), any());
+        then(weaverChainSaga).should(never()).annihilateOutcome(any(), anyInt(), any(), any());
+    }
+
+    @Test
     void replay_twoAnnihilatesOnOneEvent_reportTheSameStandingInEitherSubmissionOrder() {
         var eventId = UUID.randomUUID();
         var leader = UUID.randomUUID();
@@ -1434,6 +1520,48 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         assertThat(annihilationResolutions()).isEmpty();
+    }
+
+    @Test
+    void replay_twoAnnihilatesForLastTwoLiveOutcomes_firstAppliesSecondRejected() {
+        var eventId = UUID.randomUUID();
+        var first = UUID.randomUUID();
+        var second = UUID.randomUUID();
+        var firstPlayer = UUID.randomUUID();
+        var secondPlayer = UUID.randomUUID();
+        var futureEvent = FutureEvent.replay(
+                eventId,
+                List.of(new FutureEventDrafted(
+                        eventId,
+                        List.of(
+                                new Outcome(first, "first", 50),
+                                new Outcome(second, "second", 30),
+                                new Outcome(UUID.randomUUID(), "erased", 20, false, true)))));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialActionBy(firstPlayer, "ANNIHILATE", eventId, first, at(0)),
+                        specialActionBy(secondPlayer, "ANNIHILATE", eventId, second, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents)
+                .should(times(1))
+                .append(eq(eventId), any(io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated.class));
+        then(weaverChainSaga).should(times(1)).annihilateOutcome(any(), anyInt(), any(), any());
+        assertThat(annihilationResolutions())
+                .extracting(
+                        AnnihilationResolved::annihilatingPlayerId,
+                        AnnihilationResolved::erased,
+                        AnnihilationResolved::wasLeading)
+                .containsExactly(tuple(firstPlayer, true, true));
+        assertThat(specialRejections())
+                .extracting(
+                        SpecialRejectedEvent::specialAction,
+                        SpecialRejectedEvent::playerId,
+                        SpecialRejectedEvent::targetOutcomeId,
+                        SpecialRejectedEvent::reason)
+                .containsExactly(tuple("ANNIHILATE", secondPlayer, second, "LAST_ELIGIBLE_OUTCOME"));
     }
 
     @Test
@@ -1856,6 +1984,16 @@ class ReplayRoundActionsCommandHandlerTest {
                 .map(TimelineEventEnvelope::payload)
                 .filter(AnnihilationResolved.class::isInstance)
                 .map(AnnihilationResolved.class::cast)
+                .toList();
+    }
+
+    private List<SpecialRejectedEvent> specialRejections() {
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeast(0)).publish(captor.capture());
+        return captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .filter(SpecialRejectedEvent.class::isInstance)
+                .map(SpecialRejectedEvent.class::cast)
                 .toList();
     }
 

@@ -72,6 +72,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
     private static final String SPECIAL_ACTION_MIMIC = "MIMIC";
     private static final String SPECIAL_ACTION_CASCADE = "CASCADE";
+    private static final String SPECIAL_ACTION_ANNIHILATE = "ANNIHILATE";
+
+    /** Published when an erasure would remove the event's last drawable outcome weight. */
+    static final String REASON_LAST_ELIGIBLE_OUTCOME = "LAST_ELIGIBLE_OUTCOME";
 
     /** Eligible for AMPLIFY's doubling and NULLIFY's cancellation like any other remaining-tier card. */
     private static final Set<String> AMPLIFIABLE_SHIFTER_TYPES =
@@ -344,11 +348,14 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * Applies each still-live ANNIHILATE in submission order, then notifies the Weaver chain saga so any
      * chain link on the removed outcome is invalidated (or TAPESTRY-consumed). Runs here — not at
      * SpecialActionPlayed consumption — so a NULLIFY-cancelled ANNIHILATE never invalidates a chain.
+     * An ANNIHILATE that would remove its event's last drawable outcome weight is rejected privately instead:
+     * no fact is appended, the Weaver saga is not notified, and the actor spends nothing. Re-naming an
+     * already-annihilated outcome stays a silent no-op.
      */
     private void applyAnnihilateTier(
             UUID gameId, int eraNumber, int roundNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
         var live = sorted.stream()
-                .filter(a -> isSpecial(a, "ANNIHILATE") && !cancelled.contains(a.envelopeEventId()))
+                .filter(a -> isSpecial(a, SPECIAL_ACTION_ANNIHILATE) && !cancelled.contains(a.envelopeEventId()))
                 .toList();
         // Read before any of this round's Annihilates apply, so neither value depends on submission order.
         var resolutions = new ArrayList<AnnihilationResolved>();
@@ -366,21 +373,71 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                                 futureEvent.isLeadingEligible(a.targetOutcomeId()))));
             }
         }
+        // Applies in submission order; an ANNIHILATE that would remove its event's last drawable outcome
+        // weight is rejected privately instead (no fact appended, Weaver saga not notified, nothing spent).
+        // Rejected actions keep their pre-read resolution out of the published set — no score fact is produced
+        // for them by this service.
+        var rejectedKeys = new HashSet<AnnihilationKey>();
         for (var a : live) {
             tryFindEvent(a.targetEventId()).ifPresent(futureEvent -> {
+                if (isAlreadyAnnihilated(futureEvent, a.targetOutcomeId())) {
+                    return;
+                }
+                if (wouldRemoveLastDrawableWeight(futureEvent, a.targetOutcomeId())) {
+                    publishAnnihilateRejected(gameId, eraNumber, a);
+                    rejectedKeys.add(new AnnihilationKey(a.playerId(), a.targetEventId(), a.targetOutcomeId()));
+                    return;
+                }
                 futureEvents.append(a.targetEventId(), futureEvent.annihilateOutcome(a.targetOutcomeId()));
                 if (a.targetOutcomeId() != null) {
                     weaverChainSaga.annihilateOutcome(gameId, eraNumber, a.targetEventId(), a.targetOutcomeId());
                 }
             });
         }
-        resolutions.forEach(resolution -> publisher.publish(TimelineEventEnvelope.create(
-                resolution.targetEventId(),
+        resolutions.stream()
+                .filter(resolution -> rejectedKeys.stream().noneMatch(key -> key.matches(resolution)))
+                .forEach(resolution -> publisher.publish(TimelineEventEnvelope.create(
+                        resolution.targetEventId(),
+                        FUTURE_EVENT_AGGREGATE_TYPE,
+                        gameId,
+                        TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                        resolution,
+                        clock)));
+    }
+
+    private static boolean isAlreadyAnnihilated(FutureEvent futureEvent, UUID targetOutcomeId) {
+        return futureEvent.outcomes().stream().anyMatch(o -> o.outcomeId().equals(targetOutcomeId) && o.annihilated());
+    }
+
+    /**
+     * True when erasing {@code targetOutcomeId} would leave no eligible outcome weight to draw — the exact
+     * condition {@code IMPOSSIBLE_ERASURE} detection reports. Mirrors the detector rather than merely counting
+     * live outcomes so a remaining-but-weightless state is rejected too.
+     */
+    private static boolean wouldRemoveLastDrawableWeight(FutureEvent futureEvent, UUID targetOutcomeId) {
+        return futureEvent.outcomes().stream()
+                        .filter(o -> !o.annihilated() && !o.outcomeId().equals(targetOutcomeId))
+                        .mapToInt(Outcome::probability)
+                        .sum()
+                <= 0;
+    }
+
+    private void publishAnnihilateRejected(UUID gameId, int eraNumber, BufferedAction a) {
+        publisher.publish(TimelineEventEnvelope.create(
+                a.targetEventId(),
                 FUTURE_EVENT_AGGREGATE_TYPE,
                 gameId,
                 TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                resolution,
-                clock)));
+                new SpecialRejectedEvent(
+                        gameId,
+                        eraNumber,
+                        a.playerId(),
+                        SPECIAL_ACTION_ANNIHILATE,
+                        null,
+                        a.targetEventId(),
+                        a.targetOutcomeId(),
+                        REASON_LAST_ELIGIBLE_OUTCOME),
+                clock));
     }
 
     /**
@@ -790,6 +847,15 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     private record CorruptCorrelation(UUID corruptingPlayerId) {}
+
+    /** Identifies one rejected ANNIHILATE so its pre-read resolution stays unpublished. */
+    private record AnnihilationKey(UUID playerId, UUID targetEventId, UUID targetOutcomeId) {
+        boolean matches(AnnihilationResolved resolution) {
+            return Objects.equals(playerId, resolution.annihilatingPlayerId())
+                    && Objects.equals(targetEventId, resolution.targetEventId())
+                    && Objects.equals(targetOutcomeId, resolution.targetOutcomeId());
+        }
+    }
 
     /** One effect of the simultaneous tier; {@code envelopeEventId} is {@code null} for a MIMIC copy. */
     private record RoundEffect(UUID envelopeEventId, SimultaneousShift shift) {}
