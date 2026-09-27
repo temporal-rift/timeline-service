@@ -193,10 +193,17 @@ class EventsDrawnKafkaConsumerTest {
         var eraNumber = 2;
         var carriedOverEventId = UUID.randomUUID();
         var erasedOutcomeId = UUID.randomUUID();
+        var otherOutcomeId = UUID.randomUUID();
+        var thirdOutcomeId = UUID.randomUUID();
         var player = UUID.randomUUID();
         var carried = FutureEvent.replay(
                 carriedOverEventId,
-                List.of(new FutureEventDrafted(carriedOverEventId, List.of(new Outcome(erasedOutcomeId, "a", 100)))));
+                List.of(new FutureEventDrafted(
+                        carriedOverEventId,
+                        List.of(
+                                new Outcome(erasedOutcomeId, "a", 40),
+                                new Outcome(otherOutcomeId, "b", 35),
+                                new Outcome(thirdOutcomeId, "c", 25)))));
         given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
         given(eraIndex.findByGameIdAndEraNumber(gameId, eraNumber))
                 .willReturn(List.of(new IndexedEventId(carriedOverEventId, 0)));
@@ -209,7 +216,10 @@ class EventsDrawnKafkaConsumerTest {
                 List.of(new EventsDrawnFutureEvent(
                         carriedOverEventId,
                         "carried",
-                        List.of(new EventsDrawnOutcome(erasedOutcomeId, "a", 100)),
+                        List.of(
+                                new EventsDrawnOutcome(erasedOutcomeId, "a", 40),
+                                new EventsDrawnOutcome(otherOutcomeId, "b", 35),
+                                new EventsDrawnOutcome(thirdOutcomeId, "c", 25)),
                         CarryOverState.CASCADED)));
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
@@ -222,6 +232,79 @@ class EventsDrawnKafkaConsumerTest {
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
         then(publisher).should().publish(captor.capture());
         assertThat(captor.getValue().payload()).isInstanceOf(CascadeCarriedForwardEvent.class);
+    }
+
+    @Test
+    @DisplayName(
+            "three pending CASCADEs for one carried event — first two re-erase, third is rejected as the final erasure")
+    void handle_threePendingCascadesForOneCarriedEvent_thirdRejectedAsFinalErasure() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        var eraNumber = 2;
+        var carriedOverEventId = UUID.randomUUID();
+        var outcomeA = UUID.randomUUID();
+        var outcomeB = UUID.randomUUID();
+        var outcomeC = UUID.randomUUID();
+        var playerA = UUID.randomUUID();
+        var playerB = UUID.randomUUID();
+        var playerC = UUID.randomUUID();
+        var carried = FutureEvent.replay(
+                carriedOverEventId,
+                List.of(new FutureEventDrafted(
+                        carriedOverEventId,
+                        List.of(
+                                new Outcome(outcomeA, "a", 40),
+                                new Outcome(outcomeB, "b", 35),
+                                new Outcome(outcomeC, "c", 25)))));
+        given(processedEvents.claim(eventId, CONSUMER)).willReturn(true);
+        given(eraIndex.findByGameIdAndEraNumber(gameId, eraNumber))
+                .willReturn(List.of(new IndexedEventId(carriedOverEventId, 0)));
+        given(futureEvents.findById(carriedOverEventId)).willReturn(carried);
+        given(cascadeCarryForward.findByGameAndEra(gameId, eraNumber))
+                .willReturn(List.of(
+                        new CascadeCarryForward(playerA, carriedOverEventId, outcomeA),
+                        new CascadeCarryForward(playerB, carriedOverEventId, outcomeB),
+                        new CascadeCarryForward(playerC, carriedOverEventId, outcomeC)));
+        var payload = new EventsDrawnPayload(
+                gameId,
+                eraNumber,
+                List.of(new EventsDrawnFutureEvent(
+                        carriedOverEventId,
+                        "carried",
+                        List.of(
+                                new EventsDrawnOutcome(outcomeA, "a", 40),
+                                new EventsDrawnOutcome(outcomeB, "b", 35),
+                                new EventsDrawnOutcome(outcomeC, "c", 25)),
+                        CarryOverState.CASCADED)));
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
+
+        // The first two re-erasures apply; the third would remove the last drawable outcome and is rejected.
+        assertThat(carried.outcomes())
+                .filteredOn(o -> o.outcomeId().equals(outcomeA) || o.outcomeId().equals(outcomeB))
+                .allSatisfy(o -> assertThat(o.annihilated()).isTrue());
+        assertThat(carried.outcomes())
+                .filteredOn(o -> o.outcomeId().equals(outcomeC))
+                .allSatisfy(o -> assertThat(o.annihilated()).isFalse());
+        then(cascadeCarryForward).should().delete(gameId, eraNumber, carriedOverEventId, outcomeA);
+        then(cascadeCarryForward).should().delete(gameId, eraNumber, carriedOverEventId, outcomeB);
+        then(cascadeCarryForward).should().delete(gameId, eraNumber, carriedOverEventId, outcomeC);
+        then(weaverChainSaga).should().annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeA);
+        then(weaverChainSaga).should().annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeB);
+        then(weaverChainSaga).should(never()).annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeC);
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(org.mockito.Mockito.times(3)).publish(captor.capture());
+        var rejected = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .filter(SpecialRejectedEvent.class::isInstance)
+                .map(SpecialRejectedEvent.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(rejected.specialAction()).isEqualTo("CASCADE");
+        assertThat(rejected.playerId()).isEqualTo(playerC);
+        assertThat(rejected.targetEventId()).isEqualTo(carriedOverEventId);
+        assertThat(rejected.targetOutcomeId()).isEqualTo(outcomeC);
+        assertThat(rejected.reason()).isEqualTo("LAST_ELIGIBLE_OUTCOME");
     }
 
     @Test
