@@ -298,6 +298,38 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     }
 
     @Test
+    @DisplayName("DECOY without any target — buffered with null targets, no failure on the missing target")
+    void handle_targetlessDecoyWithDisguise_buffersWithNullTargets() {
+        // Since action-event 6, a DECOY CardPlayed carries only disguiseCategory and no target of any kind.
+        // The wire shape is built as a raw map so no target key is present at all, exactly as produced.
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("gameId", gameId);
+        payload.put("eraNumber", ERA_NUMBER);
+        payload.put("roundNumber", ROUND_NUMBER);
+        payload.put("playerId", UUID.randomUUID());
+        payload.put("cardInstanceId", UUID.randomUUID());
+        payload.put("cardType", "DECOY");
+        payload.put("grade", "II");
+        payload.put("disguiseCategory", "INFORMATION");
+        given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
+
+        var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
+        then(buffer).should().save(eq(gameId), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
+        var action = actionCaptor.getValue();
+        assertThat(action.kind()).isEqualTo(ActionKind.CARD_PLAYED);
+        assertThat(action.cardType()).isEqualTo("DECOY");
+        assertThat(action.targetEventId()).isNull();
+        assertThat(action.targetEventIds()).isEmpty();
+        assertThat(action.sourceOutcomeId()).isNull();
+        assertThat(action.targetOutcomeId()).isNull();
+        assertThat(action.targetPlayerId()).isNull();
+    }
+
+    @Test
     @DisplayName("null card type — claims the event but buffers nothing, no NullPointerException")
     void handle_nullCardType_claimsButBuffersNothing() {
         var eventId = UUID.randomUUID();
