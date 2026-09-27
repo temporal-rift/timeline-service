@@ -6,7 +6,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 
 import java.time.Clock;
@@ -26,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.event.AdjustedBandsPublished;
+import io.github.temporalrift.timeline.domain.event.AnnihilationResolved;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
@@ -1160,6 +1163,124 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
+    void replay_annihilateOnSoleLeader_reportsErasedLeader() {
+        var eventId = UUID.randomUUID();
+        var leader = UUID.randomUUID();
+        var player = UUID.randomUUID();
+        given(futureEvents.findById(eventId))
+                .willReturn(drafted(
+                        eventId, outcome(UUID.randomUUID(), 33), outcome(UUID.randomUUID(), 33), outcome(leader, 34)));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialActionBy(player, "ANNIHILATE", eventId, leader, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(annihilationResolutions())
+                .containsExactly(new AnnihilationResolved(
+                        GAME_ID, ERA_NUMBER, ROUND_NUMBER, player, eventId, leader, true, true));
+    }
+
+    @Test
+    void replay_annihilateOnNonLeader_reportsErasedWithoutLead() {
+        var eventId = UUID.randomUUID();
+        var trailing = UUID.randomUUID();
+        given(futureEvents.findById(eventId))
+                .willReturn(drafted(
+                        eventId,
+                        outcome(trailing, 33),
+                        outcome(UUID.randomUUID(), 33),
+                        outcome(UUID.randomUUID(), 34)));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialAction("ANNIHILATE", eventId, trailing, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(annihilationResolutions())
+                .extracting(AnnihilationResolved::erased, AnnihilationResolved::wasLeading)
+                .containsExactly(tuple(true, false));
+    }
+
+    @Test
+    void replay_annihilateOnTiedLeader_reportsLeader() {
+        var eventId = UUID.randomUUID();
+        var tied = UUID.randomUUID();
+        given(futureEvents.findById(eventId))
+                .willReturn(drafted(
+                        eventId, outcome(tied, 40), outcome(UUID.randomUUID(), 40), outcome(UUID.randomUUID(), 20)));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialAction("ANNIHILATE", eventId, tied, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(annihilationResolutions())
+                .extracting(AnnihilationResolved::erased, AnnihilationResolved::wasLeading)
+                .containsExactly(tuple(true, true));
+    }
+
+    @Test
+    void replay_annihilateOnAlreadyAnnihilatedOutcome_reportsNotErased() {
+        var eventId = UUID.randomUUID();
+        var erased = UUID.randomUUID();
+        given(futureEvents.findById(eventId))
+                .willReturn(drafted(
+                        eventId,
+                        new Outcome(erased, "outcome", 60, false, true),
+                        outcome(UUID.randomUUID(), 20),
+                        outcome(UUID.randomUUID(), 20)));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialAction("ANNIHILATE", eventId, erased, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(annihilationResolutions())
+                .extracting(AnnihilationResolved::erased, AnnihilationResolved::wasLeading)
+                .containsExactly(tuple(false, false));
+    }
+
+    @Test
+    void replay_twoAnnihilatesOnOneEvent_reportTheSameStandingInEitherSubmissionOrder() {
+        var eventId = UUID.randomUUID();
+        var leader = UUID.randomUUID();
+        var trailing = UUID.randomUUID();
+        var leaderPlayer = UUID.randomUUID();
+        var trailingPlayer = UUID.randomUUID();
+
+        for (var leaderFirst : List.of(true, false)) {
+            reset(publisher);
+            given(futureEvents.findById(eventId))
+                    .willReturn(drafted(
+                            eventId, outcome(leader, 34), outcome(trailing, 33), outcome(UUID.randomUUID(), 33)));
+            given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                    .willReturn(List.of(
+                            specialActionBy(leaderPlayer, "ANNIHILATE", eventId, leader, at(leaderFirst ? 0 : 1)),
+                            specialActionBy(trailingPlayer, "ANNIHILATE", eventId, trailing, at(leaderFirst ? 1 : 0))));
+
+            handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+            assertThat(annihilationResolutions())
+                    .extracting(
+                            AnnihilationResolved::annihilatingPlayerId,
+                            AnnihilationResolved::erased,
+                            AnnihilationResolved::wasLeading)
+                    .containsExactlyInAnyOrder(tuple(leaderPlayer, true, true), tuple(trailingPlayer, true, false));
+        }
+    }
+
+    @Test
+    void replay_nullifiedAnnihilate_reportsNoResolution() {
+        var eventId = UUID.randomUUID();
+        var annihilatingPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialActionBy(annihilatingPlayer, "ANNIHILATE", eventId, UUID.randomUUID(), at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", annihilatingPlayer, null, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(annihilationResolutions()).isEmpty();
+    }
+
+    @Test
     void replay_cascade_armsCarryForwardWithoutImmediatelyErasingTheOutcome() {
         var eventId = UUID.randomUUID();
         var target = UUID.randomUUID();
@@ -1570,6 +1691,16 @@ class ReplayRoundActionsCommandHandlerTest {
             }
         }
         return result;
+    }
+
+    private List<AnnihilationResolved> annihilationResolutions() {
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeast(0)).publish(captor.capture());
+        return captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .filter(AnnihilationResolved.class::isInstance)
+                .map(AnnihilationResolved.class::cast)
+                .toList();
     }
 
     private static FutureEvent drafted(UUID id, Outcome... outcomes) {

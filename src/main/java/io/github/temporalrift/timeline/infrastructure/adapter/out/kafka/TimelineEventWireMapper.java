@@ -6,6 +6,7 @@ import org.mapstruct.Mapping;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.AdjustedBandsPublishedEventBandState;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.AdjustedBandsPublishedOutcomeBandState;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.AdjustedBandsPublishedPayload;
+import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.AnnihilationResolvedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.CascadeCarriedForwardPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ChainBrokenPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ChainCompletedChainLink;
@@ -36,6 +37,7 @@ import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.R
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.SpecialRejectedPayload;
 import io.github.temporalrift.asyncapi.timelineevents.GeneratedChannelContract.ThreadRejectedPayload;
 import io.github.temporalrift.timeline.domain.event.AdjustedBandsPublished;
+import io.github.temporalrift.timeline.domain.event.AnnihilationResolved;
 import io.github.temporalrift.timeline.domain.event.CascadeCarriedForwardEvent;
 import io.github.temporalrift.timeline.domain.event.ChainBrokenEvent;
 import io.github.temporalrift.timeline.domain.event.ChainCompletedEvent;
@@ -101,6 +103,8 @@ interface TimelineEventWireMapper {
     AdjustedBandsPublishedOutcomeBandState toWire(AdjustedBandsPublished.OutcomeState outcomeState);
 
     CorruptInversionConfirmedPayload toWire(CorruptInversionConfirmed event);
+
+    AnnihilationResolvedPayload toWire(AnnihilationResolved event);
 
     ChainLinkThreadedPayload toWire(ChainLinkThreadedEvent event);
 

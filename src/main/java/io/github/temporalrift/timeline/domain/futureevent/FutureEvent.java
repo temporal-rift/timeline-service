@@ -618,6 +618,24 @@ public final class FutureEvent {
                 > 0;
     }
 
+    /** True when {@code outcomeId} is one of this event's outcomes and is not annihilated. */
+    public boolean isEligible(UUID outcomeId) {
+        return outcomes.stream().anyMatch(o -> o.outcomeId().equals(outcomeId) && !o.annihilated());
+    }
+
+    /** True when {@code outcomeId} is eligible and no eligible outcome has a higher probability; a tie leads. */
+    public boolean isLeadingEligible(UUID outcomeId) {
+        if (!isEligible(outcomeId)) {
+            return false;
+        }
+        var highest = outcomes.stream()
+                .filter(o -> !o.annihilated())
+                .mapToInt(Outcome::probability)
+                .max()
+                .orElseThrow();
+        return outcomeById(outcomeId).probability() == highest;
+    }
+
     public List<Outcome> outcomes() {
         return List.copyOf(outcomes);
     }

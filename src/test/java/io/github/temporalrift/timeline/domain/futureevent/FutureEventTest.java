@@ -1244,6 +1244,21 @@ class FutureEventTest {
     }
 
     @Test
+    void isLeadingEligible_ignoresAnAnnihilatedHigherOutcome() {
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 20);
+        var event = drafted(UUID.randomUUID(), a, b, c);
+
+        event.annihilateOutcome(a.outcomeId());
+
+        assertThat(event.isEligible(a.outcomeId())).isFalse();
+        assertThat(event.isLeadingEligible(a.outcomeId())).isFalse();
+        assertThat(event.isLeadingEligible(b.outcomeId())).isTrue();
+        assertThat(event.isLeadingEligible(c.outcomeId())).isFalse();
+    }
+
+    @Test
     void hasDrawableWeight_noneAnnihilated_isTrue() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
