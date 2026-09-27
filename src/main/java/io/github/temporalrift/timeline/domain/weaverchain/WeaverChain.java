@@ -220,9 +220,9 @@ public final class WeaverChain {
     }
 
     /**
-     * Confirms the chain's open pending link — it resolved as predicted, was Tapestry-protected against an
-     * Annihilate, or its {@code CHAIN_CONFLICT} paradox resolved in the Weaver's favor. Returns the stream facts
-     * to append in order — one {@link ChainLinkAdded}, plus a {@link ChainCompleted} when the third link lands.
+     * Confirms the chain's open pending link once its named outcome is drawn as its event's winner. Returns the
+     * stream facts to append in order — one {@link ChainLinkAdded}, plus a {@link ChainCompleted} when the third
+     * link lands.
      */
     public List<WeaverChainEvent> confirmPendingLink() {
         if (pendingLink == null) {
@@ -240,8 +240,9 @@ public final class WeaverChain {
     }
 
     /**
-     * Clears the chain's open pending link — it resolved to a different, non-annihilated outcome than
-     * predicted. No penalty: chain length and confirmed links are unchanged, and the chain stays open.
+     * Clears the chain's open pending link — it resolved to a different outcome than predicted, Tapestry absorbed
+     * an Annihilate of its outcome, or its event ended the era without a winner. No penalty: chain length and
+     * confirmed links are unchanged, and the chain stays open.
      */
     public ChainLinkInvalidated clearPendingLink() {
         if (pendingLink == null) {

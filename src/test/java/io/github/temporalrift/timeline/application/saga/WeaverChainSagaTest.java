@@ -304,14 +304,14 @@ class WeaverChainSagaTest {
     }
 
     @Test
-    void stallPendingLink_clearsPredictionAndProtectionWithoutChangingConfirmedLinks() {
+    void expireWinnerlessPendingLink_clearsPredictionAndProtectionWithoutChangingConfirmedLinks() {
         var chainId = openChainWithConfirmedLinks(2);
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
         chains.append(chainId, new ChainLinkThreaded(chainId, eventId, outcomeId, ERA));
         saga.playTapestry(GAME_ID, ERA, PLAYER_ID);
 
-        saga.stallPendingLink(GAME_ID, ERA, eventId);
+        saga.expireWinnerlessPendingLink(GAME_ID, ERA, eventId);
 
         var chain = chains.findById(chainId);
         assertThat(chain.pendingLink()).isNull();
@@ -327,20 +327,19 @@ class WeaverChainSagaTest {
     }
 
     @Test
-    void stallPendingLink_repeatedDeliveryThenNewThreadOnCarriedEventScoresOnlyNewLink() {
+    void expireWinnerlessPendingLink_repeatedDeliveryThenNewThreadOnCarriedEventScoresOnlyNewLink() {
         var chainId = openChainWithPendingLink();
         var pending = chains.findById(chainId).pendingLink();
 
-        saga.stallPendingLink(GAME_ID, ERA, pending.eventId());
-        saga.stallPendingLink(GAME_ID, ERA, pending.eventId());
+        saga.expireWinnerlessPendingLink(GAME_ID, ERA, pending.eventId());
+        saga.expireWinnerlessPendingLink(GAME_ID, ERA, pending.eventId());
         then(publisher)
                 .should(times(1))
                 .publish(argThat(envelope -> envelope.payload() instanceof ChainLinkInvalidatedEvent));
 
         chains.append(chainId, new ChainLinkThreaded(chainId, pending.eventId(), pending.outcomeId(), ERA + 1));
-        saga.stallPendingLink(GAME_ID, ERA, pending.eventId());
+        saga.expireWinnerlessPendingLink(GAME_ID, ERA, pending.eventId());
         saga.resolvePendingLink(GAME_ID, ERA, pending.eventId(), pending.outcomeId());
-        saga.confirmParadoxResolvedLink(GAME_ID, ERA, pending.eventId(), pending.outcomeId());
         saga.breakChainOnCascadedParadox(GAME_ID, ERA, pending.eventId(), pending.outcomeId(), UUID.randomUUID());
         assertThat(chains.findById(chainId).pendingLink().eraNumber()).isEqualTo(ERA + 1);
         saga.resolvePendingLink(GAME_ID, ERA + 1, pending.eventId(), pending.outcomeId());
@@ -354,13 +353,13 @@ class WeaverChainSagaTest {
     }
 
     @Test
-    void stallPendingLink_repeatedInTwoErasDoesNotLeaveAnOpenPrediction() {
+    void expireWinnerlessPendingLink_repeatedInTwoErasDoesNotLeaveAnOpenPrediction() {
         var chainId = openChainWithPendingLink();
         var pending = chains.findById(chainId).pendingLink();
 
-        saga.stallPendingLink(GAME_ID, ERA, pending.eventId());
+        saga.expireWinnerlessPendingLink(GAME_ID, ERA, pending.eventId());
         chains.append(chainId, new ChainLinkThreaded(chainId, pending.eventId(), pending.outcomeId(), ERA + 1));
-        saga.stallPendingLink(GAME_ID, ERA + 1, pending.eventId());
+        saga.expireWinnerlessPendingLink(GAME_ID, ERA + 1, pending.eventId());
 
         assertThat(chains.findById(chainId).pendingLink()).isNull();
         assertThat(chains.findById(chainId).length()).isZero();
@@ -383,7 +382,7 @@ class WeaverChainSagaTest {
     }
 
     @Test
-    void annihilate_protectedPendingLink_confirmsAndConsumesProtection() {
+    void annihilate_protectedPendingLink_consumesProtectionAndClearsWithoutConfirming() {
         var chainId = openChainWithConfirmedLinks(2);
         saga.playTapestry(GAME_ID, ERA, PLAYER_ID);
         published(ChainProtectionArmedEvent.class);
@@ -394,13 +393,38 @@ class WeaverChainSagaTest {
         saga.annihilateOutcome(GAME_ID, ERA, pendingEvent, pendingOutcome);
 
         var chain = chains.findById(chainId);
-        assertThat(chain.length()).isEqualTo(3);
+        assertThat(chain.length()).isEqualTo(2);
         assertThat(chain.pendingLink()).isNull();
+        assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
         var consumed = published(ChainProtectionConsumedEvent.class);
         assertThat(consumed.protectedEventId()).isEqualTo(pendingEvent);
-        published(ChainCompletedEvent.class);
+        var invalidated = published(ChainLinkInvalidatedEvent.class);
+        assertThat(invalidated.invalidatedOutcomeId()).isEqualTo(pendingOutcome);
+        assertThat(invalidated.chainLength()).isEqualTo(2);
+        publishedNever(ChainLinkAddedEvent.class);
+        publishedNever(ChainCompletedEvent.class);
         assertThat(sagas.findByChainId(chainId).orElseThrow().tapestryProtected())
                 .isFalse();
+    }
+
+    @Test
+    void annihilate_protectedPendingLink_weaverThreadsAgainInTheSameEra() {
+        var chainId = openChainWithConfirmedLinks(2);
+        saga.playTapestry(GAME_ID, ERA, PLAYER_ID);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, pendingEvent, pendingOutcome, ERA));
+        saga.annihilateOutcome(GAME_ID, ERA, pendingEvent, pendingOutcome);
+        var coordinate = stubValidCoordinate();
+        stubThreadRewardRules();
+
+        saga.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
+
+        var chain = chains.findById(chainId);
+        assertThat(chain.pendingLink().eventId()).isEqualTo(coordinate.eventId());
+        assertThat(chain.pendingLink().eraNumber()).isEqualTo(ERA);
+        published(ChainLinkThreadedEvent.class);
+        publishedNever(ThreadRejectedEvent.class);
     }
 
     @Test
@@ -428,10 +452,11 @@ class WeaverChainSagaTest {
         chains.append(chainId, new ChainLinkThreaded(chainId, newEvent, newOutcome, ERA + 1));
         saga.annihilateOutcome(GAME_ID, ERA + 1, newEvent, newOutcome);
 
-        assertThat(chains.findById(chainId).length()).isEqualTo(3);
+        assertThat(chains.findById(chainId).length()).isEqualTo(2);
+        assertThat(chains.findById(chainId).pendingLink()).isNull();
         published(ChainProtectionConsumedEvent.class);
-        published(ChainLinkAddedEvent.class);
-        published(ChainCompletedEvent.class);
+        publishedNever(ChainLinkAddedEvent.class);
+        publishedNever(ChainCompletedEvent.class);
     }
 
     @Test
@@ -468,41 +493,6 @@ class WeaverChainSagaTest {
 
         assertThat(chains.findById(chainId).pendingLink()).isNotNull();
         publishedNever(ChainProtectionConsumedEvent.class);
-    }
-
-    @Test
-    void confirmParadoxResolvedLink_confirmsMatchingPending() {
-        var chainId = openChainWithPendingLink();
-        var pending = chains.findById(chainId).pendingLink();
-
-        saga.confirmParadoxResolvedLink(GAME_ID, ERA, pending.eventId(), pending.outcomeId());
-
-        var chain = chains.findById(chainId);
-        assertThat(chain.length()).isEqualTo(1);
-        assertThat(chain.pendingLink()).isNull();
-        published(ChainLinkAddedEvent.class);
-    }
-
-    @Test
-    void confirmParadoxResolvedLink_nonMatching_noOp() {
-        openChainWithPendingLink();
-
-        saga.confirmParadoxResolvedLink(GAME_ID, ERA, UUID.randomUUID(), UUID.randomUUID());
-
-        then(publisher).shouldHaveNoInteractions();
-    }
-
-    @Test
-    void confirmParadoxResolvedLink_staleOriginExpiresWithoutScore() {
-        var chainId = openChainWithPendingLink();
-        var pending = chains.findById(chainId).pendingLink();
-
-        saga.confirmParadoxResolvedLink(GAME_ID, ERA + 1, pending.eventId(), pending.outcomeId());
-
-        assertThat(chains.findById(chainId).pendingLink()).isNull();
-        assertThat(chains.findById(chainId).length()).isZero();
-        published(ChainLinkInvalidatedEvent.class);
-        publishedNever(ChainLinkAddedEvent.class);
     }
 
     @Test
@@ -699,7 +689,13 @@ class WeaverChainSagaTest {
 
         assertThat(published(ChainProtectionConsumedEvent.class).protectedEventId())
                 .isEqualTo(target.eventId());
-        assertThat(chains.findById(chainId).status()).isEqualTo(ChainStatus.COMPLETED);
+        assertThat(published(ChainLinkInvalidatedEvent.class).invalidatedOutcomeId())
+                .isEqualTo(target.outcomeId());
+        var chain = chains.findById(chainId);
+        assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
+        assertThat(chain.length()).isEqualTo(2);
+        assertThat(chain.pendingLink()).isNull();
+        publishedNever(ChainCompletedEvent.class);
     }
 
     @Test
@@ -838,12 +834,12 @@ class WeaverChainSagaTest {
     }
 
     @Test
-    void thread_sameEraAsTapestryConfirmedLink_rejectedAsNotSuccessive() {
+    void thread_sameEraAsNewestConfirmedLink_rejectedAsNotSuccessive() {
         var chainId = openChainWithConfirmedLinks(1);
-        var protectedEvent = UUID.randomUUID();
-        var protectedOutcome = UUID.randomUUID();
-        chains.append(chainId, new ChainLinkThreaded(chainId, protectedEvent, protectedOutcome, ERA));
-        chains.append(chainId, new ChainLinkAdded(chainId, protectedEvent, protectedOutcome, ERA));
+        var confirmedEvent = UUID.randomUUID();
+        var confirmedOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, confirmedEvent, confirmedOutcome, ERA));
+        chains.append(chainId, new ChainLinkAdded(chainId, confirmedEvent, confirmedOutcome, ERA));
         var coordinate = stubValidCoordinate();
 
         saga.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
@@ -924,6 +920,34 @@ class WeaverChainSagaTest {
         assertThat(chains.findById(chainId).pendingLink().eventId()).isEqualTo(coordinate.eventId());
         var threaded = published(ChainLinkThreadedEvent.class);
         assertThat(threaded.chainId()).isEqualTo(chainId);
+    }
+
+    @Test
+    void thread_afterBreak_startsNewChainThatCompletesIndependently() {
+        var brokenChainId = openChainWithConfirmedLinks(1);
+        var conflicted = liveOutcome(2);
+        chains.append(
+                brokenChainId, new ChainLinkThreaded(brokenChainId, conflicted.eventId(), conflicted.outcomeId(), 2));
+        saga.breakChainOnCascadedParadox(GAME_ID, 2, conflicted.eventId(), conflicted.outcomeId(), UUID.randomUUID());
+        stubThreadRewardRules();
+
+        var restartedEras = List.of(3, 4, 5);
+        for (var era : restartedEras) {
+            var prediction = liveOutcome(era);
+            saga.playThread(GAME_ID, era, PLAYER_ID, prediction.eventId(), prediction.outcomeId());
+            saga.resolvePendingLink(GAME_ID, era, prediction.eventId(), prediction.outcomeId());
+        }
+
+        assertThat(chains.findById(brokenChainId).status()).isEqualTo(ChainStatus.BROKEN);
+        assertThat(chains.findById(brokenChainId).length()).isEqualTo(1);
+        var restartedChainId = published(ChainLinkThreadedEvent.class).chainId();
+        assertThat(restartedChainId).isNotEqualTo(brokenChainId);
+        var completed = published(ChainCompletedEvent.class);
+        assertThat(completed.chainId()).isEqualTo(restartedChainId);
+        assertThat(completed.links())
+                .extracting(ChainCompletedEvent.ChainLinkEntry::eraNumber)
+                .containsExactlyElementsOf(restartedEras);
+        assertThat(published(ChainLinkAddedEvent.class).chainLength()).isEqualTo(1);
     }
 
     /** Opens a chain with {@code linkCount} confirmed links (each threaded then immediately confirmed). */

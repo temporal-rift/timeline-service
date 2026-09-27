@@ -91,7 +91,7 @@ public final class ParadoxDetector {
      * Reports one {@link DetectedParadox} of type {@code CHAIN_CONFLICT} per active chain whose pending link
      * names {@code eventId} and whose named outcome was annihilated — the timeline erased the outcome the
      * chain's causal claim depends on. Tapestry-protected annihilations never reach here: protection consumes
-     * the Annihilate and confirms the link before this detection ever runs (see {@code WeaverChainSaga}).
+     * the Annihilate and clears the link before this detection ever runs (see {@code WeaverChainSaga}).
      */
     private static List<DetectedParadox> detectChainConflict(
             UUID eventId, List<Outcome> outcomes, List<WeaverChain> chains) {

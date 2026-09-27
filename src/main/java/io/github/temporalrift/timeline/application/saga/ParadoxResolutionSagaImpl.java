@@ -369,6 +369,8 @@ class ParadoxResolutionSagaImpl {
                             futureEvent.outcomes(),
                             detonatedByPlayerIds(phase, affectedEventId)),
                     clock));
+            // After any chain-conflict break above, so a broken chain's link is not also expired.
+            weaverChainSaga.expireWinnerlessPendingLink(phase.gameId(), phase.eraNumber(), affectedEventId);
             eraIndex.add(affectedEventId, phase.gameId(), phase.eraNumber() + 1, revealIndex);
             terminalResolutions.add(new TerminalResolution(
                     affectedEventId, revealIndex, TerminalResolution.TerminalState.CASCADED, null));
@@ -406,13 +408,6 @@ class ParadoxResolutionSagaImpl {
                         new ParadoxResolved(
                                 phase.gameId(), phase.eraNumber(), pending.paradoxId(), resolvedByPlayerIds),
                         clock));
-                if (pending.type() == ParadoxType.CHAIN_CONFLICT) {
-                    weaverChainSaga.confirmParadoxResolvedLink(
-                            phase.gameId(),
-                            phase.eraNumber(),
-                            affectedEventId,
-                            pending.affectedOutcomeIds().getFirst());
-                }
             }
         }
 

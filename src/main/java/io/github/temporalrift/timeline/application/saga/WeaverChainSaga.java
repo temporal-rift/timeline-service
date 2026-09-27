@@ -378,8 +378,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
 
     /**
      * An older-era pending link expires before matching the annihilated outcome. For a current-era match,
-     * Tapestry consumes protection and confirms the link; otherwise the link remains pending for
-     * {@code ParadoxDetector} at era resolution.
+     * Tapestry consumes protection and clears the link, whose erased outcome can no longer win; otherwise the
+     * link remains pending for {@code ParadoxDetector} at era resolution.
      */
     private void protectPendingLinkIfArmed(
             WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID eventId, UUID outcomeId) {
@@ -420,7 +420,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 new ChainProtectionConsumedEvent(
                         gameId, eraNumber, saga.chainId(), saga.playerId(), eventId, outcomeId),
                 clock));
-        confirmPendingLink(gameId, saga);
+        clearPendingLink(gameId, eraNumber, saga, chain);
     }
 
     @Override
@@ -453,7 +453,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
 
     @Override
     @Transactional
-    public void stallPendingLink(UUID gameId, int eraNumber, UUID eventId) {
+    public void expireWinnerlessPendingLink(UUID gameId, int eraNumber, UUID eventId) {
         for (var saga : sagas.findOpenByGame(gameId)) {
             var chain = chains.findById(saga.chainId());
             var pending = chain.pendingLink();
@@ -461,24 +461,6 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 continue;
             }
             expirePendingLink(gameId, eraNumber, saga, chain);
-        }
-    }
-
-    @Override
-    @Transactional
-    public void confirmParadoxResolvedLink(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId) {
-        for (var saga : sagas.findOpenByGame(gameId)) {
-            var chain = chains.findById(saga.chainId());
-            var pending = chain.pendingLink();
-            if (pending != null
-                    && pending.eventId().equals(eventId)
-                    && pending.outcomeId().equals(outcomeId)) {
-                if (pending.eraNumber() == eraNumber) {
-                    confirmPendingLink(gameId, saga);
-                } else if (pending.eraNumber() < eraNumber) {
-                    expirePendingLink(gameId, eraNumber, saga, chain);
-                }
-            }
         }
     }
 

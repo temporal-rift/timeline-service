@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -249,6 +250,8 @@ class ParadoxResolutionSagaImplTest {
 
         then(stateManager).should().complete(phase);
         then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
+        then(weaverChainSaga).should().expireWinnerlessPendingLink(GAME_ID, ERA_NUMBER, affectedEventId);
+        then(weaverChainSaga).should(never()).breakChainOnCascadedParadox(any(), anyInt(), any(), any(), any());
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
         then(publisher).should(times(2)).publish(captor.capture());
@@ -298,9 +301,11 @@ class ParadoxResolutionSagaImplTest {
 
         then(stateManager).should().complete(phase);
         then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
-        then(weaverChainSaga)
-                .should()
+        var chainOrder = inOrder(weaverChainSaga);
+        chainOrder
+                .verify(weaverChainSaga)
                 .breakChainOnCascadedParadox(GAME_ID, ERA_NUMBER, affectedEventId, pendingOutcomeId, paradoxId);
+        chainOrder.verify(weaverChainSaga).expireWinnerlessPendingLink(GAME_ID, ERA_NUMBER, affectedEventId);
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
         then(publisher).should(times(2)).publish(captor.capture());
@@ -321,7 +326,7 @@ class ParadoxResolutionSagaImplTest {
     }
 
     @Test
-    void handleTimerExpiry_chainConflictStabilized_resolvesAndConfirmsPendingLink() {
+    void handleTimerExpiry_chainConflictStabilized_resolvesByDrawWithoutConfirmingOrBreaking() {
         var sagaId = UUID.randomUUID();
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
@@ -346,10 +351,8 @@ class ParadoxResolutionSagaImplTest {
 
         saga.handleTimerExpiry(sagaId);
 
-        then(weaverChainSaga)
-                .should()
-                .confirmParadoxResolvedLink(GAME_ID, ERA_NUMBER, affectedEventId, pendingOutcomeId);
         then(weaverChainSaga).should(never()).breakChainOnCascadedParadox(any(), anyInt(), any(), any(), any());
+        then(weaverChainSaga).should(never()).expireWinnerlessPendingLink(any(), anyInt(), any());
 
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
         then(publisher).should(times(3)).publish(captor.capture());
@@ -360,7 +363,15 @@ class ParadoxResolutionSagaImplTest {
                 .anyMatch(ParadoxResolved.class::isInstance)
                 .anyMatch(OutcomeApplied.class::isInstance)
                 .anyMatch(EraResolutionCompleted.class::isInstance);
-        then(weaverChainSaga).should().resolvePendingLink(eq(GAME_ID), eq(ERA_NUMBER), eq(affectedEventId), any());
+        var applied = payloads.stream()
+                .filter(OutcomeApplied.class::isInstance)
+                .map(OutcomeApplied.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(applied.winningOutcomeId()).isNotEqualTo(pendingOutcomeId);
+        then(weaverChainSaga)
+                .should()
+                .resolvePendingLink(GAME_ID, ERA_NUMBER, affectedEventId, applied.winningOutcomeId());
     }
 
     @Test
