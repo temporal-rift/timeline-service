@@ -130,7 +130,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             return;
         }
         if (futureEvent.stalled()) {
-            weaverChainSaga.stallPendingLink(gameId, eraNumber, futureEvent.id());
+            weaverChainSaga.expireWinnerlessPendingLink(gameId, eraNumber, futureEvent.id());
             addStalled(gameId, eraNumber, indexedEventId, futureEvent, accumulator.terminalResolutions());
             return;
         }

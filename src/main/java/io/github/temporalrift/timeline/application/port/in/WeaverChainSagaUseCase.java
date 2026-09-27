@@ -18,25 +18,23 @@ public interface WeaverChainSagaUseCase {
     void playReweave(UUID gameId, int eraNumber, UUID playerId, UUID targetEventId, UUID targetOutcomeId);
 
     /**
-     * Reacts to an outcome becoming annihilated: consumes armed Tapestry protection and confirms the chain's
-     * pending link when it matches, otherwise leaves it pending for paradox detection to evaluate.
+     * Reacts to an outcome becoming annihilated: consumes armed Tapestry protection and clears the chain's
+     * pending link without penalty when it matches, otherwise leaves it pending for paradox detection to evaluate.
      */
     void annihilateOutcome(UUID gameId, int eraNumber, UUID targetEventId, UUID targetOutcomeId);
 
     /**
-     * Confirms or clears the game's pending chain link once its event resolves without a paradox: confirmed
-     * when {@code winningOutcomeId} matches the pending link's outcome, cleared (no penalty) otherwise.
+     * Confirms or clears the game's pending chain link once its event draws a winner — the only path that
+     * confirms a link: confirmed when {@code winningOutcomeId} matches the pending link's outcome, cleared (no
+     * penalty) otherwise.
      */
     void resolvePendingLink(UUID gameId, int eraNumber, UUID eventId, UUID winningOutcomeId);
 
     /**
-     * Expires the matching pending link when its event Stalls in {@code eraNumber}. Publishes one link
-     * invalidation without a penalty; repeated calls leave confirmed links unchanged.
+     * Expires the matching pending link when its event ends {@code eraNumber} without a winner — it Stalls or
+     * cascades. Publishes one link invalidation without a penalty; repeated calls leave confirmed links unchanged.
      */
-    void stallPendingLink(UUID gameId, int eraNumber, UUID eventId);
-
-    /** Confirms the game's pending chain link whose {@code CHAIN_CONFLICT} paradox resolved without cascading. */
-    void confirmParadoxResolvedLink(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId);
+    void expireWinnerlessPendingLink(UUID gameId, int eraNumber, UUID eventId);
 
     /** Breaks the game's chain whose pending link's {@code CHAIN_CONFLICT} paradox cascaded unresolved. */
     void breakChainOnCascadedParadox(UUID gameId, int eraNumber, UUID eventId, UUID outcomeId, UUID paradoxId);
