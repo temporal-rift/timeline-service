@@ -7,8 +7,5 @@ package io.github.temporalrift.timeline.domain.futureevent;
 public enum ParadoxType {
     DEAD_HEAT,
     IMPOSSIBLE_ERASURE,
-    CHAIN_CONFLICT,
-    /** Retained for older wire payloads; this paradox has no legal trigger. */
-    @Deprecated
-    SEAL_BREACH
+    CHAIN_CONFLICT
 }

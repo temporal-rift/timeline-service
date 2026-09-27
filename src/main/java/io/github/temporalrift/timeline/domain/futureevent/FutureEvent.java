@@ -19,7 +19,6 @@ import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.OutcomeSealed;
 import io.github.temporalrift.timeline.domain.event.OutcomesCollided;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
-import io.github.temporalrift.timeline.domain.event.SealBreachRecorded;
 
 /**
  * Event-sourced aggregate for a single drawn event. Rebuilt by {@link #replay(UUID, List)}, never loaded
@@ -56,7 +55,6 @@ public final class FutureEvent {
                             || event instanceof EventUnstalled
                             || event instanceof OutcomeSealed
                             || event instanceof OutcomeAnnihilated
-                            || event instanceof SealBreachRecorded
                             || event instanceof EraStateCleared)
                     && (state == null || state.resolved())) {
                 throw new IllegalStateException("Event replayed outside the drafted and unresolved state for " + id);
@@ -80,7 +78,6 @@ public final class FutureEvent {
                 case EventUnstalled _ -> new FutureEvent(id, state.outcomes(), null, false, state.collidedPairs());
                 case OutcomeSealed e -> state.withOutcomes(e.outcomes());
                 case OutcomeAnnihilated e -> state.withOutcomes(e.outcomes());
-                case SealBreachRecorded _ -> state;
                 case EraStateCleared e -> new FutureEvent(id, e.outcomes(), null, state.stalled(), List.of());
                 default -> throw new IllegalArgumentException("Unknown FutureEvent domain event: " + event.getClass());
             };
