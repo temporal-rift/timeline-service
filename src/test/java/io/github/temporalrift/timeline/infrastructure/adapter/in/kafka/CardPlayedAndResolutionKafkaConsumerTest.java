@@ -154,7 +154,9 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 null,
                 null,
                 null,
-                targetOutcomeId);
+                null,
+                targetOutcomeId,
+                null);
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
@@ -180,6 +182,8 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 null,
                 null,
                 UUID.randomUUID(),
+                null,
+                null,
                 null,
                 null);
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
@@ -208,6 +212,8 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                     null,
                     null,
                     targetPlayerId,
+                    null,
+                    null,
                     null,
                     null);
             given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
@@ -238,7 +244,9 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 null,
                 null,
                 null,
-                UUID.randomUUID());
+                null,
+                UUID.randomUUID(),
+                null);
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
@@ -697,6 +705,8 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 List.of(event1, event2),
                 null,
                 null,
+                null,
+                null,
                 null);
         given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
 
@@ -925,7 +935,9 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 targetEventId,
                 null,
                 null,
+                null,
                 sourceOutcomeId,
-                targetOutcomeId);
+                targetOutcomeId,
+                null);
     }
 }

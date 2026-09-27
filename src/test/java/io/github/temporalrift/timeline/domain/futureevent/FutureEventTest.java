@@ -21,7 +21,6 @@ import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.OutcomeSealed;
 import io.github.temporalrift.timeline.domain.event.OutcomesCollided;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
-import io.github.temporalrift.timeline.domain.event.SealBreachRecorded;
 
 class FutureEventTest {
 
@@ -1148,54 +1147,16 @@ class FutureEventTest {
     }
 
     @Test
-    void replay_legacyBreachFactPreservesOtherStateWithoutCreatingParadox() {
+    void clearEraState_clearsSealAndAnnihilation() {
         var id = UUID.randomUUID();
         var a = new Outcome(UUID.randomUUID(), "a", 50);
         var b = new Outcome(UUID.randomUUID(), "b", 30);
         var c = new Outcome(UUID.randomUUID(), "c", 20);
-        var drafted = new FutureEventDrafted(id, List.of(a, b, c));
-        var sealed = new OutcomeSealed(id, List.of(new Outcome(a.outcomeId(), "a", 50, true, false), b, c));
-        var breach = new SealBreachRecorded(id);
-        var annihilated = new OutcomeAnnihilated(
-                id,
-                List.of(
-                        new Outcome(a.outcomeId(), "a", 50, true, false),
-                        new Outcome(b.outcomeId(), "b", 30, false, true),
-                        c));
-
-        var event = FutureEvent.replay(id, List.of(drafted, sealed, breach, annihilated));
-
-        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
-        assertThat(event.outcomes().stream()
-                        .filter(o -> o.outcomeId().equals(a.outcomeId()))
-                        .findFirst()
-                        .orElseThrow()
-                        .sealed())
-                .isTrue();
-        assertThat(event.outcomes().stream()
-                        .filter(o -> o.outcomeId().equals(b.outcomeId()))
-                        .findFirst()
-                        .orElseThrow()
-                        .annihilated())
-                .isTrue();
-        assertThat(event.resolved()).isFalse();
-        assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
-                .isEmpty();
-    }
-
-    @Test
-    void clearEraState_clearsSealAndAnnihilationAfterLegacyFact() {
-        var id = UUID.randomUUID();
-        var a = new Outcome(UUID.randomUUID(), "a", 50);
-        var b = new Outcome(UUID.randomUUID(), "b", 30);
-        var c = new Outcome(UUID.randomUUID(), "c", 20);
-        // The legacy fact remains replayable but creates no per-era state.
         var event = FutureEvent.replay(
                 id,
                 List.of(
                         new FutureEventDrafted(id, List.of(a, b, c)),
                         new OutcomeSealed(id, List.of(new Outcome(a.outcomeId(), "a", 50, true, false), b, c)),
-                        new SealBreachRecorded(id),
                         new OutcomeAnnihilated(
                                 id,
                                 List.of(
@@ -1262,10 +1223,9 @@ class FutureEventTest {
         var b = new Outcome(UUID.randomUUID(), "b", 50);
         var drafted = new FutureEventDrafted(id, List.of(a, b));
         var sealed = new OutcomeSealed(id, List.of(new Outcome(a.outcomeId(), "a", 50, true, false), b));
-        var breach = new SealBreachRecorded(id);
         var cleared = new EraStateCleared(id, List.of(a, b));
 
-        var event = FutureEvent.replay(id, List.of(drafted, sealed, breach, cleared));
+        var event = FutureEvent.replay(id, List.of(drafted, sealed, cleared));
 
         assertThat(event.outcomes().stream().noneMatch(Outcome::sealed)).isTrue();
         assertThat(event.resolved()).isFalse();

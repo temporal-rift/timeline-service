@@ -54,9 +54,9 @@
         <sonar.exclusions>**/generated-sources/**/*</sonar.exclusions>
         <sonar.coverage.exclusions>**/generated-sources/**/*</sonar.coverage.exclusions>
 
-        <timeline-event.version>6.0.0</timeline-event.version>
-        <session-event.version>3.0.0</session-event.version>
-        <action-event.version>4.0.1</action-event.version>
+        <timeline-event.version>7.0.0</timeline-event.version>
+        <session-event.version>5.0.0</session-event.version>
+        <action-event.version>7.0.0</action-event.version>
         <chains-api.version>2.0.0</chains-api.version>
         <archunit-junit5.version>1.5.0</archunit-junit5.version>
     </properties>
