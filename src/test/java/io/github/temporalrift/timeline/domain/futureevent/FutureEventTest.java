@@ -971,6 +971,56 @@ class FutureEventTest {
     }
 
     @Test
+    void wouldRemoveLastDrawableWeight_lastLiveOutcome_returnsTrue() {
+        var id = UUID.randomUUID();
+        var lastLive = new Outcome(UUID.randomUUID(), "last", 50);
+        var event = drafted(
+                id,
+                lastLive,
+                new Outcome(UUID.randomUUID(), "erased-b", 30, false, true),
+                new Outcome(UUID.randomUUID(), "erased-c", 20, false, true));
+
+        assertThat(event.wouldRemoveLastDrawableWeight(lastLive.outcomeId())).isTrue();
+        assertThat(event.isAnnihilated(lastLive.outcomeId())).isFalse();
+    }
+
+    @Test
+    void wouldRemoveLastDrawableWeight_liveOutcomeRemaining_returnsFalse() {
+        var id = UUID.randomUUID();
+        var target = new Outcome(UUID.randomUUID(), "target", 50);
+        var event = drafted(
+                id,
+                target,
+                new Outcome(UUID.randomUUID(), "other", 30),
+                new Outcome(UUID.randomUUID(), "erased", 20, false, true));
+
+        assertThat(event.wouldRemoveLastDrawableWeight(target.outcomeId())).isFalse();
+    }
+
+    @Test
+    void wouldRemoveLastDrawableWeight_onlyWeightlessOutcomesRemaining_returnsTrue() {
+        var id = UUID.randomUUID();
+        var target = new Outcome(UUID.randomUUID(), "target", 100);
+        var event = drafted(
+                id,
+                target,
+                new Outcome(UUID.randomUUID(), "weightless", 0),
+                new Outcome(UUID.randomUUID(), "other", 0));
+
+        assertThat(event.wouldRemoveLastDrawableWeight(target.outcomeId())).isTrue();
+    }
+
+    @Test
+    void isAnnihilated_erasedOutcome_returnsTrue() {
+        var id = UUID.randomUUID();
+        var erased = new Outcome(UUID.randomUUID(), "erased", 50, false, true);
+        var event = drafted(id, erased, new Outcome(UUID.randomUUID(), "live", 50));
+
+        assertThat(event.isAnnihilated(erased.outcomeId())).isTrue();
+        assertThat(event.isEligible(erased.outcomeId())).isFalse();
+    }
+
+    @Test
     void annihilateOutcome_alreadyResolved_throws() {
         var id = UUID.randomUUID();
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);

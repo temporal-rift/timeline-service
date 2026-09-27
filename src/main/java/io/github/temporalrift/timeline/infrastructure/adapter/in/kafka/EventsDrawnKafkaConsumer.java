@@ -18,9 +18,9 @@ import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCas
 import io.github.temporalrift.timeline.domain.event.CascadeCarriedForwardEvent;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
-import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
+import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort.CascadeCarryForward;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -108,68 +108,61 @@ class EventsDrawnKafkaConsumer {
      */
     private void applyPendingCascades(UUID gameId, int eraNumber, Set<UUID> carriedEventIds) {
         for (var pending : cascadeCarryForward.findByGameAndEra(gameId, eraNumber)) {
-            if (!carriedEventIds.contains(pending.eventId())) {
-                cascadeCarryForward.delete(gameId, eraNumber, pending.eventId(), pending.outcomeId());
-                publisher.publish(TimelineEventEnvelope.create(
-                        pending.eventId(),
-                        FUTURE_EVENT_AGGREGATE_TYPE,
-                        gameId,
-                        TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                        new SpecialRejectedEvent(
-                                gameId,
-                                eraNumber,
-                                pending.playerId(),
-                                "CASCADE",
-                                null,
-                                pending.eventId(),
-                                pending.outcomeId(),
-                                "CARRY_FORWARD_EVENT_NOT_ACTIVE"),
-                        clock));
-                continue;
-            }
-            var futureEvent = futureEvents.findById(pending.eventId());
-            if (!isAlreadyAnnihilated(futureEvent, pending.outcomeId())
-                    && wouldRemoveLastDrawableWeight(futureEvent, pending.outcomeId())) {
-                cascadeCarryForward.delete(gameId, eraNumber, pending.eventId(), pending.outcomeId());
-                publisher.publish(TimelineEventEnvelope.create(
-                        pending.eventId(),
-                        FUTURE_EVENT_AGGREGATE_TYPE,
-                        gameId,
-                        TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                        new SpecialRejectedEvent(
-                                gameId,
-                                eraNumber,
-                                pending.playerId(),
-                                "CASCADE",
-                                null,
-                                pending.eventId(),
-                                pending.outcomeId(),
-                                "LAST_ELIGIBLE_OUTCOME"),
-                        clock));
-                continue;
-            }
-            futureEvents.append(pending.eventId(), futureEvent.annihilateOutcome(pending.outcomeId()));
-            weaverChainSaga.annihilateOutcome(gameId, eraNumber, pending.eventId(), pending.outcomeId());
+            applyOnePendingCascade(gameId, eraNumber, carriedEventIds, pending);
+        }
+    }
+
+    private void applyOnePendingCascade(
+            UUID gameId, int eraNumber, Set<UUID> carriedEventIds, CascadeCarryForward pending) {
+        if (!carriedEventIds.contains(pending.eventId())) {
             cascadeCarryForward.delete(gameId, eraNumber, pending.eventId(), pending.outcomeId());
             publisher.publish(TimelineEventEnvelope.create(
                     pending.eventId(),
                     FUTURE_EVENT_AGGREGATE_TYPE,
                     gameId,
                     TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new CascadeCarriedForwardEvent(gameId, eraNumber, pending.eventId(), pending.outcomeId()),
+                    new SpecialRejectedEvent(
+                            gameId,
+                            eraNumber,
+                            pending.playerId(),
+                            "CASCADE",
+                            null,
+                            pending.eventId(),
+                            pending.outcomeId(),
+                            "CARRY_FORWARD_EVENT_NOT_ACTIVE"),
                     clock));
+            return;
         }
-    }
-
-    private static boolean isAlreadyAnnihilated(FutureEvent futureEvent, UUID outcomeId) {
-        return futureEvent.outcomes().stream().anyMatch(o -> o.outcomeId().equals(outcomeId) && o.annihilated());
-    }
-
-    private static boolean wouldRemoveLastDrawableWeight(FutureEvent futureEvent, UUID outcomeId) {
-        return futureEvent.outcomes().stream()
-                        .filter(o -> !o.annihilated() && !o.outcomeId().equals(outcomeId))
-                        .mapToInt(Outcome::probability)
-                        .sum()
-                <= 0;
+        var futureEvent = futureEvents.findById(pending.eventId());
+        if (!futureEvent.isAnnihilated(pending.outcomeId())
+                && futureEvent.wouldRemoveLastDrawableWeight(pending.outcomeId())) {
+            cascadeCarryForward.delete(gameId, eraNumber, pending.eventId(), pending.outcomeId());
+            publisher.publish(TimelineEventEnvelope.create(
+                    pending.eventId(),
+                    FUTURE_EVENT_AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new SpecialRejectedEvent(
+                            gameId,
+                            eraNumber,
+                            pending.playerId(),
+                            "CASCADE",
+                            null,
+                            pending.eventId(),
+                            pending.outcomeId(),
+                            "LAST_ELIGIBLE_OUTCOME"),
+                    clock));
+            return;
+        }
+        futureEvents.append(pending.eventId(), futureEvent.annihilateOutcome(pending.outcomeId()));
+        weaverChainSaga.annihilateOutcome(gameId, eraNumber, pending.eventId(), pending.outcomeId());
+        cascadeCarryForward.delete(gameId, eraNumber, pending.eventId(), pending.outcomeId());
+        publisher.publish(TimelineEventEnvelope.create(
+                pending.eventId(),
+                FUTURE_EVENT_AGGREGATE_TYPE,
+                gameId,
+                TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                new CascadeCarriedForwardEvent(gameId, eraNumber, pending.eventId(), pending.outcomeId()),
+                clock));
     }
 }

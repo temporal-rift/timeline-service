@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -293,7 +294,7 @@ class EventsDrawnKafkaConsumerTest {
         then(weaverChainSaga).should().annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeB);
         then(weaverChainSaga).should(never()).annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeC);
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(org.mockito.Mockito.times(3)).publish(captor.capture());
+        then(publisher).should(times(3)).publish(captor.capture());
         var rejected = captor.getAllValues().stream()
                 .map(TimelineEventEnvelope::payload)
                 .filter(SpecialRejectedEvent.class::isInstance)
