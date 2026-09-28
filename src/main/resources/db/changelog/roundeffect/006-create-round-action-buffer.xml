@@ -43,8 +43,9 @@
       <column name="target_event_id" type="UUID"/>
       <column name="source_outcome_id" type="UUID"/>
       <column name="target_outcome_id" type="UUID"/>
-      <!-- CORRUPT only -->
+      <!-- Scalar player-targeting cards and specials -->
       <column name="target_player_id" type="UUID"/>
+      <column name="target_player_ids" type="JSONB"/>
       <column name="occurred_at" type="TIMESTAMP WITH TIME ZONE">
         <constraints nullable="false"/>
       </column>

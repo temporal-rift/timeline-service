@@ -28,7 +28,8 @@ class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
         repository.save(new RoundActionBufferEntity(
                 new RoundKey(gameId, eraNumber, roundNumber),
                 action,
-                action.targetEventIds().isEmpty() ? null : objectMapper.writeValueAsString(action.targetEventIds())));
+                action.targetEventIds().isEmpty() ? null : objectMapper.writeValueAsString(action.targetEventIds()),
+                action.targetPlayerIds().isEmpty() ? null : objectMapper.writeValueAsString(action.targetPlayerIds())));
     }
 
     @Override
@@ -46,22 +47,31 @@ class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
                 e.playerId(),
                 e.cardInstanceId(),
                 e.targetEventId(),
-                toTargetEventIds(e.targetEventIds()),
+                toTargetIds(e.targetEventIds()),
                 e.sourceOutcomeId(),
                 e.targetOutcomeId(),
                 e.targetPlayerId(),
+                playerTargets(e),
                 e.grade(),
                 e.occurredAt(),
                 e.envelopeEventId());
     }
 
     /** Drops any null entry a degenerate persisted array might contain — {@code List.of} rejects nulls outright. */
-    private List<UUID> toTargetEventIds(String json) {
+    private List<UUID> toTargetIds(String json) {
         if (json == null) {
             return List.of();
         }
         return Arrays.stream(objectMapper.readValue(json, UUID[].class))
                 .filter(Objects::nonNull)
                 .toList();
+    }
+
+    private List<UUID> playerTargets(RoundActionBufferEntity entity) {
+        var targets = toTargetIds(entity.targetPlayerIds());
+        if (targets.isEmpty() && "NULLIFY".equals(entity.cardType()) && entity.targetPlayerId() != null) {
+            return List.of(entity.targetPlayerId());
+        }
+        return targets;
     }
 }

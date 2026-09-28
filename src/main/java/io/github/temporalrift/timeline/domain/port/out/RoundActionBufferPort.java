@@ -33,7 +33,8 @@ public interface RoundActionBufferPort {
      * {@code CardPlayedPayload}/{@code SpecialActionPlayedPayload}). {@code targetEventIds} is populated only for
      * a list-mode {@code CardPlayed} (currently only SCAN's grade-sized multi-event selection); empty for every
      * scalar- or player-targeting action, including a scalar-mode SCAN — never {@code null}, so callers can test
-     * {@code isEmpty()} without a null check. {@code grade} is populated for {@code CARD_PLAYED} only, from the
+     * {@code isEmpty()} without a null check. {@code targetPlayerIds} holds Nullify's complete selection;
+     * it is immutable and empty for other actions. {@code grade} is populated for {@code CARD_PLAYED} only, from the
      * originating {@code CardPlayedPayload}'s grade; {@code null} for {@code SPECIAL_ACTION_PLAYED}, which carries
      * no grade. {@code envelopeEventId} is the tie-break secondary sort key for two actions sharing an identical
      * {@code occurredAt}.
@@ -49,11 +50,13 @@ public interface RoundActionBufferPort {
             UUID sourceOutcomeId,
             UUID targetOutcomeId,
             UUID targetPlayerId,
+            List<UUID> targetPlayerIds,
             CardGrade grade,
             Instant occurredAt,
             UUID envelopeEventId) {
         public BufferedAction {
             targetEventIds = targetEventIds == null ? List.of() : List.copyOf(targetEventIds);
+            targetPlayerIds = targetPlayerIds == null ? List.of() : List.copyOf(targetPlayerIds);
         }
     }
 }

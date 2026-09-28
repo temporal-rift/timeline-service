@@ -311,15 +311,17 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         return byPlayerId;
     }
 
-    /** Every NULLIFY contributes its named target simultaneously, including mutually-targeting NULLIFY cards. */
+    /** Every NULLIFY contributes all named targets simultaneously, including mutually-targeting NULLIFY cards. */
     private static Set<UUID> computeNullifyCancellations(
             List<BufferedAction> sorted, Map<UUID, BufferedAction> byPlayerId) {
         var cancelled = new LinkedHashSet<UUID>();
         for (var nullify : sorted) {
             if (isCardType(nullify, "NULLIFY")) {
-                var target = byPlayerId.get(nullify.targetPlayerId());
-                if (target != null) {
-                    cancelled.add(target.envelopeEventId());
+                for (var targetPlayerId : nullify.targetPlayerIds()) {
+                    var target = byPlayerId.get(targetPlayerId);
+                    if (target != null) {
+                        cancelled.add(target.envelopeEventId());
+                    }
                 }
             }
         }
