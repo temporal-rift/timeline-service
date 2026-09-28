@@ -122,7 +122,7 @@ class JpaRoundActionBufferAdapterTest {
     void save_gradeTwoNullify_roundTripsBothPlayerTargets() {
         var gameId = UUID.randomUUID();
         var targets = List.of(UUID.randomUUID(), UUID.randomUUID());
-        var action = nullifyAction(null, targets);
+        var action = nullifyAction(targets);
 
         buffer.save(gameId, 1, 1, action);
         jpaRepository.flush();
@@ -132,20 +132,7 @@ class JpaRoundActionBufferAdapterTest {
         assertThat(found.getFirst().targetPlayerIds()).containsExactlyElementsOf(targets);
     }
 
-    @Test
-    void findByRound_legacyScalarNullify_normalizesThePlayerTarget() {
-        var gameId = UUID.randomUUID();
-        var target = UUID.randomUUID();
-        var action = nullifyAction(target, List.of());
-        jpaRepository.saveAndFlush(new RoundActionBufferEntity(new RoundKey(gameId, 1, 1), action, null, null));
-
-        var found = buffer.findByRound(gameId, 1, 1);
-
-        assertThat(found).hasSize(1);
-        assertThat(found.getFirst().targetPlayerIds()).containsExactly(target);
-    }
-
-    private static BufferedAction nullifyAction(UUID scalarTarget, List<UUID> targets) {
+    private static BufferedAction nullifyAction(List<UUID> targets) {
         return new BufferedAction(
                 ActionKind.CARD_PLAYED,
                 "NULLIFY",
@@ -156,7 +143,7 @@ class JpaRoundActionBufferAdapterTest {
                 null,
                 null,
                 null,
-                scalarTarget,
+                null,
                 targets,
                 CardGrade.II,
                 Instant.parse("2026-09-28T00:00:00Z"),
