@@ -181,8 +181,8 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 CardGrade.UNKNOWN,
                 null,
                 null,
-                UUID.randomUUID(),
                 null,
+                List.of(UUID.randomUUID()),
                 null,
                 null,
                 null);
@@ -199,7 +199,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     @DisplayName("player-targeted modifiers — targetPlayerId reaches the round buffer")
     void handle_playerTargetedModifiers_buffersTargetPlayerId() {
         var targetPlayerId = UUID.randomUUID();
-        for (var cardType : new CardType[] {CardType.NULLIFY, CardType.REDIRECT, CardType.AMPLIFY}) {
+        for (var cardType : new CardType[] {CardType.REDIRECT, CardType.AMPLIFY}) {
             var eventId = UUID.randomUUID();
             var payload = new CardPlayedPayload(
                     UUID.randomUUID(),
@@ -222,10 +222,47 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         }
 
         var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
-        verify(buffer, times(3)).save(any(), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
+        verify(buffer, times(2)).save(any(), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
         assertThat(actionCaptor.getAllValues())
                 .extracting(BufferedAction::targetPlayerId)
-                .containsExactly(targetPlayerId, targetPlayerId, targetPlayerId);
+                .containsExactly(targetPlayerId, targetPlayerId);
+    }
+
+    @Test
+    void handle_nullifyTargetLists_preservesEveryPlayerTarget() {
+        var firstTarget = UUID.randomUUID();
+        var secondTarget = UUID.randomUUID();
+        var selections = List.of(List.of(firstTarget), List.of(firstTarget, secondTarget));
+        for (var targets : selections) {
+            var eventId = UUID.randomUUID();
+            var payload = new CardPlayedPayload(
+                    UUID.randomUUID(),
+                    ERA_NUMBER,
+                    ROUND_NUMBER,
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    CardType.NULLIFY,
+                    targets.size() == 1 ? CardGrade.I : CardGrade.II,
+                    null,
+                    null,
+                    null,
+                    targets,
+                    null,
+                    null,
+                    null);
+            given(processedEvents.claim(eventId, CARD_PLAYED_CONSUMER)).willReturn(true);
+
+            consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, CARD_PLAYED_EVENT_TYPE, 1));
+        }
+
+        var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
+        verify(buffer, times(2)).save(any(), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
+        assertThat(actionCaptor.getAllValues())
+                .extracting(BufferedAction::targetPlayerIds)
+                .containsExactlyElementsOf(selections);
+        assertThat(actionCaptor.getAllValues())
+                .extracting(BufferedAction::targetPlayerId)
+                .containsOnlyNulls();
     }
 
     @Test
