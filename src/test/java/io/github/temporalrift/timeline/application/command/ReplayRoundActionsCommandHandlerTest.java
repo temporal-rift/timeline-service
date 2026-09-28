@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
@@ -23,6 +24,9 @@ import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -40,6 +44,8 @@ import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityBand;
+import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
+import io.github.temporalrift.timeline.domain.futureevent.SimultaneousShift;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
@@ -964,6 +970,183 @@ class ReplayRoundActionsCommandHandlerTest {
 
         // Still a single 1.5x boost (30), not 2.25x (45) from two declarations.
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(80);
+    }
+
+    @Test
+    void replay_momentumLandsOnRound1OpeningWeightsBeforeSameRoundSeal() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.momentumBonus()).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialAction("SEAL", eventId, a, at(0)), momentum(UUID.randomUUID(), eventId, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // The Round 1 SEAL locks the already-boosted weight rather than declining the bonus.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(60);
+        assertThat(futureEvent.outcomes())
+                .filteredOn(Outcome::sealed)
+                .extracting(Outcome::outcomeId)
+                .containsExactly(a);
+    }
+
+    @Test
+    void replay_momentumAppliesOnceAndNeverBoostsAMatchingTransfer() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.momentumBonus()).willReturn(10);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        momentum(UUID.randomUUID(), eventId, a, at(0)), cardPlayed("PUSH", eventId, null, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // 50 + 10 bonus + unboosted 20; the Rally multiplier is never consulted.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(80);
+        then(rules).should(never()).rallyMultiplier();
+    }
+
+    @Test
+    void replay_momentumAgainstSealedOutcome_isDeclined() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        futureEvent.sealOutcome(a);
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.momentumBonus()).willReturn(10);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(momentum(UUID.randomUUID(), eventId, a, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(30);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {2, 3})
+    void replay_momentumIsNeverAppliedByALaterRound(int roundNumber) {
+        lenient().when(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).thenReturn(List.of());
+        // A MOMENTUM entry only ever reaches Round 1's buffer; a later round must still ignore one defensively.
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, roundNumber))
+                .willReturn(List.of(momentum(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, roundNumber);
+
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(NullifyTargetPosition.class)
+    void replay_nullifyNamingTheMomentumDeclarer_cancelsTheBonus(NullifyTargetPosition position) {
+        var declarer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        momentum(declarer, UUID.randomUUID(), UUID.randomUUID(), at(0)),
+                        nullifyTargets(UUID.randomUUID(), position.targets(declarer), at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).findById(any());
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(NullifyTargetPosition.class)
+    void replay_cancelledMomentum_leavesOnlyTheOtherActionsAgainstDeclarationTimeWeights(
+            NullifyTargetPosition position) {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var declarer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 85), outcome(b, 10), outcome(c, 5));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        momentum(declarer, eventId, a, at(0)),
+                        cardPlayed("PUSH", eventId, null, b, at(1)),
+                        cardPlayed("PUSH", eventId, null, c, at(2)),
+                        nullifyTargets(UUID.randomUUID(), position.targets(declarer), at(3))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        var otherActions = List.of(
+                new SimultaneousShift(new ProbabilityShift.Push(b), 20),
+                new SimultaneousShift(new ProbabilityShift.Push(c), 20));
+        var withoutBonus = drafted(eventId, outcome(a, 85), outcome(b, 10), outcome(c, 5));
+        withoutBonus.applySimultaneousShifts(otherActions, 0, 90);
+        var withBonus = drafted(eventId, outcome(a, 85), outcome(b, 10), outcome(c, 5));
+        withBonus.applyShift(new ProbabilityShift.Push(a), 10, 0, 90);
+        withBonus.applySimultaneousShifts(otherActions, 0, 90);
+        assertThat(futureEvent.outcomes()).isEqualTo(withoutBonus.outcomes()).isNotEqualTo(withBonus.outcomes());
+    }
+
+    @Test
+    void replay_nullifyNamingAnotherPlayer_leavesTheMomentumBonus() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.momentumBonus()).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        momentum(UUID.randomUUID(), eventId, a, at(0)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, b, at(1)),
+                        nullifyTargets(UUID.randomUUID(), List.of(pushingPlayer), at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(60);
+    }
+
+    @ParameterizedTest
+    @EnumSource(NullifyTargetPosition.class)
+    void replay_nullifyNamingTheRallyDeclarer_cancelsTheBoost(NullifyTargetPosition position) {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var declarer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        rally(declarer, eventId, a, at(0)),
+                        cardPlayed("PUSH", eventId, null, a, at(1)),
+                        nullifyTargets(UUID.randomUUID(), position.targets(declarer), at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(70);
+        then(rules).should(never()).rallyMultiplier();
     }
 
     @Test
@@ -2268,21 +2451,12 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     private static BufferedAction rally(UUID playerId, UUID targetEventId, UUID targetOutcomeId, Instant occurredAt) {
-        return new BufferedAction(
-                ActionKind.SPECIAL_ACTION_PLAYED,
-                null,
-                "RALLY",
-                playerId,
-                null,
-                targetEventId,
-                null,
-                null,
-                targetOutcomeId,
-                null,
-                null,
-                null,
-                occurredAt,
-                UUID.randomUUID());
+        return specialActionBy(playerId, "RALLY", targetEventId, targetOutcomeId, occurredAt);
+    }
+
+    private static BufferedAction momentum(
+            UUID playerId, UUID targetEventId, UUID targetOutcomeId, Instant occurredAt) {
+        return specialActionBy(playerId, "MOMENTUM", targetEventId, targetOutcomeId, occurredAt);
     }
 
     private static BufferedAction scanListMode(
@@ -2302,5 +2476,20 @@ class ReplayRoundActionsCommandHandlerTest {
                 grade,
                 occurredAt,
                 UUID.randomUUID());
+    }
+
+    /** Grade I names only the declarer; grade II names them first or second. */
+    enum NullifyTargetPosition {
+        GRADE_I_ONLY,
+        GRADE_II_FIRST,
+        GRADE_II_SECOND;
+
+        List<UUID> targets(UUID declarer) {
+            return switch (this) {
+                case GRADE_I_ONLY -> List.of(declarer);
+                case GRADE_II_FIRST -> List.of(declarer, UUID.randomUUID());
+                case GRADE_II_SECOND -> List.of(UUID.randomUUID(), declarer);
+            };
+        }
     }
 }

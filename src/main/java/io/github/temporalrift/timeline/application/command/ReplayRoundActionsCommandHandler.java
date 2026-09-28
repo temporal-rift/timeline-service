@@ -73,6 +73,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final String SPECIAL_ACTION_MIMIC = "MIMIC";
     private static final String SPECIAL_ACTION_CASCADE = "CASCADE";
     private static final String SPECIAL_ACTION_ANNIHILATE = "ANNIHILATE";
+    private static final String SPECIAL_ACTION_MOMENTUM = "MOMENTUM";
 
     /** Published when an erasure would remove the event's last drawable outcome weight. */
     static final String REASON_LAST_ELIGIBLE_OUTCOME = "LAST_ELIGIBLE_OUTCOME";
@@ -154,6 +155,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
         var cancelled = computeNullifyCancellations(sorted, selectedActionByPlayer);
 
+        if (roundNumber == 1) {
+            applyTier(sorted, cancelled, a -> isSpecial(a, SPECIAL_ACTION_MOMENTUM), this::applyMomentumBonus);
+        }
         applyTier(sorted, cancelled, a -> isSpecial(a, "SEAL"), this::applySeal);
         applyAnnihilateTier(gameId, eraNumber, roundNumber, sorted, cancelled);
         applyCascadeTier(gameId, eraNumber, sorted, cancelled);
@@ -338,6 +342,21 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 apply.accept(a);
             }
         }
+    }
+
+    /**
+     * Nothing reads or changes current-era weights before Round 1 replays, so this still lands on declaration-time
+     * weights while letting a Round 1 NULLIFY naming the declarer skip it instead of reversing it.
+     */
+    private void applyMomentumBonus(BufferedAction a) {
+        tryFindEvent(a.targetEventId())
+                .ifPresent(futureEvent -> futureEvents.append(
+                        a.targetEventId(),
+                        futureEvent.applyShift(
+                                new ProbabilityShift.Push(a.targetOutcomeId()),
+                                rules.momentumBonus(),
+                                rules.probabilityFloor(),
+                                rules.probabilityCeiling())));
     }
 
     private void applySeal(BufferedAction a) {
