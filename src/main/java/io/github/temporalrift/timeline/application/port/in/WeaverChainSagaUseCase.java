@@ -7,9 +7,10 @@ public interface WeaverChainSagaUseCase {
 
     /**
      * Validates one THREAD play — a single not-yet-resolved current-era coordinate — opening a pending link on
-     * the player's chain, or privately rejecting it.
+     * the player's chain, or privately rejecting it. Returns whether it was accepted; the caller owns the
+     * accepted link's probability shift.
      */
-    void playThread(UUID gameId, int eraNumber, UUID playerId, UUID eventId, UUID outcomeId);
+    boolean playThread(UUID gameId, int eraNumber, UUID playerId, UUID eventId, UUID outcomeId);
 
     /** Arms TAPESTRY protection on a 2+ link chain, once per era, or privately rejects it. */
     void playTapestry(UUID gameId, int eraNumber, UUID playerId);

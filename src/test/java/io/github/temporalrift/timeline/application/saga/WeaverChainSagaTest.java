@@ -52,7 +52,6 @@ import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
-import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
@@ -77,9 +76,6 @@ class WeaverChainSagaTest {
     FutureEventEraIndexPort eraIndex;
 
     @Mock
-    ProbabilityRulesPort probabilityRules;
-
-    @Mock
     TimelineEventPublisher publisher;
 
     Clock clock = Clock.fixed(Instant.parse("2026-09-12T00:00:00Z"), ZoneOffset.UTC);
@@ -94,7 +90,7 @@ class WeaverChainSagaTest {
     void setUp() {
         chains = new FakeChains();
         sagas = new FakeSagas();
-        saga = new WeaverChainSaga(chains, sagas, futureEvents, eraIndex, probabilityRules, publisher, clock);
+        saga = new WeaverChainSaga(chains, sagas, futureEvents, eraIndex, publisher, clock);
     }
 
     private record Coordinate(UUID eventId, UUID outcomeId) {}
@@ -108,16 +104,9 @@ class WeaverChainSagaTest {
         return new Coordinate(eventId, outcomeId);
     }
 
-    private void stubThreadRewardRules() {
-        given(probabilityRules.threadShift()).willReturn(10);
-        given(probabilityRules.probabilityFloor()).willReturn(0);
-        given(probabilityRules.probabilityCeiling()).willReturn(90);
-    }
-
     @Test
     void thread_firstPlay_opensChainWithPendingLink() {
         var coordinate = stubValidCoordinate();
-        stubThreadRewardRules();
 
         saga.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
 
@@ -132,38 +121,37 @@ class WeaverChainSagaTest {
     }
 
     @Test
-    void thread_acceptedLink_appliesConfiguredShiftToNamedOutcome() {
+    void thread_acceptedLink_reportsAcceptanceWithoutShiftingProbabilities() {
         var coordinate = stubValidCoordinate();
-        stubThreadRewardRules();
 
-        saga.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
+        var accepted = saga.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
 
-        then(futureEvents).should().append(eq(coordinate.eventId()), any());
+        // Round replay owns the accepted link's shift so it resolves with the round's other effects.
+        assertThat(accepted).isTrue();
+        then(futureEvents).should(never()).append(any(), any());
     }
 
     @Test
-    void thread_sealedOutcome_linkStillAccepted_probabilityUnmoved() {
+    void thread_sealedOutcome_linkStillAccepted() {
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA)).willReturn(List.of(new IndexedEventId(eventId, 0)));
         var futureEvent = sealedUnresolvedEventWithOutcome(eventId, outcomeId);
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
-        stubThreadRewardRules();
 
         saga.playThread(GAME_ID, ERA, PLAYER_ID, eventId, outcomeId);
 
-        // The pending link is opened regardless — only the reward's probability movement is blocked by the seal.
         var state = sagas.findOpenByGameAndPlayer(GAME_ID, PLAYER_ID).orElseThrow();
         assertThat(chains.findById(state.chainId()).pendingLink()).isNotNull();
-        assertThat(futureEvent.outcomes().getFirst().probability()).isEqualTo(34);
     }
 
     @Test
     void thread_missingCoordinate_rejectedWithoutOpeningAChain() {
         openChainWithConfirmedLinks(1);
 
-        saga.playThread(GAME_ID, ERA, PLAYER_ID, null, null);
+        var accepted = saga.playThread(GAME_ID, ERA, PLAYER_ID, null, null);
 
+        assertThat(accepted).isFalse();
         var rejected = published(ThreadRejectedEvent.class);
         assertThat(rejected.reason()).isEqualTo("MISSING_COORDINATE");
         publishedNever(ChainLinkThreadedEvent.class);
@@ -242,7 +230,6 @@ class WeaverChainSagaTest {
     @Test
     void thread_withoutActiveChain_opensNewChain() {
         var coordinate = stubValidCoordinate();
-        stubThreadRewardRules();
 
         saga.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
 
@@ -416,7 +403,6 @@ class WeaverChainSagaTest {
         chains.append(chainId, new ChainLinkThreaded(chainId, pendingEvent, pendingOutcome, ERA));
         saga.annihilateOutcome(GAME_ID, ERA, pendingEvent, pendingOutcome);
         var coordinate = stubValidCoordinate();
-        stubThreadRewardRules();
 
         saga.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
 
@@ -663,7 +649,6 @@ class WeaverChainSagaTest {
 
     @Test
     void threadThenReweaveEveryEra_withoutACorrectPrediction_neverCompletes() {
-        stubThreadRewardRules();
         for (var era : List.of(2, 3, 4)) {
             var threaded = liveOutcome(era);
             var reAimed = liveOutcome(era);
@@ -924,9 +909,8 @@ class WeaverChainSagaTest {
     void restart_resumesOpenSagaForNextThread() {
         var chainId = openChainWithConfirmedLinks(1);
         // Simulate a restart: rebuild the saga service over the same durable repositories.
-        var restarted = new WeaverChainSaga(chains, sagas, futureEvents, eraIndex, probabilityRules, publisher, clock);
+        var restarted = new WeaverChainSaga(chains, sagas, futureEvents, eraIndex, publisher, clock);
         var coordinate = stubValidCoordinate();
-        stubThreadRewardRules();
 
         restarted.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
 
@@ -942,7 +926,6 @@ class WeaverChainSagaTest {
         chains.append(
                 brokenChainId, new ChainLinkThreaded(brokenChainId, conflicted.eventId(), conflicted.outcomeId(), 2));
         saga.breakChainOnCascadedParadox(GAME_ID, 2, conflicted.eventId(), conflicted.outcomeId(), UUID.randomUUID());
-        stubThreadRewardRules();
 
         var restartedEras = List.of(3, 4, 5);
         for (var era : restartedEras) {

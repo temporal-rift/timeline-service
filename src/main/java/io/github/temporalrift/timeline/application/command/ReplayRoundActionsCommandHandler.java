@@ -49,9 +49,10 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
 /**
- * Replays one round's buffered actions in strict priority-tier order: {@code NULLIFY -> SEAL -> ANNIHILATE ->
- * CASCADE -> CORRUPT -> MIMIC -> AMPLIFY -> remaining cards}, all in one in-process pass. The remaining cards and
- * MIMIC copies resolve simultaneously per event, so no result depends on submission timestamp. Every player-targeted
+ * Replays one round's buffered actions in strict priority-tier order: {@code NULLIFY -> (Round 1) MOMENTUM -> SEAL ->
+ * TAPESTRY -> ANNIHILATE -> CASCADE -> REWEAVE -> THREAD -> CORRUPT -> MIMIC -> AMPLIFY -> remaining cards}, all in
+ * one in-process pass. The remaining cards, MIMIC copies, and accepted THREAD shifts resolve simultaneously per
+ * event, so no result depends on submission timestamp. Every player-targeted
  * correlation ({@code NULLIFY}, {@code AMPLIFY}, {@code REDIRECT}, and {@code CORRUPT}) is resolved once up front from
  * the complete round buffer.
  */
@@ -73,6 +74,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final String SPECIAL_ACTION_MIMIC = "MIMIC";
     private static final String SPECIAL_ACTION_CASCADE = "CASCADE";
     private static final String SPECIAL_ACTION_ANNIHILATE = "ANNIHILATE";
+    private static final String SPECIAL_ACTION_MOMENTUM = "MOMENTUM";
+    private static final String SPECIAL_ACTION_TAPESTRY = "TAPESTRY";
+    private static final String SPECIAL_ACTION_REWEAVE = "REWEAVE";
+    private static final String SPECIAL_ACTION_THREAD = "THREAD";
 
     /** Published when an erasure would remove the event's last drawable outcome weight. */
     static final String REASON_LAST_ELIGIBLE_OUTCOME = "LAST_ELIGIBLE_OUTCOME";
@@ -158,9 +163,27 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var sorted = excludeStalledTargets(submitted, cancelled, events);
         var eligibleActionByPlayer = indexActionsByPlayer(sorted);
 
+        if (roundNumber == 1) {
+            applyTier(
+                    sorted, cancelled, a -> isSpecial(a, SPECIAL_ACTION_MOMENTUM), a -> applyMomentumBonus(a, events));
+        }
         applyTier(sorted, cancelled, a -> isSpecial(a, "SEAL"), a -> applySeal(a, events));
+        // Armed before ANNIHILATE so a same-round Annihilate on the pending outcome is absorbed.
+        applyTier(
+                sorted,
+                cancelled,
+                a -> isSpecial(a, SPECIAL_ACTION_TAPESTRY),
+                a -> weaverChainSaga.playTapestry(gameId, eraNumber, a.playerId()));
         applyAnnihilateTier(gameId, eraNumber, roundNumber, sorted, cancelled, events);
         applyCascadeTier(gameId, eraNumber, sorted, cancelled);
+        // Judged after ANNIHILATE: both need a live target, and a Reweave escapes a same-round Annihilate.
+        applyTier(
+                sorted,
+                cancelled,
+                a -> isSpecial(a, SPECIAL_ACTION_REWEAVE),
+                a -> weaverChainSaga.playReweave(
+                        gameId, eraNumber, a.playerId(), a.targetEventId(), a.targetOutcomeId()));
+        var acceptedThreads = resolveAcceptedThreads(gameId, eraNumber, sorted, cancelled);
 
         var corruptTargets = resolveCorruptTargets(sorted, cancelled);
         var amplifyMultipliers = resolveAmplifyMultipliers(sorted, eligibleActionByPlayer, cancelled);
@@ -175,6 +198,12 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             effectsByEvent
                     .computeIfAbsent(correlated.targetEventId(), _ -> new ArrayList<>())
                     .add(mimicEffect(correlated, rallyDeclaredOutcomes));
+        }
+        for (var thread : acceptedThreads) {
+            events.find(thread.targetEventId())
+                    .ifPresent(_ -> effectsByEvent
+                            .computeIfAbsent(thread.targetEventId(), _ -> new ArrayList<>())
+                            .add(threadEffect(thread, rallyDeclaredOutcomes)));
         }
         for (var a : sorted) {
             if (!isLiveShifter(a, cancelled)) {
@@ -359,6 +388,21 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 apply.accept(a);
             }
         }
+    }
+
+    /**
+     * Nothing reads or changes current-era weights before Round 1 replays, so this still lands on declaration-time
+     * weights while letting a Round 1 NULLIFY naming the declarer skip it instead of reversing it.
+     */
+    private void applyMomentumBonus(BufferedAction a, ReplayEvents events) {
+        events.find(a.targetEventId())
+                .ifPresent(futureEvent -> futureEvents.append(
+                        a.targetEventId(),
+                        futureEvent.applyShift(
+                                new ProbabilityShift.Push(a.targetOutcomeId()),
+                                rules.momentumBonus(),
+                                rules.probabilityFloor(),
+                                rules.probabilityCeiling())));
     }
 
     private void applySeal(BufferedAction a, ReplayEvents events) {
@@ -561,10 +605,34 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                         magnitude));
     }
 
+    /** Every live THREAD the Weaver chain saga accepted; each one's shift joins the simultaneous tier. */
+    private List<BufferedAction> resolveAcceptedThreads(
+            UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
+        var accepted = new ArrayList<BufferedAction>();
+        for (var a : sorted) {
+            if (isSpecial(a, SPECIAL_ACTION_THREAD)
+                    && !cancelled.contains(a.envelopeEventId())
+                    && weaverChainSaga.playThread(
+                            gameId, eraNumber, a.playerId(), a.targetEventId(), a.targetOutcomeId())) {
+                accepted.add(a);
+            }
+        }
+        return accepted;
+    }
+
+    /** An accepted THREAD's configured favorable shift, a direct transfer to its named outcome that Rally boosts. */
+    private RoundEffect threadEffect(BufferedAction thread, Set<UUID> rallyDeclaredOutcomes) {
+        int magnitude = rallyAdjustedMagnitude(
+                rallyDeclaredOutcomes, ShiftKind.PUSH, thread.targetOutcomeId(), rules.threadShift());
+        return new RoundEffect(
+                thread.envelopeEventId(),
+                new SimultaneousShift(new ProbabilityShift.Push(thread.targetOutcomeId()), magnitude));
+    }
+
     /**
      * Every still-live (not {@code NULLIFY}-cancelled) {@code RALLY} entry's declared outcome — a set membership
      * check, not a per-declaration multiplier stack, so two Activists declaring the same outcome still boost a
-     * matching transfer only once. Only ever non-empty for round 1: {@code CardPlayedAndResolutionKafkaConsumer}
+     * matching transfer only once. Only ever non-empty for round 1: {@code RoundResolutionGameEventHandler}
      * buffers a {@code RALLY} declaration into
      * round 1's own buffer unconditionally, so it can never appear in any other round's {@code sorted} list.
      */

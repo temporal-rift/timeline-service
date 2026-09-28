@@ -21,7 +21,6 @@ import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.Spe
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EraEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.GameEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.ResolutionStartedPayload;
-import io.github.temporalrift.timeline.application.port.in.ApplyMomentumBonusUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
@@ -58,8 +57,6 @@ class RoundResolutionGameEventHandler {
             new GameEventIngestion.Spec("EraEnded", "futureevent.era-ended", 1);
     private static final GameEventIngestion.Spec GAME_ENDED_SPEC =
             new GameEventIngestion.Spec("GameEnded", "futureevent.game-ended", 1);
-    private static final GameEventIngestion.Spec WEAVER_SAGA_SPECIAL_SPEC =
-            new GameEventIngestion.Spec("SpecialActionPlayed", "weaverchain.saga-special", 1);
     private static final GameEventIngestion.Spec WEAVER_SAGA_GAME_ENDED_SPEC =
             new GameEventIngestion.Spec("GameEnded", "weaverchain.game-ended", 1);
 
@@ -87,7 +84,10 @@ class RoundResolutionGameEventHandler {
             SpecialAction.ANNIHILATE,
             SpecialAction.CORRUPT,
             SpecialAction.MIMIC,
-            SpecialAction.CASCADE);
+            SpecialAction.CASCADE,
+            SpecialAction.THREAD,
+            SpecialAction.TAPESTRY,
+            SpecialAction.REWEAVE);
 
     // Only these CardPlayed types ever consult grade in resolution —
     // an unrecognized/missing wire grade must not block buffering every other known card type too.
@@ -103,7 +103,6 @@ class RoundResolutionGameEventHandler {
     private final ReplayRoundActionsUseCase replayRoundActions;
     private final ResolveEraUseCase resolveEra;
     private final PlayParadoxResolutionCardUseCase playParadoxResolutionCard;
-    private final ApplyMomentumBonusUseCase applyMomentumBonus;
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final ScanEntitlementPort scanEntitlements;
     private final CascadeCarryForwardPort cascadeCarryForward;
@@ -116,7 +115,6 @@ class RoundResolutionGameEventHandler {
             ReplayRoundActionsUseCase replayRoundActions,
             ResolveEraUseCase resolveEra,
             PlayParadoxResolutionCardUseCase playParadoxResolutionCard,
-            ApplyMomentumBonusUseCase applyMomentumBonus,
             WeaverChainSagaUseCase weaverChainSaga,
             ScanEntitlementPort scanEntitlements,
             CascadeCarryForwardPort cascadeCarryForward,
@@ -127,7 +125,6 @@ class RoundResolutionGameEventHandler {
         this.replayRoundActions = replayRoundActions;
         this.resolveEra = resolveEra;
         this.playParadoxResolutionCard = playParadoxResolutionCard;
-        this.applyMomentumBonus = applyMomentumBonus;
         this.weaverChainSaga = weaverChainSaga;
         this.scanEntitlements = scanEntitlements;
         this.cascadeCarryForward = cascadeCarryForward;
@@ -204,17 +201,11 @@ class RoundResolutionGameEventHandler {
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), ActivistDeclarationRecordedPayload.class);
                     // Handled in this same consumer group, not a standalone one: a lagging separate group could
-                    // let this era's Round 1 ActionRoundClosed replay run before a RALLY declaration is
-                    // durably buffered, or before a MOMENTUM bonus is applied.
-                    if (payload.mode() == ActivistDeclarationMode.MOMENTUM) {
-                        applyMomentumBonus.apply(payload.targetEventId(), payload.targetOutcomeId());
-                    } else if (payload.mode() == ActivistDeclarationMode.RALLY) {
-                        // Buffered into round 1's own buffer, alongside that round's CardPlayed/
-                        // SpecialActionPlayed entries — ReplayRoundActionsCommandHandler consults it as a
-                        // Round 1 magnitude modifier, never applies it as an action of its own. A same-round
-                        // NULLIFY may cancel it under the same generic "nearest still-live action" rule that
-                        // already governs SEAL/ANNIHILATE/CORRUPT/MIMIC — no special exclusion, consistent
-                        // with this engine's existing NULLIFY semantics.
+                    // let this era's Round 1 ActionRoundClosed replay run before the declaration is durably
+                    // buffered. The declaration is the declarer's Round 1 special action, so a Round 1 NULLIFY
+                    // naming them cancels it like any other action.
+                    if (payload.mode() == ActivistDeclarationMode.RALLY
+                            || payload.mode() == ActivistDeclarationMode.MOMENTUM) {
                         buffer.save(payload.gameId(), payload.eraNumber(), 1, toBufferedAction(payload, envelope));
                     }
                 });
@@ -232,13 +223,6 @@ class RoundResolutionGameEventHandler {
                     // behind too. Idempotent: harmless on redelivery.
                     scanEntitlements.deleteByGame(payload.gameId());
                     cascadeCarryForward.deleteByGame(payload.gameId());
-                });
-        GameEventIngestion.accept(message, WEAVER_SAGA_SPECIAL_SPEC, processedEvents, skipMetrics)
-                .ifPresent(envelope -> {
-                    var payload = GameEventPayloads.read(
-                            objectMapper, message.getPayload(), SpecialActionPlayedPayload.class);
-                    requireEnvelope(payload);
-                    handleWeaverSpecial(payload);
                 });
         GameEventIngestion.accept(message, WEAVER_SAGA_GAME_ENDED_SPEC, processedEvents, skipMetrics)
                 .ifPresent(envelope -> {
@@ -262,30 +246,6 @@ class RoundResolutionGameEventHandler {
         }
         if (payload.roundNumber() < 1) {
             throw new IllegalArgumentException("roundNumber must be positive, was " + payload.roundNumber());
-        }
-    }
-
-    private void handleWeaverSpecial(SpecialActionPlayedPayload payload) {
-        switch (payload.specialAction()) {
-            case THREAD ->
-                weaverChainSaga.playThread(
-                        payload.gameId(),
-                        payload.eraNumber(),
-                        payload.playerId(),
-                        payload.targetEventId(),
-                        payload.targetOutcomeId());
-            case TAPESTRY -> weaverChainSaga.playTapestry(payload.gameId(), payload.eraNumber(), payload.playerId());
-            case REWEAVE ->
-                weaverChainSaga.playReweave(
-                        payload.gameId(),
-                        payload.eraNumber(),
-                        payload.playerId(),
-                        payload.targetEventId(),
-                        payload.targetOutcomeId());
-            default -> {
-                // SEAL/ANNIHILATE/CORRUPT/MIMIC replay through the round buffer; every other special stays
-                // a same-slice no-op at this consumer.
-            }
         }
     }
 
@@ -331,7 +291,7 @@ class RoundResolutionGameEventHandler {
         return new BufferedAction(
                 ActionKind.SPECIAL_ACTION_PLAYED,
                 null,
-                ActivistDeclarationMode.RALLY.name(),
+                payload.mode().name(),
                 payload.playerId(),
                 null,
                 payload.targetEventId(),
