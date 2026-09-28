@@ -107,10 +107,20 @@ class GameEventsTestPublisher {
 
     void specialActionPlayed(
             UUID gameId, int eraNumber, UUID targetEventId, String specialAction, UUID targetOutcomeId) {
+        specialActionPlayed(gameId, eraNumber, 1, targetEventId, specialAction, targetOutcomeId);
+    }
+
+    void specialActionPlayed(
+            UUID gameId,
+            int eraNumber,
+            int roundNumber,
+            UUID targetEventId,
+            String specialAction,
+            UUID targetOutcomeId) {
         var payload = new HashMap<String, Object>();
         payload.put("gameId", gameId);
         payload.put("eraNumber", eraNumber);
-        payload.put("roundNumber", 1);
+        payload.put("roundNumber", roundNumber);
         payload.put("playerId", UUID.randomUUID());
         payload.put("faction", factionFor(specialAction));
         payload.put("specialAction", specialAction);
@@ -151,10 +161,22 @@ class GameEventsTestPublisher {
             String grade,
             UUID sourceOutcomeId,
             UUID targetOutcomeId) {
+        cardPlayedInRound(gameId, eraNumber, 1, targetEventId, cardType, grade, sourceOutcomeId, targetOutcomeId);
+    }
+
+    void cardPlayedInRound(
+            UUID gameId,
+            int eraNumber,
+            int roundNumber,
+            UUID targetEventId,
+            String cardType,
+            String grade,
+            UUID sourceOutcomeId,
+            UUID targetOutcomeId) {
         var payload = new HashMap<String, Object>();
         payload.put("gameId", gameId);
         payload.put("eraNumber", eraNumber);
-        payload.put("roundNumber", 1);
+        payload.put("roundNumber", roundNumber);
         payload.put("playerId", UUID.randomUUID());
         payload.put("cardInstanceId", UUID.randomUUID());
         payload.put("cardType", cardType);

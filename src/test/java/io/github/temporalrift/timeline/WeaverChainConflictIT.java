@@ -59,9 +59,10 @@ class WeaverChainConflictIT {
         drawEra(gameId, 3, weaver, event, predicted, 50, survivor, 50, UUID.randomUUID(), 0);
 
         weaverSpecial(gameId, 3, 1, weaver, "THREAD", event, predicted);
-        awaitCount(gameId, CHAIN_LINK_THREADED, 3);
-        publisher.specialActionPlayed(gameId, 3, event, "ANNIHILATE", predicted);
         publisher.actionRoundClosed(gameId, 3, 1);
+        awaitCount(gameId, CHAIN_LINK_THREADED, 3);
+        publisher.specialActionPlayed(gameId, 3, 2, event, "ANNIHILATE", predicted);
+        publisher.actionRoundClosed(gameId, 3, 2);
         publisher.resolutionStarted(gameId, 3, UUID.randomUUID());
         awaitParadox(gameId, "CHAIN_CONFLICT");
         publisher.paradoxResolutionCardPlayed(gameId, 3, weaver, "STABILIZE", event, predicted);
@@ -88,17 +89,20 @@ class WeaverChainConflictIT {
         var rethreaded = UUID.randomUUID();
         drawEra(gameId, 3, weaver, event, predicted, 50, rethreaded, 50, UUID.randomUUID(), 0);
 
-        weaverSpecial(gameId, 3, 1, weaver, "TAPESTRY", null, null);
-        awaitCount(gameId, CHAIN_PROTECTION_ARMED, 1);
         weaverSpecial(gameId, 3, 1, weaver, "THREAD", event, predicted);
-        awaitCount(gameId, CHAIN_LINK_THREADED, 3);
-        publisher.specialActionPlayed(gameId, 3, event, "ANNIHILATE", predicted);
         publisher.actionRoundClosed(gameId, 3, 1);
+        awaitCount(gameId, CHAIN_LINK_THREADED, 3);
+        // Submitted after the Annihilate, yet armed before it: Tapestry resolves in an earlier tier.
+        publisher.specialActionPlayed(gameId, 3, 2, event, "ANNIHILATE", predicted);
+        weaverSpecial(gameId, 3, 2, weaver, "TAPESTRY", null, null);
+        publisher.actionRoundClosed(gameId, 3, 2);
+        awaitCount(gameId, CHAIN_PROTECTION_ARMED, 1);
         awaitCount(gameId, CHAIN_PROTECTION_CONSUMED, 1);
         awaitCount(gameId, CHAIN_LINK_INVALIDATED, 1);
         assertThat(payloadsOf(gameId, CHAIN_LINK_ADDED)).hasSize(2);
 
-        weaverSpecial(gameId, 3, 2, weaver, "THREAD", event, rethreaded);
+        weaverSpecial(gameId, 3, 3, weaver, "THREAD", event, rethreaded);
+        publisher.actionRoundClosed(gameId, 3, 3);
         awaitCount(gameId, CHAIN_LINK_THREADED, 4);
         publisher.resolutionStarted(gameId, 3, UUID.randomUUID());
 
@@ -123,10 +127,11 @@ class WeaverChainConflictIT {
         drawEra(gameId, 1, weaver, event, predicted, 50, rival, 31, third, 19);
 
         weaverSpecial(gameId, 1, 1, weaver, "THREAD", event, predicted);
+        publisher.actionRoundClosed(gameId, 1, 1);
         awaitCount(gameId, CHAIN_LINK_THREADED, 1);
         // Collide ties the Thread-lifted prediction with its rival above the third outcome: a Dead Heat.
-        publisher.cardPlayed(gameId, 1, event, "COLLIDE", predicted, rival);
-        publisher.actionRoundClosed(gameId, 1, 1);
+        publisher.cardPlayedInRound(gameId, 1, 2, event, "COLLIDE", "II", predicted, rival);
+        publisher.actionRoundClosed(gameId, 1, 2);
         publisher.resolutionStarted(gameId, 1, UUID.randomUUID());
         awaitParadox(gameId, "DEAD_HEAT");
         awaitCount(gameId, PARADOX_CASCADED, 1);
@@ -138,6 +143,7 @@ class WeaverChainConflictIT {
         publisher.eraStarted(gameId, 2, List.of(weaver));
         publisher.threeOutcomeEventDrawn(gameId, 2, event, "CASCADED", predicted, 42, rival, 42, third, 16);
         weaverSpecial(gameId, 2, 1, weaver, "THREAD", event, predicted);
+        publisher.actionRoundClosed(gameId, 2, 1);
 
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(payloadsOf(gameId, CHAIN_LINK_THREADED))
@@ -159,7 +165,8 @@ class WeaverChainConflictIT {
             publisher.specialActionPlayed(gameId, era, event, "ANNIHILATE", second);
             publisher.specialActionPlayed(gameId, era, event, "ANNIHILATE", third);
             publisher.actionRoundClosed(gameId, era, 1);
-            weaverSpecial(gameId, era, 1, weaver, "THREAD", event, winner);
+            weaverSpecial(gameId, era, 2, weaver, "THREAD", event, winner);
+            publisher.actionRoundClosed(gameId, era, 2);
             awaitCount(gameId, CHAIN_LINK_THREADED, era);
             publisher.resolutionStarted(gameId, era, UUID.randomUUID());
             awaitWinner(gameId, event, winner);

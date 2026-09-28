@@ -72,7 +72,6 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     private static final String ERA_ENDED_CONSUMER = "futureevent.era-ended";
     private static final String GAME_ENDED_EVENT_TYPE = "GameEnded";
     private static final String GAME_ENDED_CONSUMER = "futureevent.game-ended";
-    private static final String WEAVER_SAGA_SPECIAL_CONSUMER = "weaverchain.saga-special";
     private static final String WEAVER_SAGA_GAME_ENDED_CONSUMER = "weaverchain.game-ended";
     private static final int ERA_NUMBER = 2;
     private static final int ROUND_NUMBER = 3;
@@ -828,54 +827,28 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         then(cascadeCarryForward).should(never()).deleteByGame(any());
     }
 
-    @Test
-    @DisplayName("THREAD — routed to the Weaver chain saga, never buffered for replay")
-    void handle_thread_delegatesToWeaverChainSaga() {
+    @ParameterizedTest
+    @EnumSource(
+            value = SpecialAction.class,
+            names = {"THREAD", "TAPESTRY", "REWEAVE"})
+    @DisplayName("Weaver special — buffered for round replay, never dispatched to the saga on consumption")
+    void handle_weaverSpecial_buffersForReplay(SpecialAction specialAction) {
         var eventId = UUID.randomUUID();
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
-        var payload = specialActionPlayed(SpecialAction.THREAD, targetEventId, targetOutcomeId, null);
+        var payload = specialActionPlayed(specialAction, targetEventId, targetOutcomeId, null);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
-        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
 
-        then(weaverChainSaga)
-                .should()
-                .playThread(payload.gameId(), ERA_NUMBER, payload.playerId(), targetEventId, targetOutcomeId);
-        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
-    }
-
-    @Test
-    @DisplayName("TAPESTRY — routed to the Weaver chain saga, never buffered for replay")
-    void handle_tapestry_delegatesToWeaverChainSaga() {
-        var eventId = UUID.randomUUID();
-        var payload = specialActionPlayed(SpecialAction.TAPESTRY, null, null, null);
-        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
-        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
-
-        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
-
-        then(weaverChainSaga).should().playTapestry(payload.gameId(), ERA_NUMBER, payload.playerId());
-        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
-    }
-
-    @Test
-    @DisplayName("REWEAVE — routed to the Weaver chain saga, never buffered for replay")
-    void handle_reweave_delegatesToWeaverChainSaga() {
-        var eventId = UUID.randomUUID();
-        var targetEventId = UUID.randomUUID();
-        var targetOutcomeId = UUID.randomUUID();
-        var payload = specialActionPlayed(SpecialAction.REWEAVE, targetEventId, targetOutcomeId, null);
-        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
-        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
-
-        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
-
-        then(weaverChainSaga)
-                .should()
-                .playReweave(payload.gameId(), ERA_NUMBER, payload.playerId(), targetEventId, targetOutcomeId);
-        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
+        var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
+        then(buffer).should().save(eq(payload.gameId()), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
+        var action = actionCaptor.getValue();
+        assertThat(action.specialAction()).isEqualTo(specialAction.name());
+        assertThat(action.playerId()).isEqualTo(payload.playerId());
+        assertThat(action.targetEventId()).isEqualTo(targetEventId);
+        assertThat(action.targetOutcomeId()).isEqualTo(targetOutcomeId);
+        then(weaverChainSaga).shouldHaveNoInteractions();
     }
 
     @Test
@@ -912,7 +885,6 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         payload.put("targetOutcomeId", null);
         payload.put("targetPlayerId", targetPlayerId);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
-        given(processedEvents.claim(eventId, WEAVER_SAGA_SPECIAL_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
 

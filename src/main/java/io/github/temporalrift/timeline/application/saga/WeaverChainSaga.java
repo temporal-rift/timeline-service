@@ -25,10 +25,8 @@ import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
-import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
-import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
@@ -72,7 +70,6 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     private final WeaverChainSagaRepository sagas;
     private final FutureEventRepository futureEvents;
     private final FutureEventEraIndexPort eraIndex;
-    private final ProbabilityRulesPort probabilityRules;
     private final TimelineEventPublisher publisher;
     private final Clock clock;
 
@@ -81,44 +78,44 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             WeaverChainSagaRepository sagas,
             FutureEventRepository futureEvents,
             FutureEventEraIndexPort eraIndex,
-            ProbabilityRulesPort probabilityRules,
             TimelineEventPublisher publisher,
             Clock clock) {
         this.chains = chains;
         this.sagas = sagas;
         this.futureEvents = futureEvents;
         this.eraIndex = eraIndex;
-        this.probabilityRules = probabilityRules;
         this.publisher = publisher;
         this.clock = clock;
     }
 
     @Override
     @Transactional
-    public void playThread(UUID gameId, int eraNumber, UUID playerId, UUID eventId, UUID outcomeId) {
+    public boolean playThread(UUID gameId, int eraNumber, UUID playerId, UUID eventId, UUID outcomeId) {
         var coordinate = new OutcomeCoordinate(eventId, outcomeId);
-        sagas.findCompletedByGameAndPlayer(gameId, playerId)
-                .ifPresentOrElse(
-                        completed -> publishThreadRejected(
-                                gameId,
-                                eraNumber,
-                                completed.chainId(),
-                                playerId,
-                                coordinate,
-                                REASON_CHAIN_ALREADY_COMPLETED),
-                        () -> playThreadWithoutCompletedChain(gameId, eraNumber, playerId, coordinate));
+        return sagas.findCompletedByGameAndPlayer(gameId, playerId)
+                .map(completed -> {
+                    publishThreadRejected(
+                            gameId,
+                            eraNumber,
+                            completed.chainId(),
+                            playerId,
+                            coordinate,
+                            REASON_CHAIN_ALREADY_COMPLETED);
+                    return false;
+                })
+                .orElseGet(() -> playThreadWithoutCompletedChain(gameId, eraNumber, playerId, coordinate));
     }
 
-    private void playThreadWithoutCompletedChain(
+    private boolean playThreadWithoutCompletedChain(
             UUID gameId, int eraNumber, UUID playerId, OutcomeCoordinate coordinate) {
         var saga = sagas.findOpenByGameAndPlayer(gameId, playerId).orElse(null);
         var rejectionReason = validateThread(gameId, eraNumber, coordinate);
         if (rejectionReason != null) {
             publishThreadRejected(
                     gameId, eraNumber, saga == null ? null : saga.chainId(), playerId, coordinate, rejectionReason);
-            return;
+            return false;
         }
-        acceptThread(gameId, eraNumber, playerId, saga, coordinate);
+        return acceptThread(gameId, eraNumber, playerId, saga, coordinate);
     }
 
     /** The causal-link validity rules THREAD alone can check before touching the chain aggregate. */
@@ -133,7 +130,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     }
 
     /** Opens (or starts) a pending link once THREAD's coordinate is known valid. */
-    private void acceptThread(
+    private boolean acceptThread(
             UUID gameId, int eraNumber, UUID playerId, WeaverChainSagaState saga, OutcomeCoordinate coordinate) {
         UUID chainId = saga == null ? UUID.randomUUID() : saga.chainId();
         if (saga == null) {
@@ -148,9 +145,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         } catch (InvalidChainLinkException e) {
             var reason = threadRejectionReason(chain, e);
             publishThreadRejected(gameId, eraNumber, chainId, playerId, coordinate, reason);
-            return;
+            return false;
         }
-        applyThreadReward(coordinate.eventId(), coordinate.outcomeId());
         publisher.publish(TimelineEventEnvelope.create(
                 chainId,
                 AGGREGATE_TYPE,
@@ -159,6 +155,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 new ChainLinkThreadedEvent(
                         gameId, eraNumber, chainId, playerId, coordinate.eventId(), coordinate.outcomeId()),
                 clock));
+        return true;
     }
 
     private static String threadRejectionReason(WeaverChain chain, InvalidChainLinkException rejection) {
@@ -166,20 +163,6 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             return REASON_LINK_ERA_NOT_SUCCESSIVE;
         }
         return chain.pendingLink() != null ? REASON_ALREADY_PENDING : REASON_ALREADY_LINKED;
-    }
-
-    /**
-     * The accepted link's reward: the configured favourable shift applied to the named outcome, through the
-     * same transfer path (bounds, redistribution, sealed-outcome handling) as any other direct transfer.
-     */
-    private void applyThreadReward(UUID eventId, UUID outcomeId) {
-        var futureEvent = futureEvents.findById(eventId);
-        var result = futureEvent.applyShift(
-                new ProbabilityShift.Push(outcomeId),
-                probabilityRules.threadShift(),
-                probabilityRules.probabilityFloor(),
-                probabilityRules.probabilityCeiling());
-        futureEvents.append(eventId, result);
     }
 
     /**
