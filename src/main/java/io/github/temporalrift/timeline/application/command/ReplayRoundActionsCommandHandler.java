@@ -133,19 +133,21 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
     @Override
     public void replay(UUID gameId, int eraNumber, int roundNumber) {
+        var events = new ReplayEvents();
         var actions = buffer.findByRound(gameId, eraNumber, roundNumber);
         if (!actions.isEmpty()) {
-            replayActions(gameId, eraNumber, roundNumber, actions);
+            replayActions(gameId, eraNumber, roundNumber, actions, events);
         }
         // Every round close republishes current state for entitlements earned in an earlier round, including a
         // round with no buffered actions at all.
-        publishScanReveals(gameId, eraNumber, roundNumber);
+        publishScanReveals(gameId, eraNumber, roundNumber, events);
         if (roundNumber == 2) {
-            publishBandedProbability(gameId, eraNumber);
+            publishBandedProbability(gameId, eraNumber, events);
         }
     }
 
-    private void replayActions(UUID gameId, int eraNumber, int roundNumber, List<BufferedAction> actions) {
+    private void replayActions(
+            UUID gameId, int eraNumber, int roundNumber, List<BufferedAction> actions, ReplayEvents events) {
         var submitted = actions.stream()
                 .sorted(Comparator.comparing(BufferedAction::occurredAt).thenComparing(BufferedAction::envelopeEventId))
                 .toList();
@@ -153,11 +155,11 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var selectedActionByPlayer = indexActionsByPlayer(submitted);
 
         var cancelled = computeNullifyCancellations(submitted, selectedActionByPlayer);
-        var sorted = excludeStalledTargets(submitted, cancelled);
+        var sorted = excludeStalledTargets(submitted, cancelled, events);
         var eligibleActionByPlayer = indexActionsByPlayer(sorted);
 
-        applyTier(sorted, cancelled, a -> isSpecial(a, "SEAL"), this::applySeal);
-        applyAnnihilateTier(gameId, eraNumber, roundNumber, sorted, cancelled);
+        applyTier(sorted, cancelled, a -> isSpecial(a, "SEAL"), a -> applySeal(a, events));
+        applyAnnihilateTier(gameId, eraNumber, roundNumber, sorted, cancelled, events);
         applyCascadeTier(gameId, eraNumber, sorted, cancelled);
 
         var corruptTargets = resolveCorruptTargets(sorted, cancelled);
@@ -169,7 +171,6 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var rallyDeclaredOutcomes = roundNumber == 1 ? resolveRallyDeclaredOutcomes(sorted, cancelled) : Set.<UUID>of();
 
         var effectsByEvent = new LinkedHashMap<UUID, List<RoundEffect>>();
-        var loadedEvents = new HashMap<UUID, Optional<FutureEvent>>();
         for (var correlated : mimicCorrelations.values()) {
             effectsByEvent
                     .computeIfAbsent(correlated.targetEventId(), _ -> new ArrayList<>())
@@ -179,8 +180,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             if (!isLiveShifter(a, cancelled)) {
                 continue;
             }
-            loadedEvents
-                    .computeIfAbsent(a.targetEventId(), this::tryFindEvent)
+            events.find(a.targetEventId())
                     .ifPresent(futureEvent -> effectsByEvent
                             .computeIfAbsent(a.targetEventId(), _ -> new ArrayList<>())
                             .add(shifterEffect(
@@ -194,31 +194,32 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
         var touchedEventIds = new LinkedHashSet<UUID>();
         var tookEffectEnvelopeIds = new HashSet<UUID>();
-        effectsByEvent.forEach((eventId, effects) -> loadedEvents
-                .computeIfAbsent(eventId, this::tryFindEvent)
-                .ifPresent(futureEvent -> {
-                    applySimultaneously(futureEvent, effects, tookEffectEnvelopeIds);
-                    touchedEventIds.add(eventId);
-                }));
+        effectsByEvent.forEach((eventId, effects) -> events.find(eventId).ifPresent(futureEvent -> {
+            applySimultaneously(futureEvent, effects, tookEffectEnvelopeIds);
+            touchedEventIds.add(eventId);
+        }));
 
-        applyTier(sorted, cancelled, a -> isCardType(a, CARD_TYPE_STALL), this::applyStall);
+        applyTier(sorted, cancelled, a -> isCardType(a, CARD_TYPE_STALL), a -> applyStall(a, events));
 
         publishCorruptConfirmations(
                 gameId, eraNumber, roundNumber, byEnvelopeId, corruptTargets, tookEffectEnvelopeIds);
 
-        validateSums(gameId, eraNumber, touchedEventIds);
+        validateSums(gameId, eraNumber, touchedEventIds, events);
 
-        resolveScanEntitlements(gameId, eraNumber, sorted, cancelled);
+        resolveScanEntitlements(gameId, eraNumber, sorted, cancelled, events);
     }
 
     /** Capture the earlier-round lock before any tier runs; a same-round Stall must not suppress its peers. */
-    private List<BufferedAction> excludeStalledTargets(List<BufferedAction> submitted, Set<UUID> cancelled) {
+    private List<BufferedAction> excludeStalledTargets(
+            List<BufferedAction> submitted, Set<UUID> cancelled, ReplayEvents events) {
         var stalledEventIds = submitted.stream()
                 .filter(a -> !cancelled.contains(a.envelopeEventId()) && !isCardType(a, "SCAN"))
+                // Every effective Mimic copies a live transfer on the same event, which supplies its lookup.
+                .filter(a -> !isSpecial(a, SPECIAL_ACTION_MIMIC))
                 .map(BufferedAction::targetEventId)
                 .filter(Objects::nonNull)
                 .distinct()
-                .map(this::tryFindEvent)
+                .map(events::find)
                 .flatMap(Optional::stream)
                 .filter(FutureEvent::stalled)
                 .map(FutureEvent::id)
@@ -234,13 +235,14 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * and every modifier first means a same-round-nullified SCAN, or a target stalled/resolved by this same
      * round's final effective actions, records nothing.
      */
-    private void resolveScanEntitlements(UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
+    private void resolveScanEntitlements(
+            UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled, ReplayEvents events) {
         for (var scan : sorted) {
             if (!isCardType(scan, "SCAN") || cancelled.contains(scan.envelopeEventId())) {
                 continue;
             }
             for (var eventId : effectiveScanTargets(scan)) {
-                tryFindEvent(eventId).ifPresent(futureEvent -> {
+                events.find(eventId).ifPresent(futureEvent -> {
                     if (!futureEvent.stalled() && !futureEvent.resolved()) {
                         scanEntitlements.upsert(gameId, eraNumber, scan.playerId(), eventId);
                     }
@@ -263,9 +265,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * round keeps revealing. An entitlement whose event has since stalled or resolved is silently skipped rather
      * than deleted — {@code EraEnded}/{@code GameEnded} own cleanup.
      */
-    private void publishScanReveals(UUID gameId, int eraNumber, int roundNumber) {
+    private void publishScanReveals(UUID gameId, int eraNumber, int roundNumber, ReplayEvents events) {
         for (var entitlement : scanEntitlements.findByGameAndEra(gameId, eraNumber)) {
-            tryFindEvent(entitlement.eventId()).ifPresent(futureEvent -> {
+            events.find(entitlement.eventId()).ifPresent(futureEvent -> {
                 if (futureEvent.stalled() || futureEvent.resolved()) {
                     return;
                 }
@@ -298,9 +300,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * (non-stalled, non-resolved) {@code FutureEvent}'s outcomes from the fully-applied replayed state, superseding
      * the game-owned preview for the same game and era.
      */
-    private void publishBandedProbability(UUID gameId, int eraNumber) {
+    private void publishBandedProbability(UUID gameId, int eraNumber, ReplayEvents events) {
         var eventStates = eraIndex.findByGameIdAndEraNumber(gameId, eraNumber).stream()
-                .map(indexed -> futureEvents.findById(indexed.eventId()))
+                .map(indexed -> events.get(indexed.eventId()))
                 .filter(futureEvent -> !futureEvent.stalled() && !futureEvent.resolved())
                 .map(this::toBandedEventState)
                 .toList();
@@ -359,8 +361,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         }
     }
 
-    private void applySeal(BufferedAction a) {
-        tryFindEvent(a.targetEventId())
+    private void applySeal(BufferedAction a, ReplayEvents events) {
+        events.find(a.targetEventId())
                 .ifPresent(futureEvent ->
                         futureEvents.append(a.targetEventId(), futureEvent.sealOutcome(a.targetOutcomeId())));
     }
@@ -374,7 +376,12 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * already-annihilated outcome stays a silent no-op.
      */
     private void applyAnnihilateTier(
-            UUID gameId, int eraNumber, int roundNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
+            UUID gameId,
+            int eraNumber,
+            int roundNumber,
+            List<BufferedAction> sorted,
+            Set<UUID> cancelled,
+            ReplayEvents events) {
         var live = sorted.stream()
                 .filter(a -> isSpecial(a, SPECIAL_ACTION_ANNIHILATE) && !cancelled.contains(a.envelopeEventId()))
                 .toList();
@@ -382,7 +389,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         var resolutions = new ArrayList<AnnihilationResolved>();
         for (var a : live) {
             if (a.targetOutcomeId() != null) {
-                tryFindEvent(a.targetEventId())
+                events.find(a.targetEventId())
                         .ifPresent(futureEvent -> resolutions.add(new AnnihilationResolved(
                                 gameId,
                                 eraNumber,
@@ -400,7 +407,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         // for them by this service.
         var rejectedKeys = new HashSet<AnnihilationKey>();
         for (var a : live) {
-            tryFindEvent(a.targetEventId()).ifPresent(futureEvent -> {
+            events.find(a.targetEventId()).ifPresent(futureEvent -> {
                 if (futureEvent.isAnnihilated(a.targetOutcomeId())) {
                     return;
                 }
@@ -480,29 +487,6 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                         a.targetOutcomeId(),
                         "MISSING_COORDINATE"),
                 clock));
-    }
-
-    /**
-     * A buffered action's target must reference an id this service actually drew ({@code FutureEventDrafted}
-     * recorded) — {@code findById} throws otherwise. Rather than let that abort the whole round's transaction,
-     * skip only the action that named the unresolvable id and keep replaying the rest of the round. Mutations
-     * of the returned aggregate (seal/annihilate/shift/stall) each throw {@code FutureEventAlreadyResolvedException}
-     * for a resolved event — an already-resolved target is skipped
-     * here the same way, rather than letting a stale or redelivered round replay (e.g. a duplicated
-     * {@code ActionRoundClosed} arriving after that era's own resolution) crash the whole transaction.
-     */
-    private Optional<FutureEvent> tryFindEvent(UUID eventId) {
-        try {
-            var futureEvent = futureEvents.findById(eventId);
-            if (futureEvent.resolved()) {
-                log.warn("Buffered action targets already-resolved FutureEvent {} — skipping its effect", eventId);
-                return Optional.empty();
-            }
-            return Optional.of(futureEvent);
-        } catch (FutureEventNotFoundException _) {
-            log.warn("Buffered action targets unknown FutureEvent {} — skipping its effect", eventId);
-            return Optional.empty();
-        }
     }
 
     /**
@@ -782,8 +766,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         };
     }
 
-    private void applyStall(BufferedAction a) {
-        tryFindEvent(a.targetEventId()).ifPresent(futureEvent -> {
+    private void applyStall(BufferedAction a, ReplayEvents events) {
+        events.find(a.targetEventId()).ifPresent(futureEvent -> {
             if (futureEvent.resolved() || futureEvent.stalled()) {
                 return;
             }
@@ -817,9 +801,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         });
     }
 
-    private void validateSums(UUID gameId, int eraNumber, Set<UUID> touchedEventIds) {
+    private void validateSums(UUID gameId, int eraNumber, Set<UUID> touchedEventIds, ReplayEvents events) {
         for (var eventId : touchedEventIds) {
-            var futureEvent = futureEvents.findById(eventId);
+            var futureEvent = events.get(eventId);
             int sum = futureEvent.outcomes().stream()
                     .mapToInt(Outcome::probability)
                     .sum();
@@ -841,6 +825,38 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
     private static boolean isCardType(BufferedAction a, String cardType) {
         return a.kind() == ActionKind.CARD_PLAYED && cardType.equals(a.cardType());
+    }
+
+    /** Mutable aggregates and unavailable targets belong to one replay; later rounds load persisted state afresh. */
+    private final class ReplayEvents {
+        private final Map<UUID, FutureEvent> loadedEvents = new HashMap<>();
+        private final Set<UUID> unavailableEventIds = new HashSet<>();
+
+        private FutureEvent get(UUID eventId) {
+            if (!loadedEvents.containsKey(eventId) && unavailableEventIds.contains(eventId)) {
+                throw new FutureEventNotFoundException(eventId);
+            }
+            return loadedEvents.computeIfAbsent(eventId, futureEvents::findById);
+        }
+
+        private Optional<FutureEvent> find(UUID eventId) {
+            if (unavailableEventIds.contains(eventId)) {
+                return Optional.empty();
+            }
+            try {
+                var futureEvent = get(eventId);
+                if (futureEvent.resolved()) {
+                    unavailableEventIds.add(eventId);
+                    log.warn("Buffered action targets already-resolved FutureEvent {} — skipping its effect", eventId);
+                    return Optional.empty();
+                }
+                return Optional.of(futureEvent);
+            } catch (FutureEventNotFoundException _) {
+                unavailableEventIds.add(eventId);
+                log.warn("Buffered action targets unknown FutureEvent {} — skipping its effect", eventId);
+                return Optional.empty();
+            }
+        }
     }
 
     private enum ShiftKind {
