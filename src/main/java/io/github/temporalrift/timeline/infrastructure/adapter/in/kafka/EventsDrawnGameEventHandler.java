@@ -7,7 +7,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,7 +35,7 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
  * CASCADE pending for this era re-applies its erasure on top of that clearing.
  */
 @Component
-class EventsDrawnKafkaConsumer {
+class EventsDrawnGameEventHandler {
 
     private static final String CONSUMER = "futureevent.events-drawn";
     private static final GameEventIngestion.Spec SPEC = new GameEventIngestion.Spec("EventsDrawn", CONSUMER, 1);
@@ -52,7 +51,7 @@ class EventsDrawnKafkaConsumer {
     private final GameEventSkipMetrics skipMetrics;
     private final Clock clock;
 
-    EventsDrawnKafkaConsumer(
+    EventsDrawnGameEventHandler(
             ProcessedEventPort processedEvents,
             FutureEventRepository futureEvents,
             FutureEventEraIndexPort eraIndex,
@@ -73,7 +72,6 @@ class EventsDrawnKafkaConsumer {
         this.clock = clock;
     }
 
-    @KafkaListener(topics = "game.events", groupId = "timeline-service." + CONSUMER)
     @Transactional(propagation = REQUIRES_NEW)
     public void handle(Message<Object> message) {
         GameEventIngestion.accept(message, SPEC, processedEvents, skipMetrics).ifPresent(envelope -> {

@@ -220,7 +220,8 @@ class GameEventsTestPublisher {
      * buffered, not applied immediately — a round's effects only take place once its {@code ActionRoundClosed}
      * triggers the priority-ordered replay.
      */
-    void actionRoundClosed(UUID gameId, int eraNumber, int roundNumber) {
+    UUID actionRoundClosed(UUID gameId, int eraNumber, int roundNumber) {
+        var eventId = UUID.randomUUID();
         publish(
                 gameId,
                 "ActionRoundClosed",
@@ -234,7 +235,9 @@ class GameEventsTestPublisher {
                         "closedReason",
                         "ALL_SUBMITTED",
                         "totalActions",
-                        1));
+                        1),
+                eventId);
+        return eventId;
     }
 
     void resolutionStarted(UUID gameId, int eraNumber, UUID eventId) {

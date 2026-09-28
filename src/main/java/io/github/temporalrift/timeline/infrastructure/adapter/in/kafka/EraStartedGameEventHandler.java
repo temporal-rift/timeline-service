@@ -5,7 +5,6 @@ import static org.springframework.transaction.annotation.Propagation.REQUIRES_NE
 import java.util.List;
 import java.util.UUID;
 
-import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,7 +19,7 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
  * persisting the player roster that lets a resolution phase determine when all players have submitted.
  */
 @Component
-class EraStartedKafkaConsumer {
+class EraStartedGameEventHandler {
 
     private static final String CONSUMER = "futureevent.era-started";
     private static final GameEventIngestion.Spec SPEC = new GameEventIngestion.Spec("EraStarted", CONSUMER, 1);
@@ -30,7 +29,7 @@ class EraStartedKafkaConsumer {
     private final ObjectMapper objectMapper;
     private final GameEventSkipMetrics skipMetrics;
 
-    EraStartedKafkaConsumer(
+    EraStartedGameEventHandler(
             ProcessedEventPort processedEvents,
             EraPlayersPort eraPlayers,
             ObjectMapper objectMapper,
@@ -41,7 +40,6 @@ class EraStartedKafkaConsumer {
         this.skipMetrics = skipMetrics;
     }
 
-    @KafkaListener(topics = "game.events", groupId = "timeline-service." + CONSUMER)
     @Transactional(propagation = REQUIRES_NEW)
     public void handle(Message<Object> message) {
         GameEventIngestion.accept(message, SPEC, processedEvents, skipMetrics).ifPresent(envelope -> {

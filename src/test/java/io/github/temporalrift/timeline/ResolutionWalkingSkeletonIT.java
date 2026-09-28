@@ -61,11 +61,6 @@ class ResolutionWalkingSkeletonIT {
 
         publishEraStarted(gameId, eraNumber);
         publishEventsDrawn(gameId, eraNumber, futureEventId, winnerOutcomeId, 70, loserOutcomeId, 30);
-        // EventsDrawnKafkaConsumer and ResolutionStartedKafkaConsumer are independent consumer groups on
-        // the same topic — nothing orders their processing relative to each other. In production the
-        // gap between EventsDrawn and ResolutionStarted is naturally large (three action rounds), so this
-        // synchronization only matters here, where the test publishes both back-to-back.
-        awaitFutureEventIndexed(gameId, eraNumber);
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))
@@ -150,7 +145,7 @@ class ResolutionWalkingSkeletonIT {
         // Configured push-shift is +20 (application.yml game.rules.probability.push-shift): 35 + 20 = 55,
         // enough to overtake the initial 50-probability winner. CardPlayed only buffers the shift —
         // ActionRoundClosed triggers the priority-ordered replay that actually applies it — then
-        // ResolutionStarted follows with no synchronization in between: CardPlayedAndResolutionKafkaConsumer
+        // ResolutionStarted follows with no synchronization in between: RoundResolutionGameEventHandler
         // handles all three event types on the same consumer group/partition, so Kafka's in-partition
         // ordering alone (not a test-only wait) guarantees the shift is applied before resolution runs.
         publishCardPlayed(gameId, eraNumber, futureEventId, "PUSH", null, pushedOutcomeId);

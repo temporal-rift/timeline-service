@@ -49,7 +49,7 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
 @ExtendWith(MockitoExtension.class)
-class EventsDrawnKafkaConsumerTest {
+class EventsDrawnGameEventHandlerTest {
 
     private static final String EVENT_TYPE = "EventsDrawn";
     private static final String CONSUMER = "futureevent.events-drawn";
@@ -80,11 +80,11 @@ class EventsDrawnKafkaConsumerTest {
 
     private final Clock clock = Clock.fixed(Instant.parse("2026-08-09T00:00:00Z"), ZoneOffset.UTC);
 
-    private EventsDrawnKafkaConsumer consumer;
+    private EventsDrawnGameEventHandler consumer;
 
     @BeforeEach
     void setUp() {
-        consumer = new EventsDrawnKafkaConsumer(
+        consumer = new EventsDrawnGameEventHandler(
                 processedEvents,
                 futureEvents,
                 eraIndex,

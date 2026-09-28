@@ -15,9 +15,8 @@ public interface EraPlayersPort {
 
     /**
      * @return {@link Optional#empty()} when no roster has been persisted for this era yet — distinct from a
-     *     persisted but empty one, which a resolution phase must treat as final rather than as still pending
-     *     ({@code EraStartedKafkaConsumer} consumes {@code game.events} in its own consumer group, so nothing
-     *     orders it against the group that opens resolution phases)
+     *     persisted but empty one, which a resolution phase must treat as final rather than as still pending.
+     *     A missing or dead-lettered initialization record must not be mistaken for an empty roster.
      */
     Optional<List<UUID>> find(UUID gameId, int eraNumber);
 
