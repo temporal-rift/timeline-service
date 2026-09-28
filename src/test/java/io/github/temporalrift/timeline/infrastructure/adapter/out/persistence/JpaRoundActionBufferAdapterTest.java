@@ -76,6 +76,7 @@ class JpaRoundActionBufferAdapterTest {
                 null,
                 UUID.randomUUID(),
                 null,
+                null,
                 CardGrade.II,
                 Instant.now(),
                 UUID.randomUUID());
@@ -103,16 +104,50 @@ class JpaRoundActionBufferAdapterTest {
                 null,
                 null,
                 null,
+                null,
                 CardGrade.I,
                 Instant.now(),
                 UUID.randomUUID());
-        var entity = new RoundActionBufferEntity(new RoundKey(gameId, 1, 1), action, "[\"" + eventId + "\", null]");
+        var entity =
+                new RoundActionBufferEntity(new RoundKey(gameId, 1, 1), action, "[\"" + eventId + "\", null]", null);
         jpaRepository.save(entity);
 
         var found = buffer.findByRound(gameId, 1, 1);
 
         assertThat(found).hasSize(1);
         assertThat(found.getFirst().targetEventIds()).containsExactly(eventId);
+    }
+
+    @Test
+    void save_gradeTwoNullify_roundTripsBothPlayerTargets() {
+        var gameId = UUID.randomUUID();
+        var targets = List.of(UUID.randomUUID(), UUID.randomUUID());
+        var action = nullifyAction(targets);
+
+        buffer.save(gameId, 1, 1, action);
+        jpaRepository.flush();
+
+        var found = buffer.findByRound(gameId, 1, 1);
+        assertThat(found).containsExactly(action);
+        assertThat(found.getFirst().targetPlayerIds()).containsExactlyElementsOf(targets);
+    }
+
+    private static BufferedAction nullifyAction(List<UUID> targets) {
+        return new BufferedAction(
+                ActionKind.CARD_PLAYED,
+                "NULLIFY",
+                null,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                targets,
+                CardGrade.II,
+                Instant.parse("2026-09-28T00:00:00Z"),
+                UUID.randomUUID());
     }
 
     private static BufferedAction scanAction(List<UUID> targetEventIds) {
@@ -124,6 +159,7 @@ class JpaRoundActionBufferAdapterTest {
                 UUID.randomUUID(),
                 null,
                 targetEventIds,
+                null,
                 null,
                 null,
                 null,

@@ -318,6 +318,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                 payload.sourceOutcomeId(),
                 payload.targetOutcomeId(),
                 payload.targetPlayerId(),
+                payload.targetPlayerIds(),
                 grade,
                 envelope.occurredAt(),
                 envelope.eventId());
@@ -336,6 +337,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                 payload.targetOutcomeId(),
                 payload.targetPlayerId(),
                 null,
+                null,
                 envelope.occurredAt(),
                 envelope.eventId());
     }
@@ -352,6 +354,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                 null,
                 null,
                 payload.targetOutcomeId(),
+                null,
                 null,
                 null,
                 envelope.occurredAt(),

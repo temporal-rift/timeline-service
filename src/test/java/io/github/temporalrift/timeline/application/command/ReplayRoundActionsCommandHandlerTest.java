@@ -204,7 +204,7 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
-                        playerTargetedCard(nullifyingPlayer, "NULLIFY", pushingPlayer, null, at(0))));
+                        nullifyTargets(nullifyingPlayer, List.of(pushingPlayer), at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -222,7 +222,7 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         specialActionBy(sealingPlayer, "SEAL", eventId, target, at(1)),
-                        playerTargetedCard(nullifyingPlayer, "NULLIFY", sealingPlayer, null, at(0))));
+                        nullifyTargets(nullifyingPlayer, List.of(sealingPlayer), at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -246,9 +246,9 @@ class ReplayRoundActionsCommandHandlerTest {
         given(rules.probabilityCeiling()).willReturn(90);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
-                        playerTargetedCard(playerB, "NULLIFY", playerA, null, at(2)),
+                        nullifyTargets(playerB, List.of(playerA), at(2)),
                         cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
-                        playerTargetedCard(playerA, "NULLIFY", playerB, null, at(0))));
+                        nullifyTargets(playerA, List.of(playerB), at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -263,9 +263,80 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         cardPlayedBy(pushingPlayer, "PUSH", eventId, null, outcomeId, at(0)),
-                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", pushingPlayer, null, at(1)),
-                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", pushingPlayer, null, at(2))));
+                        nullifyTargets(UUID.randomUUID(), List.of(pushingPlayer), at(1)),
+                        nullifyTargets(UUID.randomUUID(), List.of(pushingPlayer), at(2))));
 
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).findById(any());
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_gradeTwoNullifyCancelsBothScansBeforeCreatingIntel() {
+        var firstScanner = UUID.randomUUID();
+        var secondScanner = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        scanListMode(firstScanner, CardGrade.I, List.of(eventId), at(2)),
+                        nullifyTargets(UUID.randomUUID(), List.of(firstScanner, secondScanner), at(0)),
+                        scanListMode(secondScanner, CardGrade.I, List.of(eventId), at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).findById(any());
+        then(scanEntitlements).should(never()).upsert(any(), anyInt(), any(), any());
+    }
+
+    @Test
+    void replay_gradeTwoNullifyWithNonSubmittingTargetCancelsTheSubmittedAction() {
+        var pushingPlayer = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", UUID.randomUUID(), null, UUID.randomUUID(), at(0)),
+                        nullifyTargets(UUID.randomUUID(), List.of(UUID.randomUUID(), pushingPlayer), at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(futureEvents).should(never()).findById(any());
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_nullifyNamingOnlyNonSubmittingPlayers_isACleanNoOp() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        nullifyTargets(UUID.randomUUID(), List.of(UUID.randomUUID(), UUID.randomUUID()), at(0)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(60);
+    }
+
+    @Test
+    void replay_mutualNullifyStillCancelsTheGradeTwoPlaysOtherTarget() {
+        var playerA = UUID.randomUUID();
+        var playerB = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var firstNullify = nullifyTargets(playerA, List.of(playerB, pushingPlayer), at(1));
+        var secondNullify = nullifyTargets(playerB, List.of(playerA), at(0));
+        var push = cardPlayedBy(pushingPlayer, "PUSH", UUID.randomUUID(), null, UUID.randomUUID(), at(2));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(firstNullify, push, secondNullify), List.of(secondNullify, push, firstNullify));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         then(futureEvents).should(never()).findById(any());
@@ -381,7 +452,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 .willReturn(List.of(
                         cardPlayedBy(cancelledPlayer, "PUSH", eventId, null, a, at(0)),
                         playerTargetedCard(UUID.randomUUID(), "AMPLIFY", cancelledPlayer, null, at(1)),
-                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", cancelledPlayer, null, at(2)),
+                        nullifyTargets(UUID.randomUUID(), List.of(cancelledPlayer), at(2)),
                         cardPlayedBy(livePlayer, "PUSH", eventId, null, a, at(3))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
@@ -675,7 +746,7 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
-                        playerTargetedCard(nullifyingPlayer, "NULLIFY", pushingPlayer, null, at(1)),
+                        nullifyTargets(nullifyingPlayer, List.of(pushingPlayer), at(1)),
                         mimic(mimicPlayer, eventId, a, at(2))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
@@ -1105,7 +1176,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 .willReturn(List.of(
                         cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
                         playerTargetedCard(redirectingPlayer, "REDIRECT", pushingPlayer, null, at(1)),
-                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", redirectingPlayer, null, at(2))));
+                        nullifyTargets(UUID.randomUUID(), List.of(redirectingPlayer), at(2))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -1333,7 +1404,7 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, 1))
                 .willReturn(List.of(
                         cardPlayedBy(stallingPlayer, "STALL", eventId, null, null, at(0)),
-                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", stallingPlayer, null, at(1))));
+                        nullifyTargets(UUID.randomUUID(), List.of(stallingPlayer), at(1))));
         handler.replay(GAME_ID, ERA_NUMBER, 1);
         assertThat(futureEvent.stalled()).isFalse();
         then(futureEvents).shouldHaveNoInteractions();
@@ -1529,7 +1600,7 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         specialActionBy(annihilatingPlayer, "ANNIHILATE", eventId, target, at(1)),
-                        playerTargetedCard(nullifyingPlayer, "NULLIFY", annihilatingPlayer, null, at(0))));
+                        nullifyTargets(nullifyingPlayer, List.of(annihilatingPlayer), at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -1733,7 +1804,7 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         specialActionBy(annihilatingPlayer, "ANNIHILATE", eventId, UUID.randomUUID(), at(1)),
-                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", annihilatingPlayer, null, at(0))));
+                        nullifyTargets(UUID.randomUUID(), List.of(annihilatingPlayer), at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -1826,7 +1897,7 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         specialActionBy(cascadingPlayer, "CASCADE", eventId, target, at(1)),
-                        playerTargetedCard(nullifyingPlayer, "NULLIFY", cascadingPlayer, null, at(0))));
+                        nullifyTargets(nullifyingPlayer, List.of(cascadingPlayer), at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -2063,7 +2134,7 @@ class ReplayRoundActionsCommandHandlerTest {
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(
                         scanListMode(scanningPlayer, CardGrade.I, List.of(eventId), at(0)),
-                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", scanningPlayer, null, at(1))));
+                        nullifyTargets(UUID.randomUUID(), List.of(scanningPlayer), at(1))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -2268,6 +2339,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 null,
                 null,
                 null,
+                null,
                 CardGrade.II,
                 occurredAt,
                 UUID.randomUUID());
@@ -2303,6 +2375,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 sourceOutcomeId,
                 targetOutcomeId,
                 null,
+                null,
                 grade,
                 occurredAt,
                 UUID.randomUUID());
@@ -2326,6 +2399,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 null,
                 targetOutcomeId,
                 targetPlayerId,
+                null,
                 grade,
                 occurredAt,
                 UUID.randomUUID());
@@ -2334,6 +2408,24 @@ class ReplayRoundActionsCommandHandlerTest {
     private static BufferedAction playerTargetedCard(
             UUID playerId, String cardType, UUID targetPlayerId, UUID targetOutcomeId, Instant occurredAt) {
         return playerTargetedCard(playerId, cardType, CardGrade.II, targetPlayerId, targetOutcomeId, occurredAt);
+    }
+
+    private static BufferedAction nullifyTargets(UUID playerId, List<UUID> targets, Instant occurredAt) {
+        return new BufferedAction(
+                ActionKind.CARD_PLAYED,
+                "NULLIFY",
+                null,
+                playerId,
+                UUID.randomUUID(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                targets,
+                targets.size() == 1 ? CardGrade.I : CardGrade.II,
+                occurredAt,
+                UUID.randomUUID());
     }
 
     private static BufferedAction specialAction(
@@ -2355,6 +2447,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 targetOutcomeId,
                 null,
                 null,
+                null,
                 occurredAt,
                 UUID.randomUUID());
     }
@@ -2372,6 +2465,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 null,
                 targetPlayerId,
                 null,
+                null,
                 occurredAt,
                 UUID.randomUUID());
     }
@@ -2387,6 +2481,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 null,
                 null,
                 targetOutcomeId,
+                null,
                 null,
                 null,
                 occurredAt,
@@ -2406,6 +2501,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 targetOutcomeId,
                 null,
                 null,
+                null,
                 occurredAt,
                 UUID.randomUUID());
     }
@@ -2420,6 +2516,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 UUID.randomUUID(),
                 null,
                 targetEventIds,
+                null,
                 null,
                 null,
                 null,

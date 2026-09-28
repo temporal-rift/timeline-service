@@ -56,6 +56,10 @@ class RoundActionBufferEntity extends RoundScopedEntity {
     @Column(name = "target_player_id")
     private UUID targetPlayerId;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "target_player_ids")
+    private String targetPlayerIds;
+
     @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt;
 
@@ -66,7 +70,7 @@ class RoundActionBufferEntity extends RoundScopedEntity {
         // for JPA
     }
 
-    RoundActionBufferEntity(RoundKey key, BufferedAction action, String targetEventIds) {
+    RoundActionBufferEntity(RoundKey key, BufferedAction action, String targetEventIds, String targetPlayerIds) {
         super(key);
         this.kind = action.kind();
         this.cardType = action.cardType();
@@ -79,6 +83,7 @@ class RoundActionBufferEntity extends RoundScopedEntity {
         this.sourceOutcomeId = action.sourceOutcomeId();
         this.targetOutcomeId = action.targetOutcomeId();
         this.targetPlayerId = action.targetPlayerId();
+        this.targetPlayerIds = targetPlayerIds;
         this.occurredAt = action.occurredAt();
         this.envelopeEventId = action.envelopeEventId();
     }
@@ -125,6 +130,10 @@ class RoundActionBufferEntity extends RoundScopedEntity {
 
     UUID targetPlayerId() {
         return targetPlayerId;
+    }
+
+    String targetPlayerIds() {
+        return targetPlayerIds;
     }
 
     Instant occurredAt() {
