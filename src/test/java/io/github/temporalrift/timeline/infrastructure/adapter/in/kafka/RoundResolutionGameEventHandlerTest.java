@@ -53,7 +53,7 @@ import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.Buf
 import io.github.temporalrift.timeline.domain.port.out.ScanEntitlementPort;
 
 @ExtendWith(MockitoExtension.class)
-class CardPlayedAndResolutionKafkaConsumerTest {
+class RoundResolutionGameEventHandlerTest {
 
     private static final String CARD_PLAYED_EVENT_TYPE = "CardPlayed";
     private static final String CARD_PLAYED_CONSUMER = "futureevent.card-played";
@@ -110,7 +110,7 @@ class CardPlayedAndResolutionKafkaConsumerTest {
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
 
     @InjectMocks
-    CardPlayedAndResolutionKafkaConsumer consumer;
+    RoundResolutionGameEventHandler consumer;
 
     @Test
     @DisplayName("PUSH — buffered with its source/target outcomes, not applied directly")

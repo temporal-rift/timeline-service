@@ -15,8 +15,7 @@ import org.springframework.test.context.TestPropertySource;
 
 /**
  * End-to-end proof that a resolution phase opening before its era's player roster has been persisted
- * (issue #41: {@code EraStartedKafkaConsumer} consumes {@code game.events} in its own consumer group, unordered
- * against the group that opens phases) neither closes on its first submission nor drops the rest.
+ * because the initialization record is absent neither closes on its first submission nor drops the rest.
  *
  * <p>Runs with a longer resolution timer than the rest of the suite so the assertions are about the
  * all-submitted trigger rather than about racing a 2s timer — that property override is also why this is

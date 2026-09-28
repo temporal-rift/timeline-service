@@ -186,8 +186,7 @@ class ParadoxResolutionSagaImplTest {
 
     @Test
     void openPhase_rosterNotPersistedYet_opensWithAnUnknownRosterRatherThanAnEmptyOne() {
-        // EraStartedKafkaConsumer runs in its own consumer group — nothing orders it against the group that
-        // opens phases, so an absent roster must not read as "nobody left to submit" (issue #41).
+        // Missing or parked era initialization must not read as "nobody left to submit".
         given(rules.paradoxResolutionTimerSeconds()).willReturn(TIMER_SECONDS);
         var pending = List.of(new PendingParadox(
                 UUID.randomUUID(), ParadoxType.IMPOSSIBLE_ERASURE, List.of(UUID.randomUUID()), UUID.randomUUID(), 0));

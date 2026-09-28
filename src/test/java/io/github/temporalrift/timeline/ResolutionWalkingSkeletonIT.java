@@ -61,11 +61,6 @@ class ResolutionWalkingSkeletonIT {
 
         publishEraStarted(gameId, eraNumber);
         publishEventsDrawn(gameId, eraNumber, futureEventId, winnerOutcomeId, 70, loserOutcomeId, 30);
-        // EventsDrawnKafkaConsumer and ResolutionStartedKafkaConsumer are independent consumer groups on
-        // the same topic — nothing orders their processing relative to each other. In production the
-        // gap between EventsDrawn and ResolutionStarted is naturally large (three action rounds), so this
-        // synchronization only matters here, where the test publishes both back-to-back.
-        awaitFutureEventIndexed(gameId, eraNumber);
         publishResolutionStarted(gameId, eraNumber, UUID.randomUUID());
 
         await().atMost(Duration.ofSeconds(30))

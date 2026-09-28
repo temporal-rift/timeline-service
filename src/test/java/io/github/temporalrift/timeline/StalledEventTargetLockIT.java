@@ -4,14 +4,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 
+import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
+import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 
 @TimelineServiceIntegrationTest
@@ -29,6 +35,72 @@ class StalledEventTargetLockIT {
     @Autowired
     CascadeCarryForwardPort cascadeCarryForward;
 
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    EraPlayersPort eraPlayers;
+
+    @Autowired
+    KafkaListenerEndpointRegistry listeners;
+
+    @Test
+    void roundClose_waitsForDraftingTransaction_thenAppliesStall() throws Exception {
+        var gameId = UUID.randomUUID();
+        var eventId = UUID.randomUUID();
+        var players = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        assertThat(listeners.getListenerContainers())
+                .filteredOn(container ->
+                        List.of(container.getContainerProperties().getTopics()).contains("game.events"))
+                .extracting(container -> container.getContainerProperties().getGroupId())
+                .containsExactlyInAnyOrder(
+                        "timeline-service.futureevent.game-events", "timeline-service.membership.faction-assigned");
+
+        // Block drafting inside its transaction without adding a second Spring test context or mocking persistence.
+        try (var blocker = Objects.requireNonNull(jdbcTemplate.getDataSource()).getConnection()) {
+            blocker.setAutoCommit(false);
+            try (var statement = blocker.createStatement()) {
+                statement.execute("LOCK TABLE future_event_era_index IN ACCESS EXCLUSIVE MODE");
+            }
+            try {
+                publisher.eraStarted(gameId, 1, players);
+                publisher.threeOutcomeEventDrawn(
+                        gameId, 1, eventId, UUID.randomUUID(), 50, UUID.randomUUID(), 30, UUID.randomUUID(), 20);
+                await().atMost(Duration.ofSeconds(30))
+                        .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(
+                                        "SELECT COUNT(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' "
+                                                + "AND query LIKE '%future_event_era_index%'",
+                                        Integer.class))
+                                .isPositive());
+                assertThat(eraPlayers.find(gameId, 1)).contains(players);
+                publisher.cardPlayed(gameId, 1, eventId, "STALL", null, null);
+                var roundClosedId = publisher.actionRoundClosed(gameId, 1, 1);
+
+                await().during(Duration.ofSeconds(2))
+                        .atMost(Duration.ofSeconds(5))
+                        .untilAsserted(() -> {
+                            assertThat(jdbcTemplate.queryForObject(
+                                            "SELECT COUNT(*) FROM processed_events WHERE consumer = ? AND event_id = ?",
+                                            Integer.class,
+                                            "futureevent.action-round-closed",
+                                            roundClosedId))
+                                    .isZero();
+                            assertThat(jdbcTemplate.queryForObject(
+                                            "SELECT COUNT(*) FROM round_action_buffer WHERE game_id = ?",
+                                            Integer.class,
+                                            gameId))
+                                    .isZero();
+                        });
+            } finally {
+                blocker.rollback();
+            }
+        }
+        await().atMost(Duration.ofSeconds(30))
+                .ignoreException(FutureEventNotFoundException.class)
+                .untilAsserted(() ->
+                        assertThat(futureEvents.findById(eventId).stalled()).isTrue());
+    }
+
     @Test
     void laterRoundAnnihilateAndCascade_onPersistedStalledEvent_produceNoEffectsOrConfirmations() {
         var gameId = UUID.randomUUID();
@@ -39,6 +111,7 @@ class StalledEventTargetLockIT {
         publisher.cardPlayed(gameId, 1, eventId, "STALL", null, null);
         publisher.actionRoundClosed(gameId, 1, 1);
         await().atMost(Duration.ofSeconds(30))
+                .ignoreException(FutureEventNotFoundException.class)
                 .untilAsserted(() ->
                         assertThat(futureEvents.findById(eventId).stalled()).isTrue());
 

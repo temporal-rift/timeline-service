@@ -5,7 +5,6 @@ import static org.springframework.transaction.annotation.Propagation.REQUIRES_NE
 import java.util.Objects;
 import java.util.Set;
 
-import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,27 +35,13 @@ import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.Buf
 import io.github.temporalrift.timeline.domain.port.out.ScanEntitlementPort;
 
 /**
- * Consumes {@code CardPlayed}, {@code SpecialActionPlayed}, {@code ActionRoundClosed}, {@code ResolutionStarted},
- * {@code ParadoxResolutionCardPlayed}, {@code ActivistDeclarationRecorded}, {@code EraEnded}, and {@code GameEnded}
- * from {@code game.events} in one Kafka consumer group: a single {@code @KafkaListener} reading one assigned
- * partition processes records strictly in the order {@code game-service} produced them, so a round's buffered
- * actions (including a Rally declaration) are durably recorded before that round's {@code ActionRoundClosed}
- * replays them in priority-tier order, every era's replayed effects are applied before that era's
- * {@code ResolutionStarted} is handled, a resolution-phase submission is applied in the order it was played, and
- * SCAN entitlement cleanup on {@code EraEnded}/{@code GameEnded} can never run ahead of the round replay that
- * created the entitlements it must remove. Splitting these into independent consumer groups would let a lagging
- * one be overtaken by a faster one — reachable in practice (consumer rebalance, GC pause, retry), not just
- * theoretical — silently losing or misordering an effect.
- *
- * <p>The Weaver chain saga's {@code THREAD}/{@code TAPESTRY}/{@code REWEAVE} plays and {@code GameEnded}
- * termination join this same group for the same reason: a THREAD must validate against durably resolved
- * outcomes, never overtake the resolution that records them, and a game-end must not close chains ahead of
- * the last round's replay.
+ * Buffers actions and applies round, resolution, chain, and cleanup records in one record transaction.
+ * Invoked synchronously by {@link TimelineGameEventsKafkaConsumer} after preceding era initialization
+ * and drafting transactions have committed.
  */
 @Component
-class CardPlayedAndResolutionKafkaConsumer {
+class RoundResolutionGameEventHandler {
 
-    private static final String GROUP_ID = "timeline-service.futureevent.card-played-and-resolution";
     private static final GameEventIngestion.Spec CARD_PLAYED_SPEC =
             new GameEventIngestion.Spec("CardPlayed", "futureevent.card-played", 1);
     private static final GameEventIngestion.Spec SPECIAL_ACTION_PLAYED_SPEC =
@@ -125,7 +110,7 @@ class CardPlayedAndResolutionKafkaConsumer {
     private final ObjectMapper objectMapper;
     private final GameEventSkipMetrics skipMetrics;
 
-    CardPlayedAndResolutionKafkaConsumer(
+    RoundResolutionGameEventHandler(
             ProcessedEventPort processedEvents,
             RoundActionBufferPort buffer,
             ReplayRoundActionsUseCase replayRoundActions,
@@ -150,7 +135,6 @@ class CardPlayedAndResolutionKafkaConsumer {
         this.skipMetrics = skipMetrics;
     }
 
-    @KafkaListener(topics = "game.events", groupId = GROUP_ID)
     @Transactional(propagation = REQUIRES_NEW)
     public void handle(Message<Object> message) {
         GameEventIngestion.accept(message, CARD_PLAYED_SPEC, processedEvents, skipMetrics)
@@ -162,7 +146,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                     var grade = toGrade(payload.grade());
                     if (GRADE_BEARING_CARD_TYPES.contains(payload.cardType()) && grade == null) {
                         // Unrecognized/missing grade on a grade-bearing type — safely skip only this card, not every
-                        // other known cardType, which never consults grade at all (graded-magnitude-resolution).
+                        // other known cardType, which never consults grade at all.
                         return;
                     }
                     buffer.save(
@@ -203,7 +187,7 @@ class CardPlayedAndResolutionKafkaConsumer {
                     var grade = toGrade(payload.grade());
                     if (GRADE_BEARING_PARADOX_CARD_TYPES.contains(payload.cardType()) && grade == null) {
                         // Unrecognized/missing grade on PUSH/SUPPRESS only — STABILIZE/DETONATE never consult
-                        // grade and must still be recorded (graded-magnitude-resolution).
+                        // grade and must still be recorded.
                         return;
                     }
                     playParadoxResolutionCard.play(

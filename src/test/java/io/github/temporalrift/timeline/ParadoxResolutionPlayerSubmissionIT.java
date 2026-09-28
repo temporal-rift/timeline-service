@@ -268,13 +268,6 @@ class ParadoxResolutionPlayerSubmissionIT {
                         .isEqualTo(expectedCount));
     }
 
-    /**
-     * {@code EraStartedKafkaConsumer} runs in its own consumer group, independent of the group that processes
-     * {@code ANNIHILATE}/{@code ResolutionStarted} — nothing otherwise guarantees the player roster is persisted
-     * before a resolution phase opens and reads it. A phase that opens without it stays open for its timer
-     * instead ({@code ParadoxResolutionMissingRosterIT}); these tests want the all-submitted trigger, so they
-     * wait for the roster first.
-     */
     private void awaitEraPlayersIndexed(UUID gameId, int eraNumber, int expectedPlayerCount) {
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(jdbcTemplate.queryForObject(

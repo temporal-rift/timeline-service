@@ -25,7 +25,7 @@ import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 @ExtendWith(MockitoExtension.class)
-class EraStartedKafkaConsumerTest {
+class EraStartedGameEventHandlerTest {
 
     private static final String EVENT_TYPE = "EraStarted";
     private static final String CONSUMER = "futureevent.era-started";
@@ -43,7 +43,7 @@ class EraStartedKafkaConsumerTest {
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
 
     @InjectMocks
-    EraStartedKafkaConsumer consumer;
+    EraStartedGameEventHandler consumer;
 
     @Test
     @DisplayName("matching event type — claims the eventId")
