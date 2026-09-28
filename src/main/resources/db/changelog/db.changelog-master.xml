@@ -5,6 +5,12 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
             https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
 
+    <!--
+        Pre-production changelog: changesets are edited in place until the first durable deployment,
+        and are forward-only after it.
+        See https://github.com/temporal-rift/timeline-service/issues/170.
+    -->
+
     <!-- Infrastructure: event store + consumer idempotency + outbox -->
     <include file="db/changelog/infrastructure/001-create-event-store.xml"/>
     <include file="db/changelog/infrastructure/002-create-processed-events.xml"/>
@@ -16,7 +22,6 @@
     <!-- WeaverChain: aggregate snapshots -->
     <include file="db/changelog/weaverchain/001-create-aggregate-snapshot.xml"/>
     <include file="db/changelog/weaverchain/002-create-weaver-chain-saga.xml"/>
-    <include file="db/changelog/weaverchain/003-add-reweave-used-era.xml"/>
 
     <!-- Era: player roster carried by EraStarted -->
     <include file="db/changelog/era/001-create-era-players.xml"/>
@@ -36,7 +41,6 @@
 
     <!-- Round-scoped buffer of not-yet-applied actions, replayed in priority order at ActionRoundClosed -->
     <include file="db/changelog/roundeffect/006-create-round-action-buffer.xml"/>
-    <include file="db/changelog/roundeffect/007-add-round-action-buffer-target-event-ids.xml"/>
 
     <!-- ParadoxResolutionSaga state -->
     <include file="db/changelog/paradoxresolution/001-create-paradox-resolution-phase.xml"/>
