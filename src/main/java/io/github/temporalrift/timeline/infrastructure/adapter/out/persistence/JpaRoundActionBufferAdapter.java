@@ -51,7 +51,7 @@ class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
                 e.sourceOutcomeId(),
                 e.targetOutcomeId(),
                 e.targetPlayerId(),
-                playerTargets(e),
+                toTargetIds(e.targetPlayerIds()),
                 e.grade(),
                 e.occurredAt(),
                 e.envelopeEventId());
@@ -65,13 +65,5 @@ class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
         return Arrays.stream(objectMapper.readValue(json, UUID[].class))
                 .filter(Objects::nonNull)
                 .toList();
-    }
-
-    private List<UUID> playerTargets(RoundActionBufferEntity entity) {
-        var targets = toTargetIds(entity.targetPlayerIds());
-        if (targets.isEmpty() && "NULLIFY".equals(entity.cardType()) && entity.targetPlayerId() != null) {
-            return List.of(entity.targetPlayerId());
-        }
-        return targets;
     }
 }
