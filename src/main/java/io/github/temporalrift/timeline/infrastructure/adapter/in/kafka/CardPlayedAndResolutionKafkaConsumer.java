@@ -22,7 +22,6 @@ import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.Spe
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EraEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.GameEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.ResolutionStartedPayload;
-import io.github.temporalrift.timeline.application.port.in.ApplyMomentumBonusUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
@@ -40,7 +39,7 @@ import io.github.temporalrift.timeline.domain.port.out.ScanEntitlementPort;
  * {@code ParadoxResolutionCardPlayed}, {@code ActivistDeclarationRecorded}, {@code EraEnded}, and {@code GameEnded}
  * from {@code game.events} in one Kafka consumer group: a single {@code @KafkaListener} reading one assigned
  * partition processes records strictly in the order {@code game-service} produced them, so a round's buffered
- * actions (including a Rally declaration) are durably recorded before that round's {@code ActionRoundClosed}
+ * actions (including an Activist declaration) are durably recorded before that round's {@code ActionRoundClosed}
  * replays them in priority-tier order, every era's replayed effects are applied before that era's
  * {@code ResolutionStarted} is handled, a resolution-phase submission is applied in the order it was played, and
  * SCAN entitlement cleanup on {@code EraEnded}/{@code GameEnded} can never run ahead of the round replay that
@@ -118,7 +117,6 @@ class CardPlayedAndResolutionKafkaConsumer {
     private final ReplayRoundActionsUseCase replayRoundActions;
     private final ResolveEraUseCase resolveEra;
     private final PlayParadoxResolutionCardUseCase playParadoxResolutionCard;
-    private final ApplyMomentumBonusUseCase applyMomentumBonus;
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final ScanEntitlementPort scanEntitlements;
     private final CascadeCarryForwardPort cascadeCarryForward;
@@ -131,7 +129,6 @@ class CardPlayedAndResolutionKafkaConsumer {
             ReplayRoundActionsUseCase replayRoundActions,
             ResolveEraUseCase resolveEra,
             PlayParadoxResolutionCardUseCase playParadoxResolutionCard,
-            ApplyMomentumBonusUseCase applyMomentumBonus,
             WeaverChainSagaUseCase weaverChainSaga,
             ScanEntitlementPort scanEntitlements,
             CascadeCarryForwardPort cascadeCarryForward,
@@ -142,7 +139,6 @@ class CardPlayedAndResolutionKafkaConsumer {
         this.replayRoundActions = replayRoundActions;
         this.resolveEra = resolveEra;
         this.playParadoxResolutionCard = playParadoxResolutionCard;
-        this.applyMomentumBonus = applyMomentumBonus;
         this.weaverChainSaga = weaverChainSaga;
         this.scanEntitlements = scanEntitlements;
         this.cascadeCarryForward = cascadeCarryForward;
@@ -220,17 +216,11 @@ class CardPlayedAndResolutionKafkaConsumer {
                     var payload = GameEventPayloads.read(
                             objectMapper, message.getPayload(), ActivistDeclarationRecordedPayload.class);
                     // Handled in this same consumer group, not a standalone one: a lagging separate group could
-                    // let this era's Round 1 ActionRoundClosed replay run before a RALLY declaration is
-                    // durably buffered, or before a MOMENTUM bonus is applied.
-                    if (payload.mode() == ActivistDeclarationMode.MOMENTUM) {
-                        applyMomentumBonus.apply(payload.targetEventId(), payload.targetOutcomeId());
-                    } else if (payload.mode() == ActivistDeclarationMode.RALLY) {
-                        // Buffered into round 1's own buffer, alongside that round's CardPlayed/
-                        // SpecialActionPlayed entries — ReplayRoundActionsCommandHandler consults it as a
-                        // Round 1 magnitude modifier, never applies it as an action of its own. A same-round
-                        // NULLIFY may cancel it under the same generic "nearest still-live action" rule that
-                        // already governs SEAL/ANNIHILATE/CORRUPT/MIMIC — no special exclusion, consistent
-                        // with this engine's existing NULLIFY semantics.
+                    // let this era's Round 1 ActionRoundClosed replay run before the declaration is durably
+                    // buffered. The declaration is the declarer's Round 1 special action, so a Round 1 NULLIFY
+                    // naming them cancels it like any other action.
+                    if (payload.mode() == ActivistDeclarationMode.RALLY
+                            || payload.mode() == ActivistDeclarationMode.MOMENTUM) {
                         buffer.save(payload.gameId(), payload.eraNumber(), 1, toBufferedAction(payload, envelope));
                     }
                 });
@@ -347,7 +337,7 @@ class CardPlayedAndResolutionKafkaConsumer {
         return new BufferedAction(
                 ActionKind.SPECIAL_ACTION_PLAYED,
                 null,
-                ActivistDeclarationMode.RALLY.name(),
+                payload.mode().name(),
                 payload.playerId(),
                 null,
                 payload.targetEventId(),

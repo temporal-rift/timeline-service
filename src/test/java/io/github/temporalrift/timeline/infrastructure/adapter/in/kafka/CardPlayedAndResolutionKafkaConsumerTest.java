@@ -20,6 +20,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -40,7 +42,6 @@ import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.Spe
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EraEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.GameEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.ResolutionStartedPayload;
-import io.github.temporalrift.timeline.application.port.in.ApplyMomentumBonusUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
@@ -93,9 +94,6 @@ class CardPlayedAndResolutionKafkaConsumerTest {
 
     @Mock
     PlayParadoxResolutionCardUseCase playParadoxResolutionCard;
-
-    @Mock
-    ApplyMomentumBonusUseCase applyMomentumBonus;
 
     @Mock
     WeaverChainSagaUseCase weaverChainSaga;
@@ -701,29 +699,16 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         then(playParadoxResolutionCard).should(never()).play(any(), anyInt(), any(), any(), any(), any(), any());
     }
 
-    @Test
-    @DisplayName("ActivistDeclarationRecorded MOMENTUM — applies the bonus immediately, nothing buffered")
-    void handle_activistDeclarationMomentum_appliesBonusImmediately() {
+    @ParameterizedTest
+    @EnumSource(
+            value = ActivistDeclarationMode.class,
+            names = {"RALLY", "MOMENTUM"})
+    @DisplayName("ActivistDeclarationRecorded — buffered into round 1 as the declarer's special action")
+    void handle_activistDeclaration_buffersIntoRoundOne(ActivistDeclarationMode mode) {
         var eventId = UUID.randomUUID();
         var targetEventId = UUID.randomUUID();
         var targetOutcomeId = UUID.randomUUID();
-        var payload = activistDeclarationRecorded(ActivistDeclarationMode.MOMENTUM, targetEventId, targetOutcomeId);
-        given(processedEvents.claim(eventId, ACTIVIST_DECLARATION_RECORDED_CONSUMER))
-                .willReturn(true);
-
-        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, ACTIVIST_DECLARATION_RECORDED_EVENT_TYPE, 1));
-
-        then(applyMomentumBonus).should().apply(targetEventId, targetOutcomeId);
-        then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
-    }
-
-    @Test
-    @DisplayName("ActivistDeclarationRecorded RALLY — buffered into round 1, bonus never applied")
-    void handle_activistDeclarationRally_buffersIntoRoundOne() {
-        var eventId = UUID.randomUUID();
-        var targetEventId = UUID.randomUUID();
-        var targetOutcomeId = UUID.randomUUID();
-        var payload = activistDeclarationRecorded(ActivistDeclarationMode.RALLY, targetEventId, targetOutcomeId);
+        var payload = activistDeclarationRecorded(mode, targetEventId, targetOutcomeId);
         given(processedEvents.claim(eventId, ACTIVIST_DECLARATION_RECORDED_CONSUMER))
                 .willReturn(true);
 
@@ -733,10 +718,11 @@ class CardPlayedAndResolutionKafkaConsumerTest {
         then(buffer).should().save(eq(payload.gameId()), eq(ERA_NUMBER), eq(1), actionCaptor.capture());
         var action = actionCaptor.getValue();
         assertThat(action.kind()).isEqualTo(ActionKind.SPECIAL_ACTION_PLAYED);
-        assertThat(action.specialAction()).isEqualTo("RALLY");
+        assertThat(action.specialAction()).isEqualTo(mode.name());
+        assertThat(action.playerId()).isEqualTo(payload.playerId());
         assertThat(action.targetEventId()).isEqualTo(targetEventId);
         assertThat(action.targetOutcomeId()).isEqualTo(targetOutcomeId);
-        then(applyMomentumBonus).should(never()).apply(any(), any());
+        assertThat(action.envelopeEventId()).isEqualTo(eventId);
     }
 
     @Test
@@ -753,7 +739,6 @@ class CardPlayedAndResolutionKafkaConsumerTest {
                 1));
 
         then(buffer).should(never()).save(any(), anyInt(), anyInt(), any());
-        then(applyMomentumBonus).should(never()).apply(any(), any());
     }
 
     @Test
