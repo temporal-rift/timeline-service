@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
@@ -23,6 +24,9 @@ import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -662,6 +666,9 @@ class ReplayRoundActionsCommandHandlerTest {
     void replay_mimicDoesNotCopyANullifiedCard() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
+        var futureEvent =
+                drafted(eventId, outcome(a, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
         var pushingPlayer = UUID.randomUUID();
         var nullifyingPlayer = UUID.randomUUID();
         var mimicPlayer = UUID.randomUUID();
@@ -673,9 +680,7 @@ class ReplayRoundActionsCommandHandlerTest {
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        // The only candidate PUSH was cancelled by NULLIFY, so MIMIC has nothing to copy — proven by the
-        // fact its target FutureEvent is never even looked up.
-        then(futureEvents).should(never()).findById(any());
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
         then(futureEvents).should(never()).append(any(), any());
     }
 
@@ -705,12 +710,17 @@ class ReplayRoundActionsCommandHandlerTest {
 
     @Test
     void replay_mimicWithNoCorrelatedCard_hasNoEffect() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var futureEvent =
+                drafted(eventId, outcome(a, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                .willReturn(List.of(mimic(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), at(0))));
+                .willReturn(List.of(mimic(UUID.randomUUID(), eventId, a, at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        then(futureEvents).should(never()).findById(any());
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
         then(futureEvents).should(never()).append(any(), any());
     }
 
@@ -1250,6 +1260,214 @@ class ReplayRoundActionsCommandHandlerTest {
         assertThat(probabilityOf(futureEvent, c)).isEqualTo(20);
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "PUSH, 2", "SUPPRESS, 2", "SWING, 2", "COLLIDE, 2", "SEAL, 2", "ANNIHILATE, 2", "MIMIC, 2", "CASCADE, 2",
+        "PUSH, 3", "SUPPRESS, 3", "SWING, 3", "COLLIDE, 3", "SEAL, 3", "ANNIHILATE, 3", "MIMIC, 3", "CASCADE, 3"
+    })
+    void replay_eventStalledInEarlierRound_ignoresEveryEffectTier(String effect, int laterRound) {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, laterRound - 1))
+                .willReturn(List.of(cardPlayed("STALL", eventId, null, null, at(0))));
+        handler.replay(GAME_ID, ERA_NUMBER, laterRound - 1);
+        assertThat(futureEvent.stalled()).isTrue();
+        var stalledOutcomes = List.copyOf(futureEvent.outcomes());
+        clearInvocations(futureEvents, publisher);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, laterRound))
+                .willReturn(eventEffects(effect, eventId, b, a, at(1)));
+
+        handler.replay(GAME_ID, ERA_NUMBER, laterRound);
+
+        assertThat(futureEvent.outcomes()).containsExactlyElementsOf(stalledOutcomes);
+        assertThat(futureEvent.collidedPairs()).isEmpty();
+        assertThat(futureEvent.stalled()).isTrue();
+        then(futureEvents).should(never()).append(any(), any());
+        then(weaverChainSaga).shouldHaveNoInteractions();
+        then(cascadeCarryForward).shouldHaveNoInteractions();
+        if (laterRound == 2) {
+            var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+            then(publisher).should().publish(captor.capture());
+            assertThat(captor.getValue().payload())
+                    .isEqualTo(new AdjustedBandsPublished(GAME_ID, ERA_NUMBER, List.of()));
+        } else {
+            then(publisher).shouldHaveNoInteractions();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "PUSH, true", "SUPPRESS, true", "SWING, true", "COLLIDE, true", "SEAL, true", "ANNIHILATE, true", "MIMIC, true",
+                "CASCADE, true",
+        "PUSH, false", "SUPPRESS, false", "SWING, false", "COLLIDE, false", "SEAL, false", "ANNIHILATE, false",
+                "MIMIC, false", "CASCADE, false"
+    })
+    void replay_sameRoundStall_preservesEveryEffectTier(String effect, boolean stallFirst) {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        stubEffectRules(effect);
+        var actions = new ArrayList<>(eventEffects(effect, eventId, b, a, at(stallFirst ? 1 : 0)));
+        actions.add(cardPlayed("STALL", eventId, null, null, at(stallFirst ? 0 : 1)));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(actions);
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertEffectApplied(effect, futureEvent, a);
+        assertThat(futureEvent.stalled()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PUSH", "SUPPRESS", "SWING", "COLLIDE", "SEAL", "ANNIHILATE", "MIMIC", "CASCADE"})
+    void replay_nullifiedStall_allowsEveryEffectTierInLaterRound(String effect) {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var stallingPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(UUID.randomUUID(), 20));
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, 1))
+                .willReturn(List.of(
+                        cardPlayedBy(stallingPlayer, "STALL", eventId, null, null, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "NULLIFY", stallingPlayer, null, at(1))));
+        handler.replay(GAME_ID, ERA_NUMBER, 1);
+        assertThat(futureEvent.stalled()).isFalse();
+        then(futureEvents).shouldHaveNoInteractions();
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        stubEffectRules(effect);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, 3)).willReturn(eventEffects(effect, eventId, b, a, at(2)));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 3);
+
+        assertEffectApplied(effect, futureEvent, a);
+        assertThat(futureEvent.stalled()).isFalse();
+    }
+
+    @Test
+    void replay_stalledShifterWithCorruptAndModifiers_producesNoConfirmation() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var shifterPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(UUID.randomUUID(), 20));
+        futureEvent.markStalled();
+        var before = List.copyOf(futureEvent.outcomes());
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, 3))
+                .willReturn(List.of(
+                        cardPlayedBy(shifterPlayer, "PUSH", eventId, null, a, at(0)),
+                        corrupt(UUID.randomUUID(), shifterPlayer, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", shifterPlayer, null, at(2)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", shifterPlayer, null, at(3)),
+                        mimic(UUID.randomUUID(), eventId, a, at(4))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 3);
+
+        assertThat(futureEvent.outcomes()).containsExactlyElementsOf(before);
+        then(futureEvents).should(never()).append(any(), any());
+        then(publisher).shouldHaveNoInteractions();
+        then(rules).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void replay_mixedStalledAndActiveTargets_appliesOnlyActiveEffects() {
+        var stalledId = UUID.randomUUID();
+        var activeId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var stalled = drafted(stalledId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        stalled.markStalled();
+        var active = drafted(activeId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(stalledId)).willReturn(stalled);
+        given(futureEvents.findById(activeId)).willReturn(active);
+        stubEffectRules("PUSH");
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, 3))
+                .willReturn(List.of(
+                        cardPlayed("PUSH", stalledId, null, a, at(0)),
+                        specialAction("ANNIHILATE", stalledId, a, at(1)),
+                        specialAction("CASCADE", stalledId, a, at(2)),
+                        cardPlayed("PUSH", activeId, null, a, at(3))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 3);
+
+        assertThat(stalled.outcomes()).extracting(Outcome::probability).containsExactly(50, 30, 20);
+        assertThat(stalled.outcomes()).allMatch(o -> !o.annihilated() && !o.sealed());
+        assertEffectApplied("PUSH", active, a);
+        then(futureEvents).should(times(1)).findById(stalledId);
+        then(futureEvents).should(never()).append(eq(stalledId), any());
+        then(publisher).shouldHaveNoInteractions();
+        then(cascadeCarryForward).shouldHaveNoInteractions();
+        then(weaverChainSaga).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void replay_carriedEventWithClearedStall_appliesEffectsInNextEra() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var futureEvent =
+                drafted(eventId, outcome(a, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
+        futureEvent.markStalled();
+        futureEvent.clearStalled();
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        stubEffectRules("PUSH");
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER + 1, 1))
+                .willReturn(List.of(cardPlayed("PUSH", eventId, null, a, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER + 1, 1);
+
+        assertEffectApplied("PUSH", futureEvent, a);
+        assertThat(futureEvent.stalled()).isFalse();
+    }
+
+    private static List<BufferedAction> eventEffects(
+            String effect, UUID eventId, UUID source, UUID target, Instant time) {
+        return switch (effect) {
+            case "PUSH", "SUPPRESS" -> List.of(cardPlayed(effect, eventId, null, target, time));
+            case "SWING", "COLLIDE" -> List.of(cardPlayed(effect, eventId, source, target, time));
+            case "MIMIC" ->
+                List.of(
+                        cardPlayed("PUSH", eventId, null, target, time),
+                        mimic(UUID.randomUUID(), eventId, target, time));
+            default -> List.of(specialAction(effect, eventId, target, time));
+        };
+    }
+
+    private void stubEffectRules(String effect) {
+        switch (effect) {
+            case "PUSH", "MIMIC" -> given(rules.pushShift(CardGrade.II)).willReturn(10);
+            case "SUPPRESS" -> given(rules.suppressShift(CardGrade.II)).willReturn(-10);
+            case "SWING" -> given(rules.swingShift(CardGrade.II)).willReturn(10);
+            default -> {}
+        }
+        if (List.of("PUSH", "SUPPRESS", "SWING", "COLLIDE", "MIMIC").contains(effect)) {
+            given(rules.probabilityFloor()).willReturn(0);
+            given(rules.probabilityCeiling()).willReturn(90);
+        }
+    }
+
+    private void assertEffectApplied(String effect, FutureEvent event, UUID target) {
+        switch (effect) {
+            case "PUSH", "SWING" -> assertThat(probabilityOf(event, target)).isEqualTo(60);
+            case "SUPPRESS", "COLLIDE" ->
+                assertThat(probabilityOf(event, target)).isEqualTo(40);
+            case "MIMIC" -> assertThat(probabilityOf(event, target)).isEqualTo(70);
+            case "SEAL" -> assertThat(event.outcomes().getFirst().sealed()).isTrue();
+            case "ANNIHILATE" -> {
+                assertThat(event.isAnnihilated(target)).isTrue();
+                then(weaverChainSaga).should().annihilateOutcome(GAME_ID, ERA_NUMBER, event.id(), target);
+                assertThat(annihilationResolutions()).hasSize(1);
+            }
+            case "CASCADE" ->
+                then(cascadeCarryForward).should().arm(eq(GAME_ID), eq(ERA_NUMBER), any(), eq(event.id()), eq(target));
+            default -> throw new IllegalArgumentException("Unknown effect: " + effect);
+        }
+    }
+
     @Test
     void replay_stall_marksEventStalled() {
         var eventId = UUID.randomUUID();
@@ -1569,13 +1787,16 @@ class ReplayRoundActionsCommandHandlerTest {
         var eventId = UUID.randomUUID();
         var target = UUID.randomUUID();
         var player = UUID.randomUUID();
+        given(futureEvents.findById(eventId))
+                .willReturn(drafted(
+                        eventId, outcome(target, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20)));
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(specialActionBy(player, "CASCADE", eventId, target, at(0))));
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         then(cascadeCarryForward).should().arm(GAME_ID, ERA_NUMBER, player, eventId, target);
-        then(futureEvents).should(never()).findById(eventId);
+        then(futureEvents).should().findById(eventId);
         then(futureEvents).should(never()).append(any(), any());
     }
 

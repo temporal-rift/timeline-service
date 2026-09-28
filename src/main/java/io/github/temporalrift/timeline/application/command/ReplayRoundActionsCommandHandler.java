@@ -146,21 +146,23 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     private void replayActions(UUID gameId, int eraNumber, int roundNumber, List<BufferedAction> actions) {
-        var sorted = actions.stream()
+        var submitted = actions.stream()
                 .sorted(Comparator.comparing(BufferedAction::occurredAt).thenComparing(BufferedAction::envelopeEventId))
                 .toList();
-        var byEnvelopeId = sorted.stream().collect(Collectors.toMap(BufferedAction::envelopeEventId, a -> a));
-        var selectedActionByPlayer = indexActionsByPlayer(sorted);
+        var byEnvelopeId = submitted.stream().collect(Collectors.toMap(BufferedAction::envelopeEventId, a -> a));
+        var selectedActionByPlayer = indexActionsByPlayer(submitted);
 
-        var cancelled = computeNullifyCancellations(sorted, selectedActionByPlayer);
+        var cancelled = computeNullifyCancellations(submitted, selectedActionByPlayer);
+        var sorted = excludeStalledTargets(submitted, cancelled);
+        var eligibleActionByPlayer = indexActionsByPlayer(sorted);
 
         applyTier(sorted, cancelled, a -> isSpecial(a, "SEAL"), this::applySeal);
         applyAnnihilateTier(gameId, eraNumber, roundNumber, sorted, cancelled);
         applyCascadeTier(gameId, eraNumber, sorted, cancelled);
 
         var corruptTargets = resolveCorruptTargets(sorted, cancelled);
-        var amplifyMultipliers = resolveAmplifyMultipliers(sorted, selectedActionByPlayer, cancelled);
-        var redirectedActions = resolveRedirectedActions(sorted, selectedActionByPlayer, cancelled);
+        var amplifyMultipliers = resolveAmplifyMultipliers(sorted, eligibleActionByPlayer, cancelled);
+        var redirectedActions = resolveRedirectedActions(sorted, eligibleActionByPlayer, cancelled);
         var mimicCorrelations = resolveMimicTargets(sorted, cancelled);
         // Defensive, not just relying on the producer-side invariant that RALLY is only ever buffered into
         // round 1 — even if a RALLY entry somehow reached another round's buffer, it would not be consulted.
@@ -207,6 +209,23 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         validateSums(gameId, eraNumber, touchedEventIds);
 
         resolveScanEntitlements(gameId, eraNumber, sorted, cancelled);
+    }
+
+    /** Capture the earlier-round lock before any tier runs; a same-round Stall must not suppress its peers. */
+    private List<BufferedAction> excludeStalledTargets(List<BufferedAction> submitted, Set<UUID> cancelled) {
+        var stalledEventIds = submitted.stream()
+                .filter(a -> !cancelled.contains(a.envelopeEventId()) && !isCardType(a, "SCAN"))
+                .map(BufferedAction::targetEventId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .map(this::tryFindEvent)
+                .flatMap(Optional::stream)
+                .filter(FutureEvent::stalled)
+                .map(FutureEvent::id)
+                .collect(Collectors.toSet());
+        return submitted.stream()
+                .filter(a -> isCardType(a, "SCAN") || !stalledEventIds.contains(a.targetEventId()))
+                .toList();
     }
 
     /**
@@ -427,8 +446,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * Records each still-live CASCADE as an armed carry-forward intent for this era. No immediate
      * {@code FutureEvent} effect: whether the named outcome is erased and its event carries is only known once
      * the event reaches a terminal state, so settlement happens then instead of here — this only needs to survive
-     * same-round NULLIFY cancellation. A CASCADE missing its target coordinate is rejected immediately instead of
-     * silently arming nothing.
+     * same-round NULLIFY cancellation and the earlier-round stalled-target filter. A CASCADE missing its target
+     * coordinate is rejected immediately instead of silently arming nothing.
      */
     private void applyCascadeTier(UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
         for (var a : sorted) {
@@ -464,9 +483,9 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     /**
      * A buffered action's target must reference an id this service actually drew ({@code FutureEventDrafted}
      * recorded) — {@code findById} throws otherwise. Rather than let that abort the whole round's transaction,
-     * skip only the action that named the unresolvable id and keep replaying the rest of the round. Every caller
-     * of this method goes on to mutate the returned aggregate (seal/annihilate/shift/stall), each of which throws
-     * {@code FutureEventAlreadyResolvedException} for a resolved event — an already-resolved target is skipped
+     * skip only the action that named the unresolvable id and keep replaying the rest of the round. Mutations
+     * of the returned aggregate (seal/annihilate/shift/stall) each throw {@code FutureEventAlreadyResolvedException}
+     * for a resolved event — an already-resolved target is skipped
      * here the same way, rather than letting a stale or redelivered round replay (e.g. a duplicated
      * {@code ActionRoundClosed} arriving after that era's own resolution) crash the whole transaction.
      */
