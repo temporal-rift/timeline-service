@@ -47,10 +47,8 @@ import io.github.temporalrift.timeline.domain.port.out.ScanEntitlementPort;
  * one be overtaken by a faster one — reachable in practice (consumer rebalance, GC pause, retry), not just
  * theoretical — silently losing or misordering an effect.
  *
- * <p>The Weaver chain saga's {@code THREAD}/{@code TAPESTRY}/{@code REWEAVE} plays and {@code GameEnded}
- * termination join this same group for the same reason: a THREAD must validate against durably resolved
- * outcomes, never overtake the resolution that records them, and a game-end must not close chains ahead of
- * the last round's replay.
+ * <p>The Weaver chain saga's {@code GameEnded} termination joins this same group for the same reason: a game-end
+ * must not close chains ahead of the last round's replay, which resolves that round's Weaver specials.
  */
 @Component
 class CardPlayedAndResolutionKafkaConsumer {
@@ -72,8 +70,6 @@ class CardPlayedAndResolutionKafkaConsumer {
             new GameEventIngestion.Spec("EraEnded", "futureevent.era-ended", 1);
     private static final GameEventIngestion.Spec GAME_ENDED_SPEC =
             new GameEventIngestion.Spec("GameEnded", "futureevent.game-ended", 1);
-    private static final GameEventIngestion.Spec WEAVER_SAGA_SPECIAL_SPEC =
-            new GameEventIngestion.Spec("SpecialActionPlayed", "weaverchain.saga-special", 1);
     private static final GameEventIngestion.Spec WEAVER_SAGA_GAME_ENDED_SPEC =
             new GameEventIngestion.Spec("GameEnded", "weaverchain.game-ended", 1);
 
@@ -101,7 +97,10 @@ class CardPlayedAndResolutionKafkaConsumer {
             SpecialAction.ANNIHILATE,
             SpecialAction.CORRUPT,
             SpecialAction.MIMIC,
-            SpecialAction.CASCADE);
+            SpecialAction.CASCADE,
+            SpecialAction.THREAD,
+            SpecialAction.TAPESTRY,
+            SpecialAction.REWEAVE);
 
     // Only these CardPlayed types ever consult grade in resolution —
     // an unrecognized/missing wire grade must not block buffering every other known card type too.
@@ -239,13 +238,6 @@ class CardPlayedAndResolutionKafkaConsumer {
                     scanEntitlements.deleteByGame(payload.gameId());
                     cascadeCarryForward.deleteByGame(payload.gameId());
                 });
-        GameEventIngestion.accept(message, WEAVER_SAGA_SPECIAL_SPEC, processedEvents, skipMetrics)
-                .ifPresent(envelope -> {
-                    var payload = GameEventPayloads.read(
-                            objectMapper, message.getPayload(), SpecialActionPlayedPayload.class);
-                    requireEnvelope(payload);
-                    handleWeaverSpecial(payload);
-                });
         GameEventIngestion.accept(message, WEAVER_SAGA_GAME_ENDED_SPEC, processedEvents, skipMetrics)
                 .ifPresent(envelope -> {
                     var payload = GameEventPayloads.read(objectMapper, message.getPayload(), GameEndedPayload.class);
@@ -268,30 +260,6 @@ class CardPlayedAndResolutionKafkaConsumer {
         }
         if (payload.roundNumber() < 1) {
             throw new IllegalArgumentException("roundNumber must be positive, was " + payload.roundNumber());
-        }
-    }
-
-    private void handleWeaverSpecial(SpecialActionPlayedPayload payload) {
-        switch (payload.specialAction()) {
-            case THREAD ->
-                weaverChainSaga.playThread(
-                        payload.gameId(),
-                        payload.eraNumber(),
-                        payload.playerId(),
-                        payload.targetEventId(),
-                        payload.targetOutcomeId());
-            case TAPESTRY -> weaverChainSaga.playTapestry(payload.gameId(), payload.eraNumber(), payload.playerId());
-            case REWEAVE ->
-                weaverChainSaga.playReweave(
-                        payload.gameId(),
-                        payload.eraNumber(),
-                        payload.playerId(),
-                        payload.targetEventId(),
-                        payload.targetOutcomeId());
-            default -> {
-                // SEAL/ANNIHILATE/CORRUPT/MIMIC replay through the round buffer; every other special stays
-                // a same-slice no-op at this consumer.
-            }
         }
     }
 

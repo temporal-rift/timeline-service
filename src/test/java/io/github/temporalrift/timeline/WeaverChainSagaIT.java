@@ -65,19 +65,22 @@ class WeaverChainSagaIT {
         var era4Winner = UUID.randomUUID();
 
         draftDeterministicEra(gameId, 2, era2Event, era2Winner);
-        publishThread(gameId, 2, weaver, era2Event, era2Winner, UUID.randomUUID());
+        publishThread(gameId, 2, 2, weaver, era2Event, era2Winner, UUID.randomUUID());
+        publishActionRoundClosed(gameId, 2, 2);
         awaitChainLinkThreaded(gameId, 1);
         resolveEra(gameId, 2, era2Event, era2Winner);
         awaitChainLinkAdded(gameId, 1);
 
         draftDeterministicEra(gameId, 3, era3Event, era3Winner);
-        publishThread(gameId, 3, weaver, era3Event, era3Winner, UUID.randomUUID());
+        publishThread(gameId, 3, 2, weaver, era3Event, era3Winner, UUID.randomUUID());
+        publishActionRoundClosed(gameId, 3, 2);
         awaitChainLinkThreaded(gameId, 2);
         resolveEra(gameId, 3, era3Event, era3Winner);
         awaitChainLinkAdded(gameId, 2);
 
         draftDeterministicEra(gameId, 4, era4Event, era4Winner);
-        publishThread(gameId, 4, weaver, era4Event, era4Winner, UUID.randomUUID());
+        publishThread(gameId, 4, 2, weaver, era4Event, era4Winner, UUID.randomUUID());
+        publishActionRoundClosed(gameId, 4, 2);
         awaitChainLinkThreaded(gameId, 3);
         resolveEra(gameId, 4, era4Event, era4Winner);
 
@@ -110,7 +113,8 @@ class WeaverChainSagaIT {
             var eventId = UUID.randomUUID();
             var winner = UUID.randomUUID();
             draftDeterministicEra(gameId, era, eventId, winner);
-            publishThread(gameId, era, weaver, eventId, winner, UUID.randomUUID());
+            publishThread(gameId, era, 2, weaver, eventId, winner, UUID.randomUUID());
+            publishActionRoundClosed(gameId, era, 2);
             awaitChainLinkThreaded(gameId, era);
             resolveEra(gameId, era, eventId, winner);
             awaitChainLinkAdded(gameId, era);
@@ -123,12 +127,14 @@ class WeaverChainSagaIT {
         publishEraStarted(gameId, 3);
         publishEventsDrawn(gameId, 3, event, reAimed, predicted, other);
         awaitFutureEventIndexed(gameId, 3);
-        publishThread(gameId, 3, weaver, event, predicted, UUID.randomUUID());
-        awaitChainLinkThreaded(gameId, 3);
-        publishSpecialActionPlayed(gameId, 3, UUID.randomUUID(), "ANNIHILATE", event, predicted);
-        publishSpecialActionPlayed(gameId, 3, UUID.randomUUID(), "ANNIHILATE", event, other);
+        publishThread(gameId, 3, 1, weaver, event, predicted, UUID.randomUUID());
         publishActionRoundClosed(gameId, 3, 1);
-        publishReweave(gameId, 3, weaver, event, reAimed);
+        awaitChainLinkThreaded(gameId, 3);
+        // Submitted before the Annihilates, yet judged after them: Reweave escapes the same round's erasure.
+        publishReweave(gameId, 3, 2, weaver, event, reAimed);
+        publishSpecialActionPlayed(gameId, 3, 2, UUID.randomUUID(), "ANNIHILATE", event, predicted);
+        publishSpecialActionPlayed(gameId, 3, 2, UUID.randomUUID(), "ANNIHILATE", event, other);
+        publishActionRoundClosed(gameId, 3, 2);
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_RE_ANCHORED))
                         .hasSize(1));
@@ -170,7 +176,8 @@ class WeaverChainSagaIT {
         var era2Winner = UUID.randomUUID();
 
         draftDeterministicEra(gameId, 1, era1Event, era1Winner);
-        publishThread(gameId, 1, weaver, era1Event, era1Winner, UUID.randomUUID());
+        publishThread(gameId, 1, 2, weaver, era1Event, era1Winner, UUID.randomUUID());
+        publishActionRoundClosed(gameId, 1, 2);
         awaitChainLinkThreaded(gameId, 1);
         resolveEra(gameId, 1, era1Event, era1Winner);
         awaitChainLinkAdded(gameId, 1);
@@ -192,10 +199,10 @@ class WeaverChainSagaIT {
         var threadEventId = UUID.randomUUID();
 
         draftEra(gameId, 2, era2Event, era2Winner);
-        publishThread(gameId, 2, weaver, era2Event, era2Winner, threadEventId);
+        publishThread(gameId, 2, 1, weaver, era2Event, era2Winner, threadEventId);
+        publishThread(gameId, 2, 1, weaver, era2Event, era2Winner, threadEventId);
+        publishActionRoundClosed(gameId, 2, 1);
         awaitChainLinkThreaded(gameId, 1);
-
-        publishThread(gameId, 2, weaver, era2Event, era2Winner, threadEventId);
 
         await().pollDelay(Duration.ofSeconds(5))
                 .atMost(Duration.ofSeconds(10))
@@ -211,7 +218,8 @@ class WeaverChainSagaIT {
         var era2Winner = UUID.randomUUID();
 
         draftEra(gameId, 2, era2Event, era2Winner);
-        publishThread(gameId, 2, weaver, era2Event, era2Winner, UUID.randomUUID());
+        publishThread(gameId, 2, 1, weaver, era2Event, era2Winner, UUID.randomUUID());
+        publishActionRoundClosed(gameId, 2, 1);
         awaitChainLinkThreaded(gameId, 1);
         publishGameEnded(gameId);
         // Wait until GameEnded closes the saga and invalidates its pending link before ANNIHILATE arrives.
@@ -224,8 +232,8 @@ class WeaverChainSagaIT {
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_LINK_INVALIDATED))
                         .hasSize(1));
-        publishSpecialActionPlayed(gameId, 2, UUID.randomUUID(), "ANNIHILATE", era2Event, era2Winner);
-        publishActionRoundClosed(gameId, 2, 1);
+        publishSpecialActionPlayed(gameId, 2, 2, UUID.randomUUID(), "ANNIHILATE", era2Event, era2Winner);
+        publishActionRoundClosed(gameId, 2, 2);
 
         await().pollDelay(Duration.ofSeconds(3))
                 .atMost(Duration.ofSeconds(10))
@@ -241,8 +249,7 @@ class WeaverChainSagaIT {
 
     /**
      * Drafts an era whose threaded outcome is the only eligible winner: the two losing outcomes are
-     * annihilated (round 1 closes before the THREAD is published, and the single consumer group replays
-     * the round strictly before applying the THREAD, so no awaiting of the replay itself is needed).
+     * annihilated in round 1, whose replay precedes the round-2 THREAD the caller publishes.
      * Without this, the THREAD reward's ceiling-clamped push redistributes weight onto the losers
      * (100 becomes 90/5/5) and the weighted draw only <i>likely</i> confirms the link — a 10% flake
      * per era that bit {@code threadAcrossThreeEras_completesChainAndEndsSaga} on {@code main}.
@@ -291,11 +298,17 @@ class WeaverChainSagaIT {
     }
 
     private void publishThread(
-            UUID gameId, int eraNumber, UUID playerId, UUID targetEventId, UUID targetOutcomeId, UUID eventId) {
+            UUID gameId,
+            int eraNumber,
+            int roundNumber,
+            UUID playerId,
+            UUID targetEventId,
+            UUID targetOutcomeId,
+            UUID eventId) {
         var payload = new HashMap<String, Object>();
         payload.put("gameId", gameId);
         payload.put("eraNumber", eraNumber);
-        payload.put("roundNumber", 1);
+        payload.put("roundNumber", roundNumber);
         payload.put("playerId", playerId);
         payload.put("faction", "WEAVERS");
         payload.put("specialAction", "THREAD");
@@ -307,11 +320,12 @@ class WeaverChainSagaIT {
         publish(gameId, "SpecialActionPlayed", payload, eventId);
     }
 
-    private void publishReweave(UUID gameId, int eraNumber, UUID playerId, UUID eventId, UUID outcomeId) {
+    private void publishReweave(
+            UUID gameId, int eraNumber, int roundNumber, UUID playerId, UUID eventId, UUID outcomeId) {
         var payload = new HashMap<String, Object>();
         payload.put("gameId", gameId);
         payload.put("eraNumber", eraNumber);
-        payload.put("roundNumber", 1);
+        payload.put("roundNumber", roundNumber);
         payload.put("playerId", playerId);
         payload.put("faction", "WEAVERS");
         payload.put("specialAction", "REWEAVE");
@@ -325,10 +339,21 @@ class WeaverChainSagaIT {
 
     private void publishSpecialActionPlayed(
             UUID gameId, int eraNumber, UUID playerId, String specialAction, UUID targetEventId, UUID targetOutcomeId) {
+        publishSpecialActionPlayed(gameId, eraNumber, 1, playerId, specialAction, targetEventId, targetOutcomeId);
+    }
+
+    private void publishSpecialActionPlayed(
+            UUID gameId,
+            int eraNumber,
+            int roundNumber,
+            UUID playerId,
+            String specialAction,
+            UUID targetEventId,
+            UUID targetOutcomeId) {
         var payload = new HashMap<String, Object>();
         payload.put("gameId", gameId);
         payload.put("eraNumber", eraNumber);
-        payload.put("roundNumber", 1);
+        payload.put("roundNumber", roundNumber);
         payload.put("playerId", playerId);
         payload.put("faction", "ERASERS");
         payload.put("specialAction", specialAction);

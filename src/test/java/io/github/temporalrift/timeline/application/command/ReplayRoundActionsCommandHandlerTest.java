@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -1147,6 +1148,168 @@ class ReplayRoundActionsCommandHandlerTest {
 
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(70);
         then(rules).should(never()).rallyMultiplier();
+    }
+
+    @Test
+    void replay_tapestryIsArmedBeforeASameRoundAnnihilateRegardlessOfSubmissionOrder() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var weaver = UUID.randomUUID();
+        var futureEvent =
+                drafted(eventId, outcome(a, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialAction("ANNIHILATE", eventId, a, at(0)),
+                        specialActionBy(weaver, "TAPESTRY", null, null, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        var inOrder = inOrder(weaverChainSaga);
+        inOrder.verify(weaverChainSaga).playTapestry(GAME_ID, ERA_NUMBER, weaver);
+        inOrder.verify(weaverChainSaga).annihilateOutcome(GAME_ID, ERA_NUMBER, eventId, a);
+    }
+
+    @Test
+    void replay_reweaveAndThreadAreJudgedAfterASameRoundAnnihilate() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var reweaver = UUID.randomUUID();
+        var threader = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialActionBy(threader, "THREAD", eventId, a, at(0)),
+                        specialActionBy(reweaver, "REWEAVE", eventId, b, at(1)),
+                        specialAction("ANNIHILATE", eventId, a, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        var inOrder = inOrder(weaverChainSaga);
+        inOrder.verify(weaverChainSaga).annihilateOutcome(GAME_ID, ERA_NUMBER, eventId, a);
+        inOrder.verify(weaverChainSaga).playReweave(GAME_ID, ERA_NUMBER, reweaver, eventId, b);
+        inOrder.verify(weaverChainSaga).playThread(GAME_ID, ERA_NUMBER, threader, eventId, a);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"THREAD", "TAPESTRY", "REWEAVE"})
+    void replay_nullifyNamingTheWeaver_cancelsTheirSpecial(String specialAction) {
+        var weaver = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialActionBy(weaver, specialAction, UUID.randomUUID(), UUID.randomUUID(), at(0)),
+                        nullifyTargets(UUID.randomUUID(), List.of(weaver), at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(weaverChainSaga).shouldHaveNoInteractions();
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_rejectedThread_appliesNoShift() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var weaver = UUID.randomUUID();
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialActionBy(weaver, "THREAD", eventId, a, at(0))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(weaverChainSaga).should().playThread(GAME_ID, ERA_NUMBER, weaver, eventId, a);
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_acceptedThreadShift_combinesSimultaneouslyWithSameRoundShifts() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var weaver = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 80), outcome(b, 10), outcome(c, 10));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(weaverChainSaga.playThread(GAME_ID, ERA_NUMBER, weaver, eventId, b))
+                .willReturn(true);
+        given(rules.threadShift()).willReturn(10);
+        given(rules.pushShift(CardGrade.II)).willReturn(20);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayed("PUSH", eventId, null, a, at(0)),
+                        specialActionBy(weaver, "THREAD", eventId, b, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        var expected = drafted(eventId, outcome(a, 80), outcome(b, 10), outcome(c, 10));
+        expected.applySimultaneousShifts(
+                List.of(
+                        new SimultaneousShift(new ProbabilityShift.Push(a), 20),
+                        new SimultaneousShift(new ProbabilityShift.Push(b), 10)),
+                0,
+                90);
+        assertThat(futureEvent.outcomes()).isEqualTo(expected.outcomes());
+    }
+
+    @Test
+    void replay_rallyBoostsARound1ThreadShiftTowardTheDeclaredOutcome() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var weaver = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(weaverChainSaga.playThread(GAME_ID, ERA_NUMBER, weaver, eventId, a))
+                .willReturn(true);
+        given(rules.threadShift()).willReturn(10);
+        given(rules.rallyMultiplier()).willReturn(1.5);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        rally(UUID.randomUUID(), eventId, a, at(0)),
+                        specialActionBy(weaver, "THREAD", eventId, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // 10 * 1.5 = 15, not the unboosted 10.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(65);
+    }
+
+    @Test
+    void replay_momentumPrecedesARound1ThreadShift() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var weaver = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 80), outcome(b, 15), outcome(c, 5));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(weaverChainSaga.playThread(GAME_ID, ERA_NUMBER, weaver, eventId, b))
+                .willReturn(true);
+        given(rules.momentumBonus()).willReturn(10);
+        given(rules.threadShift()).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        specialActionBy(weaver, "THREAD", eventId, b, at(0)),
+                        momentum(UUID.randomUUID(), eventId, a, at(1))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        var threadShift = List.of(new SimultaneousShift(new ProbabilityShift.Push(b), 10));
+        var momentumFirst = drafted(eventId, outcome(a, 80), outcome(b, 15), outcome(c, 5));
+        momentumFirst.applyShift(new ProbabilityShift.Push(a), 10, 0, 90);
+        momentumFirst.applySimultaneousShifts(threadShift, 0, 90);
+        var threadFirst = drafted(eventId, outcome(a, 80), outcome(b, 15), outcome(c, 5));
+        threadFirst.applySimultaneousShifts(threadShift, 0, 90);
+        threadFirst.applyShift(new ProbabilityShift.Push(a), 10, 0, 90);
+        assertThat(futureEvent.outcomes()).isEqualTo(momentumFirst.outcomes()).isNotEqualTo(threadFirst.outcomes());
     }
 
     @Test
