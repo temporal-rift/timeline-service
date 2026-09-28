@@ -52,6 +52,11 @@
       <column name="envelope_event_id" type="UUID">
         <constraints nullable="false"/>
       </column>
+      <!--
+          List-mode CardPlayed target (currently only SCAN's grade-sized multi-event selection).
+          Nullable: every scalar- or player-targeting action, including a scalar-mode SCAN, leaves this unset.
+      -->
+      <column name="target_event_ids" type="JSONB"/>
     </createTable>
 
     <createIndex tableName="round_action_buffer" indexName="ix_round_action_buffer_game_era_round">

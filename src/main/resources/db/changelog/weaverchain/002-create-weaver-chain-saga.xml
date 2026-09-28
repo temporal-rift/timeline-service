@@ -28,6 +28,8 @@
         <constraints nullable="false"/>
       </column>
       <column name="tapestry_used_era" type="INTEGER"/>
+      <!-- REWEAVE's own once-per-era budget, tracked the same way as tapestry_used_era. -->
+      <column name="reweave_used_era" type="INTEGER"/>
     </createTable>
     <createIndex tableName="weaver_chain_saga" indexName="idx_weaver_chain_saga_game_player">
       <column name="game_id"/>
