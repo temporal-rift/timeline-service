@@ -79,8 +79,6 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final String SPECIAL_ACTION_REWEAVE = "REWEAVE";
     private static final String SPECIAL_ACTION_THREAD = "THREAD";
 
-    /** Published when an erasure would remove the event's last drawable outcome weight. */
-
     /** Eligible for AMPLIFY's doubling and NULLIFY's cancellation like any other remaining-tier card. */
     private static final Set<String> AMPLIFIABLE_SHIFTER_TYPES =
             Set.of(CARD_TYPE_PUSH, CARD_TYPE_SUPPRESS, CARD_TYPE_SWING, CARD_TYPE_COLLIDE);
@@ -448,36 +446,12 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         // applies; when it cannot stay within the probability bounds, all of them are rejected privately (no fact
         // appended, Weaver saga not notified, nothing spent) and keep their pre-read resolution unpublished.
         var rejectedKeys = new HashSet<AnnihilationKey>();
-        var liveByEvent = new LinkedHashMap<UUID, List<BufferedAction>>();
-        for (var a : live) {
-            if (a.targetOutcomeId() != null) {
-                liveByEvent
-                        .computeIfAbsent(a.targetEventId(), _ -> new ArrayList<>())
-                        .add(a);
-            }
-        }
-        liveByEvent.forEach((eventId, actions) -> events.find(eventId).ifPresent(futureEvent -> {
-            var fresh = actions.stream()
-                    .filter(a -> !futureEvent.isAnnihilated(a.targetOutcomeId()))
-                    .toList();
-            if (fresh.isEmpty()) {
-                return;
-            }
-            var targets = fresh.stream()
-                    .map(BufferedAction::targetOutcomeId)
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
-            int floor = rules.probabilityFloor();
-            int ceiling = rules.probabilityCeiling();
-            if (!futureEvent.canAnnihilate(targets, floor, ceiling)) {
-                for (var a : fresh) {
-                    publishAnnihilateRejected(gameId, eraNumber, a);
-                    rejectedKeys.add(new AnnihilationKey(a.playerId(), a.targetEventId(), a.targetOutcomeId()));
-                }
-                return;
-            }
-            futureEvents.append(eventId, futureEvent.annihilateOutcomes(targets, floor, ceiling));
-            targets.forEach(outcomeId -> weaverChainSaga.annihilateOutcome(gameId, eraNumber, eventId, outcomeId));
-        }));
+        live.stream()
+                .filter(a -> a.targetOutcomeId() != null)
+                .collect(Collectors.groupingBy(BufferedAction::targetEventId, LinkedHashMap::new, Collectors.toList()))
+                .forEach((eventId, actions) -> events.find(eventId)
+                        .ifPresent(futureEvent -> rejectedKeys.addAll(
+                                annihilateTogether(gameId, eraNumber, eventId, futureEvent, actions))));
         resolutions.stream()
                 .filter(resolution -> rejectedKeys.stream().noneMatch(key -> key.matches(resolution)))
                 .forEach(resolution -> publisher.publish(TimelineEventEnvelope.create(
@@ -487,6 +461,31 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                         TimelineEventEnvelope.SCHEMA_VERSION_V1,
                         resolution,
                         clock)));
+    }
+
+    /** Applies one event's live Annihilates as a single combined erasure and returns the keys it rejected. */
+    private List<AnnihilationKey> annihilateTogether(
+            UUID gameId, int eraNumber, UUID eventId, FutureEvent futureEvent, List<BufferedAction> actions) {
+        var fresh = actions.stream()
+                .filter(a -> !futureEvent.isAnnihilated(a.targetOutcomeId()))
+                .toList();
+        if (fresh.isEmpty()) {
+            return List.of();
+        }
+        var targets = fresh.stream()
+                .map(BufferedAction::targetOutcomeId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        int floor = rules.probabilityFloor();
+        int ceiling = rules.probabilityCeiling();
+        if (!futureEvent.canAnnihilate(targets, floor, ceiling)) {
+            fresh.forEach(a -> publishAnnihilateRejected(gameId, eraNumber, a));
+            return fresh.stream()
+                    .map(a -> new AnnihilationKey(a.playerId(), a.targetEventId(), a.targetOutcomeId()))
+                    .toList();
+        }
+        futureEvents.append(eventId, futureEvent.annihilateOutcomes(targets, floor, ceiling));
+        targets.forEach(outcomeId -> weaverChainSaga.annihilateOutcome(gameId, eraNumber, eventId, outcomeId));
+        return List.of();
     }
 
     private void publishAnnihilateRejected(UUID gameId, int eraNumber, BufferedAction a) {
