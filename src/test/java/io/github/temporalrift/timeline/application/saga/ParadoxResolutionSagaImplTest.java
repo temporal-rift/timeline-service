@@ -551,7 +551,7 @@ class ParadoxResolutionSagaImplTest {
         var passerId = UUID.randomUUID();
         var futureEvent = deadHeatFutureEvent(affectedEventId, outcomeIds, 20, 40, 40, false);
         var suppress = new Submission(shifterId, "SUPPRESS", CardGrade.II, affectedEventId, outcomeIds.get(1));
-        var pass = Submission.pass(passerId);
+        var pass = Submission.passBy(passerId);
         var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
@@ -586,7 +586,7 @@ class ParadoxResolutionSagaImplTest {
         var affectedEventId = UUID.randomUUID();
         var annihilatedId = UUID.randomUUID();
         var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
-        var pass = Submission.pass(UUID.randomUUID());
+        var pass = Submission.passBy(UUID.randomUUID());
         var phase = ParadoxResolutionPhase.withKnownRoster(
                 sagaId,
                 GAME_ID,
