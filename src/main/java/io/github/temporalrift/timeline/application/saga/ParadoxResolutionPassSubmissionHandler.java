@@ -19,6 +19,6 @@ class ParadoxResolutionPassSubmissionHandler implements PassParadoxResolutionUse
 
     @Override
     public void pass(UUID gameId, int eraNumber, UUID playerId) {
-        saga.handlePlayerSubmitted(gameId, eraNumber, Submission.pass(playerId));
+        saga.handlePlayerSubmitted(gameId, eraNumber, Submission.passBy(playerId));
     }
 }

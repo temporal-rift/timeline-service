@@ -88,7 +88,7 @@ class ParadoxResolutionPhaseTest {
 
         var phase = knownRosterPhase(List.of(passerId, cardPlayerId), List.of())
                 .withSubmission(push(cardPlayerId))
-                .withSubmission(Submission.pass(passerId));
+                .withSubmission(Submission.passBy(passerId));
 
         assertThat(phase.pendingPlayerIds()).isEmpty();
         assertThat(phase.allPlayersSubmitted()).isTrue();
@@ -99,7 +99,7 @@ class ParadoxResolutionPhaseTest {
     void withSubmission_afterAPass_ignoresTheSamePlayersCard() {
         var passerId = UUID.randomUUID();
         var phase = knownRosterPhase(List.of(passerId, UUID.randomUUID()), List.of())
-                .withSubmission(Submission.pass(passerId));
+                .withSubmission(Submission.passBy(passerId));
 
         assertThat(phase.withSubmission(push(passerId))).isEqualTo(phase);
     }
