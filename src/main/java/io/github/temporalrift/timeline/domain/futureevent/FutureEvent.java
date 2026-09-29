@@ -9,6 +9,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import io.github.temporalrift.timeline.domain.event.EraStateCleared;
 import io.github.temporalrift.timeline.domain.event.EventStalled;
@@ -168,9 +169,9 @@ public final class FutureEvent {
      * aggregate stays free of any config/port coupling.
      *
      * <p>Returns a {@link ProbabilityShifted} with the post-shift outcomes, or an {@link OutcomesCollided} for a
-     * {@code COLLIDE} that left its pair equal: a shift that would have
-     * to move a sealed outcome's probability is declined with weights unchanged as an ordinary failure (see
-     * {@link #sealOutcome}) — callers only need the persisted fact, mirroring
+     * {@code COLLIDE} that left its pair equal: a shift that would have to move a sealed or annihilated outcome's
+     * probability is declined with weights unchanged as an ordinary failure (see {@link Outcome#fixedWeight}) —
+     * callers only need the persisted fact, mirroring
      * {@code FutureEventRepository#append}'s own {@code Object} domain-event parameter.
      */
     public Object applyShift(ProbabilityShift shift, int magnitude, int floor, int ceiling) {
@@ -186,28 +187,15 @@ public final class FutureEvent {
                 swingOrDecline(sourceOutcomeId, targetOutcomeId, magnitude, floor, ceiling);
             case ProbabilityShift.Collide(var outcomeAId, var outcomeBId) ->
                 collideOrDecline(outcomeAId, outcomeBId, floor, ceiling);
-            case ProbabilityShift.Restore(var targetProbabilities) -> {
-                // A snapshot predates any SEAL cast on this event since — restoring it verbatim would
-                // silently overwrite a sealed outcome's now-frozen probability if the two disagree. Decline
-                // the whole restore rather than partially rebuild the other two around a value we're not
-                // allowed to change (undo/REDIRECT/CORRUPT all funnel through here, so this protects all
-                // three, not just CORRUPT) — an ordinary failure with weights unchanged.
-                if (conflictsWithSealedOutcome(targetProbabilities)) {
-                    yield unchanged();
-                }
-                var shiftedOutcomes = replaceProbabilities(targetProbabilities);
-                var event = new ProbabilityShifted(id, shiftedOutcomes);
-                this.outcomes = shiftedOutcomes;
-                yield event;
-            }
         };
     }
 
     /**
      * Resolves one round's probability effects on this event simultaneously: each shift is evaluated alone against
      * the current weights under {@link #applyShift}'s rules, the resulting weight changes are summed, and the sum is
-     * fitted once into {@code [floor, ceiling]}. Input order never affects the result. Identical {@code COLLIDE}
-     * pairs count once, and a collided pair is recorded only if it is still equal after the combined result.
+     * fitted once into {@code [floor, ceiling]} with sealed and annihilated weights held fixed. Input order never
+     * affects the result. Identical {@code COLLIDE} pairs count once, and a collided pair is recorded only if it is
+     * still equal after the combined result.
      */
     public SimultaneousShiftResult applySimultaneousShifts(List<SimultaneousShift> shifts, int floor, int ceiling) {
         if (resolved()) {
@@ -249,8 +237,8 @@ public final class FutureEvent {
     }
 
     /**
-     * Integer water-filling: every unsealed weight moves by one common offset, clamped to its bounds, so the
-     * unsealed total is preserved; points left over by integer rounding come from outcomes still movable, in
+     * Integer water-filling: every movable weight moves by one common offset, clamped to its bounds, so the
+     * movable total is preserved; points left over by integer rounding come from outcomes still movable, in
      * declared outcome order. Each outcome's bounds widen to include its starting weight, so the starting state is
      * always feasible and a weight that began outside {@code [floor, ceiling]} is never pushed further than it was.
      * Weights already in bounds are returned unchanged.
@@ -259,7 +247,7 @@ public final class FutureEvent {
             List<Outcome> start, Map<UUID, Integer> combined, int floor, int ceiling) {
         var bounds = new LinkedHashMap<UUID, int[]>();
         start.stream()
-                .filter(o -> !o.sealed())
+                .filter(o -> !o.fixedWeight())
                 .forEach(o -> bounds.put(
                         o.outcomeId(),
                         new int[] {Math.min(floor, o.probability()), Math.max(ceiling, o.probability())}));
@@ -298,24 +286,16 @@ public final class FutureEvent {
                 .sum();
     }
 
-    private boolean conflictsWithSealedOutcome(Map<UUID, Integer> targetProbabilities) {
-        return outcomes.stream()
-                .anyMatch(o -> o.sealed()
-                        && targetProbabilities.containsKey(o.outcomeId())
-                        && targetProbabilities.get(o.outcomeId()) != o.probability());
-    }
-
     /**
-     * PUSH/SUPPRESS target the named outcome; if it's sealed, the shift is declined with weights unchanged
-     * as an ordinary failure. Otherwise its movement must be redistributed into the other two outcomes —
-     * but a sealed "other" can't absorb any of it either, so: both others sealed → nowhere to put the
-     * movement, declined unchanged; exactly one sealed → the sole unsealed other absorbs all of it;
-     * neither sealed → the existing proportional 3-way split. A fully clamped zero move that touches no
-     * sealed weight is likewise an ordinary no-op.
+     * PUSH/SUPPRESS target the named outcome; if its weight is fixed (sealed or annihilated), the shift is declined
+     * with weights unchanged as an ordinary failure. Otherwise its movement is redistributed into the other two
+     * outcomes, but a fixed "other" can't absorb any of it: both others fixed → declined unchanged; exactly one fixed
+     * → the sole movable other absorbs all of it; neither fixed → the proportional 3-way split. A fully clamped zero
+     * move is likewise an ordinary no-op.
      */
     private Object shiftSingleOrDecline(UUID targetOutcomeId, int magnitude, int floor, int ceiling) {
         var target = outcomeById(targetOutcomeId);
-        if (target.sealed()) {
+        if (target.fixedWeight()) {
             return unchanged();
         }
         var others = outcomes.stream()
@@ -333,13 +313,13 @@ public final class FutureEvent {
         }
 
         List<Outcome> shiftedOutcomes;
-        if (other1.sealed() && other2.sealed()) {
+        if (other1.fixedWeight() && other2.fixedWeight()) {
             return unchanged();
-        } else if (other1.sealed() || other2.sealed()) {
-            var freeOther = other1.sealed() ? other2 : other1;
+        } else if (other1.fixedWeight() || other2.fixedWeight()) {
+            var freeOther = other1.fixedWeight() ? other2 : other1;
             var rebalanced = clampPairPreservingSum(
                     target.probability() + magnitude, freeOther.probability() - magnitude, floor, ceiling);
-            // The sealed other is deliberately omitted from the map — replaceProbabilities keeps it unchanged.
+            // The fixed other is deliberately omitted from the map — replaceProbabilities keeps it unchanged.
             shiftedOutcomes =
                     replaceProbabilities(Map.of(targetOutcomeId, rebalanced[0], freeOther.outcomeId(), rebalanced[1]));
         } else {
@@ -356,7 +336,7 @@ public final class FutureEvent {
         }
         var source = outcomeById(sourceOutcomeId);
         var target = outcomeById(targetOutcomeId);
-        if (source.sealed() || target.sealed()) {
+        if (source.fixedWeight() || target.fixedWeight()) {
             return unchanged();
         }
         var shiftedOutcomes = swing(sourceOutcomeId, targetOutcomeId, magnitude, floor, ceiling);
@@ -367,9 +347,10 @@ public final class FutureEvent {
 
     /**
      * Sets both named outcomes to the integer floor of their combined midpoint and moves any one-point remainder
-     * to the third outcome, preserving the 100 total within floor/ceiling; a sealed selection or a remainder owed
-     * to a sealed third declines the shift with weights unchanged as an ordinary failure, and a bound-overflow
-     * edge keeps total and bounds via a deterministic outcome-id-ordered fallback without guaranteeing equality.
+     * to the third outcome, preserving the 100 total within floor/ceiling; a fixed (sealed or annihilated) selection
+     * or a remainder owed to a fixed third declines the shift with weights unchanged as an ordinary failure, and a
+     * bound-overflow edge keeps total and bounds via a deterministic outcome-id-ordered fallback without guaranteeing
+     * equality.
      * A result that leaves the pair equal is an {@link OutcomesCollided}, the Dead Heat trigger input.
      */
     private Object collideOrDecline(UUID outcomeAId, UUID outcomeBId, int floor, int ceiling) {
@@ -378,7 +359,7 @@ public final class FutureEvent {
         }
         var a = outcomeById(outcomeAId);
         var b = outcomeById(outcomeBId);
-        if (a.sealed() || b.sealed()) {
+        if (a.fixedWeight() || b.fixedWeight()) {
             return unchanged();
         }
         var thirds = outcomes.stream()
@@ -397,7 +378,7 @@ public final class FutureEvent {
         int combined = a.probability() + b.probability();
         int mid = combined / 2;
         int remainder = combined % 2;
-        if (remainder == 1 && third.sealed()) {
+        if (remainder == 1 && third.fixedWeight()) {
             return unchanged();
         }
         int thirdIdeal = third.probability() + remainder;
@@ -435,8 +416,8 @@ public final class FutureEvent {
     }
 
     /**
-     * A shift declined for seal reasons returns the current outcomes unchanged (the same ordinary-failure
-     * shape as a fully clamped zero move).
+     * A shift declined because it would move a fixed weight returns the current outcomes unchanged (the same
+     * ordinary-failure shape as a fully clamped zero move).
      */
     private ProbabilityShifted unchanged() {
         return new ProbabilityShifted(id, outcomes());
@@ -480,20 +461,97 @@ public final class FutureEvent {
         return event;
     }
 
-    /** Marks {@code outcomeId} annihilated ({@code ANNIHILATE}); it can never win this event's resolution. */
-    public OutcomeAnnihilated annihilateOutcome(UUID outcomeId) {
+    /**
+     * Erases {@code outcomeId} ({@code ANNIHILATE}); see {@link #annihilateOutcomes}. Callers must check
+     * {@link #canAnnihilate(UUID, int, int)} first.
+     */
+    public OutcomeAnnihilated annihilateOutcome(UUID outcomeId, int floor, int ceiling) {
+        return annihilateOutcomes(Set.of(outcomeId), floor, ceiling);
+    }
+
+    /**
+     * Erases {@code outcomeIds} together: each drops to zero, loses any seal, and can never win, while their combined
+     * weight moves to the remaining eligible, unsealed outcomes in proportion to their weights, so every probability
+     * stays the outcome's actual chance of winning. Already-annihilated outcomes are left as they are. Callers must
+     * check {@link #canAnnihilate(Set, int, int)} first.
+     */
+    public OutcomeAnnihilated annihilateOutcomes(Set<UUID> outcomeIds, int floor, int ceiling) {
         if (resolved()) {
             throw new FutureEventAlreadyResolvedException(id);
         }
-        outcomeById(outcomeId);
-        var updated = outcomes.stream()
-                .map(o -> o.outcomeId().equals(outcomeId)
-                        ? new Outcome(o.outcomeId(), o.description(), o.probability(), o.sealed(), true)
-                        : o)
-                .toList();
+        var updated = erasedOutcomes(outcomeIds, floor, ceiling)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Erasing outcomes " + outcomeIds + " of FutureEvent " + id + " cannot stay within bounds"));
         var event = new OutcomeAnnihilated(id, updated);
         this.outcomes = updated;
         return event;
+    }
+
+    /** True when erasing {@code outcomeId} alone stays within bounds; see {@link #canAnnihilate(Set, int, int)}. */
+    public boolean canAnnihilate(UUID outcomeId, int floor, int ceiling) {
+        return canAnnihilate(Set.of(outcomeId), floor, ceiling);
+    }
+
+    /**
+     * True when erasing {@code outcomeIds} together leaves every eligible outcome within {@code [floor, ceiling]}
+     * without moving a sealed weight. False when no eligible outcome would remain, a lone survivor would pass the
+     * ceiling, or a sealed survivor leaves the other one out of bounds.
+     */
+    public boolean canAnnihilate(Set<UUID> outcomeIds, int floor, int ceiling) {
+        return erasedOutcomes(outcomeIds, floor, ceiling).isPresent();
+    }
+
+    private Optional<List<Outcome>> erasedOutcomes(Set<UUID> outcomeIds, int floor, int ceiling) {
+        var erased = outcomeIds.stream()
+                .map(this::outcomeById)
+                .filter(o -> !o.annihilated())
+                .map(Outcome::outcomeId)
+                .collect(Collectors.toSet());
+        if (erased.isEmpty()) {
+            return Optional.of(outcomes);
+        }
+        var absorbers = outcomes.stream()
+                .filter(o -> !erased.contains(o.outcomeId()) && !o.fixedWeight())
+                .toList();
+        int weight = outcomes.stream()
+                .filter(o -> erased.contains(o.outcomeId()))
+                .mapToInt(Outcome::probability)
+                .sum();
+        var absorbed = new LinkedHashMap<UUID, Integer>();
+        if (absorbers.size() == 2) {
+            var first = absorbers.get(0);
+            var second = absorbers.get(1);
+            int pairSum = first.probability() + second.probability() + weight;
+            if (pairSum < 2 * floor || pairSum > 2 * ceiling) {
+                return Optional.empty();
+            }
+            int absorbersTotal = first.probability() + second.probability();
+            int firstShare = absorbersTotal == 0
+                    ? weight / 2
+                    : (int) Math.round(weight * (double) first.probability() / absorbersTotal);
+            var rebalanced = clampPairPreservingSum(
+                    first.probability() + firstShare, second.probability() + weight - firstShare, floor, ceiling);
+            absorbed.put(first.outcomeId(), rebalanced[0]);
+            absorbed.put(second.outcomeId(), rebalanced[1]);
+        } else if (absorbers.size() == 1) {
+            absorbed.put(absorbers.getFirst().outcomeId(), absorbers.getFirst().probability() + weight);
+        } else if (weight != 0) {
+            return Optional.empty();
+        }
+        var updated = outcomes.stream()
+                .map(o -> erased.contains(o.outcomeId())
+                        ? new Outcome(o.outcomeId(), o.description(), 0, false, true)
+                        : new Outcome(
+                                o.outcomeId(),
+                                o.description(),
+                                absorbed.getOrDefault(o.outcomeId(), o.probability()),
+                                o.sealed(),
+                                o.annihilated()))
+                .toList();
+        var eligible = updated.stream().filter(o -> !o.annihilated()).toList();
+        boolean inBounds = !eligible.isEmpty()
+                && eligible.stream().allMatch(o -> o.probability() >= floor && o.probability() <= ceiling);
+        return inBounds ? Optional.of(updated) : Optional.empty();
     }
 
     /** Single-outcome shift: clamp the target, redistribute the actual delta across the other two proportionally. */
@@ -569,11 +627,11 @@ public final class FutureEvent {
      * in {@code [floor, ceiling]} with no further iteration — valid whenever {@code sum} itself is within
      * {@code [2*floor, 2*ceiling]}.
      * Used both for two of three outcomes given the third's already-clamped value ({@code sum = 100 -
-     * thirdOutcome}), and for a target/free-other pair when the remaining third outcome is sealed and frozen
-     * ({@code sum = 100 - sealedOutcome}) — either way {@code sum} is {@code 100} minus one outcome's
-     * probability, already within {@code [floor, ceiling]}, so the precondition holds for every case exactly
-     * when {@code floor + 2*ceiling >= 100 and 2*floor + ceiling <= 100} — enforced at startup by
-     * {@code TimelineRulesProperties}, not re-checked here.
+     * thirdOutcome}), and for a target/free-other pair when the remaining third outcome's weight is fixed
+     * ({@code sum = 100 - fixedOutcome}). For a clamped or sealed third, {@code sum} is {@code 100} minus a value
+     * within {@code [floor, ceiling]}, so the precondition holds exactly when {@code floor + 2*ceiling >= 100 and
+     * 2*floor + ceiling <= 100}, enforced at startup by {@code TimelineRulesProperties}. For an annihilated third at
+     * zero it holds because an erasure is accepted only when the eligible pair fits the bounds.
      *
      * @param desiredFirst the first outcome's desired probability before clamping
      * @param desiredSecond the second outcome's desired probability before clamping
@@ -626,19 +684,6 @@ public final class FutureEvent {
     /** True when {@code outcomeId} is one of this event's outcomes and is already annihilated. */
     public boolean isAnnihilated(UUID outcomeId) {
         return outcomes.stream().anyMatch(o -> o.outcomeId().equals(outcomeId) && o.annihilated());
-    }
-
-    /**
-     * True when erasing {@code outcomeId} would leave no eligible outcome weight to draw — the exact
-     * condition {@code IMPOSSIBLE_ERASURE} detection reports, covering both no outcome remaining and
-     * outcomes remaining but weightless.
-     */
-    public boolean wouldRemoveLastDrawableWeight(UUID outcomeId) {
-        return outcomes.stream()
-                        .filter(o -> !o.annihilated() && !o.outcomeId().equals(outcomeId))
-                        .mapToInt(Outcome::probability)
-                        .sum()
-                <= 0;
     }
 
     /** True when {@code outcomeId} is eligible and no eligible outcome has a higher probability; a tie leads. */

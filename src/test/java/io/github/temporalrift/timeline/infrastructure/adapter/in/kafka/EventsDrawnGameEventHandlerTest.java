@@ -2,11 +2,13 @@ package io.github.temporalrift.timeline.infrastructure.adapter.in.kafka;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
@@ -44,6 +46,7 @@ import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort.C
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
+import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
@@ -75,6 +78,9 @@ class EventsDrawnGameEventHandlerTest {
     @Mock
     WeaverChainSagaUseCase weaverChainSaga;
 
+    @Mock
+    ProbabilityRulesPort rules;
+
     @Spy
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
 
@@ -84,6 +90,8 @@ class EventsDrawnGameEventHandlerTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(rules.probabilityFloor()).thenReturn(0);
+        lenient().when(rules.probabilityCeiling()).thenReturn(90);
         consumer = new EventsDrawnGameEventHandler(
                 processedEvents,
                 futureEvents,
@@ -91,6 +99,7 @@ class EventsDrawnGameEventHandlerTest {
                 cascadeCarryForward,
                 publisher,
                 weaverChainSaga,
+                rules,
                 objectMapper,
                 skipMetrics,
                 clock);
@@ -236,9 +245,8 @@ class EventsDrawnGameEventHandlerTest {
     }
 
     @Test
-    @DisplayName(
-            "three pending CASCADEs for one carried event — first two re-erase, third is rejected as the final erasure")
-    void handle_threePendingCascadesForOneCarriedEvent_thirdRejectedAsFinalErasure() {
+    @DisplayName("three pending CASCADEs for one carried event — first re-erases, the rest would leave one survivor")
+    void handle_threePendingCascadesForOneCarriedEvent_onlyFirstFitsWithinBounds() {
         var eventId = UUID.randomUUID();
         var gameId = UUID.randomUUID();
         var eraNumber = 2;
@@ -280,32 +288,32 @@ class EventsDrawnGameEventHandlerTest {
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
 
-        // The first two re-erasures apply; the third would remove the last drawable outcome and is rejected.
+        // Erasing A moves its weight to B and C; erasing either of them next would leave a lone survivor past 90.
         assertThat(carried.outcomes())
-                .filteredOn(o -> o.outcomeId().equals(outcomeA) || o.outcomeId().equals(outcomeB))
-                .allSatisfy(o -> assertThat(o.annihilated()).isTrue());
-        assertThat(carried.outcomes())
-                .filteredOn(o -> o.outcomeId().equals(outcomeC))
-                .allSatisfy(o -> assertThat(o.annihilated()).isFalse());
+                .extracting(Outcome::probability, Outcome::annihilated)
+                .containsExactly(tuple(0, true), tuple(58, false), tuple(42, false));
         then(cascadeCarryForward).should().delete(gameId, eraNumber, carriedOverEventId, outcomeA);
         then(cascadeCarryForward).should().delete(gameId, eraNumber, carriedOverEventId, outcomeB);
         then(cascadeCarryForward).should().delete(gameId, eraNumber, carriedOverEventId, outcomeC);
         then(weaverChainSaga).should().annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeA);
-        then(weaverChainSaga).should().annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeB);
+        then(weaverChainSaga).should(never()).annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeB);
         then(weaverChainSaga).should(never()).annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeC);
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
         then(publisher).should(times(3)).publish(captor.capture());
-        var rejected = captor.getAllValues().stream()
-                .map(TimelineEventEnvelope::payload)
-                .filter(SpecialRejectedEvent.class::isInstance)
-                .map(SpecialRejectedEvent.class::cast)
-                .findFirst()
-                .orElseThrow();
-        assertThat(rejected.specialAction()).isEqualTo("CASCADE");
-        assertThat(rejected.playerId()).isEqualTo(playerC);
-        assertThat(rejected.targetEventId()).isEqualTo(carriedOverEventId);
-        assertThat(rejected.targetOutcomeId()).isEqualTo(outcomeC);
-        assertThat(rejected.reason()).isEqualTo("LAST_ELIGIBLE_OUTCOME");
+        assertThat(captor.getAllValues().stream()
+                        .map(TimelineEventEnvelope::payload)
+                        .filter(SpecialRejectedEvent.class::isInstance)
+                        .map(SpecialRejectedEvent.class::cast)
+                        .toList())
+                .extracting(
+                        SpecialRejectedEvent::specialAction,
+                        SpecialRejectedEvent::playerId,
+                        SpecialRejectedEvent::targetEventId,
+                        SpecialRejectedEvent::targetOutcomeId,
+                        SpecialRejectedEvent::reason)
+                .containsExactly(
+                        tuple("CASCADE", playerB, carriedOverEventId, outcomeB, "ERASURE_OUT_OF_BOUNDS"),
+                        tuple("CASCADE", playerC, carriedOverEventId, outcomeC, "ERASURE_OUT_OF_BOUNDS"));
     }
 
     @Test

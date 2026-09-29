@@ -80,7 +80,6 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final String SPECIAL_ACTION_THREAD = "THREAD";
 
     /** Published when an erasure would remove the event's last drawable outcome weight. */
-    static final String REASON_LAST_ELIGIBLE_OUTCOME = "LAST_ELIGIBLE_OUTCOME";
 
     /** Eligible for AMPLIFY's doubling and NULLIFY's cancellation like any other remaining-tier card. */
     private static final Set<String> AMPLIFIABLE_SHIFTER_TYPES =
@@ -412,12 +411,12 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     /**
-     * Applies each still-live ANNIHILATE in submission order, then notifies the Weaver chain saga so any
+     * Applies the still-live ANNIHILATEs, judging each event's together, then notifies the Weaver chain saga so any
      * chain link on the removed outcome is invalidated (or TAPESTRY-consumed). Runs here — not at
      * SpecialActionPlayed consumption — so a NULLIFY-cancelled ANNIHILATE never invalidates a chain.
-     * An ANNIHILATE that would remove its event's last drawable outcome weight is rejected privately instead:
-     * no fact is appended, the Weaver saga is not notified, and the actor spends nothing. Re-naming an
-     * already-annihilated outcome stays a silent no-op.
+     * An ANNIHILATE whose weight the remaining eligible outcomes cannot hold within the probability bounds is
+     * rejected privately instead: no fact is appended, the Weaver saga is not notified, and the actor spends
+     * nothing. Re-naming an already-annihilated outcome stays a silent no-op.
      */
     private void applyAnnihilateTier(
             UUID gameId,
@@ -445,27 +444,40 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                                 futureEvent.isLeadingEligible(a.targetOutcomeId()))));
             }
         }
-        // Applies in submission order; an ANNIHILATE that would remove its event's last drawable outcome
-        // weight is rejected privately instead (no fact appended, Weaver saga not notified, nothing spent).
-        // Rejected actions keep their pre-read resolution out of the published set — no score fact is produced
-        // for them by this service.
+        // Each event's Annihilates are judged by their combined erasure, so submission order never decides which one
+        // applies; when it cannot stay within the probability bounds, all of them are rejected privately (no fact
+        // appended, Weaver saga not notified, nothing spent) and keep their pre-read resolution unpublished.
         var rejectedKeys = new HashSet<AnnihilationKey>();
+        var liveByEvent = new LinkedHashMap<UUID, List<BufferedAction>>();
         for (var a : live) {
-            events.find(a.targetEventId()).ifPresent(futureEvent -> {
-                if (futureEvent.isAnnihilated(a.targetOutcomeId())) {
-                    return;
-                }
-                if (futureEvent.wouldRemoveLastDrawableWeight(a.targetOutcomeId())) {
+            if (a.targetOutcomeId() != null) {
+                liveByEvent
+                        .computeIfAbsent(a.targetEventId(), _ -> new ArrayList<>())
+                        .add(a);
+            }
+        }
+        liveByEvent.forEach((eventId, actions) -> events.find(eventId).ifPresent(futureEvent -> {
+            var fresh = actions.stream()
+                    .filter(a -> !futureEvent.isAnnihilated(a.targetOutcomeId()))
+                    .toList();
+            if (fresh.isEmpty()) {
+                return;
+            }
+            var targets = fresh.stream()
+                    .map(BufferedAction::targetOutcomeId)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            int floor = rules.probabilityFloor();
+            int ceiling = rules.probabilityCeiling();
+            if (!futureEvent.canAnnihilate(targets, floor, ceiling)) {
+                for (var a : fresh) {
                     publishAnnihilateRejected(gameId, eraNumber, a);
                     rejectedKeys.add(new AnnihilationKey(a.playerId(), a.targetEventId(), a.targetOutcomeId()));
-                    return;
                 }
-                futureEvents.append(a.targetEventId(), futureEvent.annihilateOutcome(a.targetOutcomeId()));
-                if (a.targetOutcomeId() != null) {
-                    weaverChainSaga.annihilateOutcome(gameId, eraNumber, a.targetEventId(), a.targetOutcomeId());
-                }
-            });
-        }
+                return;
+            }
+            futureEvents.append(eventId, futureEvent.annihilateOutcomes(targets, floor, ceiling));
+            targets.forEach(outcomeId -> weaverChainSaga.annihilateOutcome(gameId, eraNumber, eventId, outcomeId));
+        }));
         resolutions.stream()
                 .filter(resolution -> rejectedKeys.stream().noneMatch(key -> key.matches(resolution)))
                 .forEach(resolution -> publisher.publish(TimelineEventEnvelope.create(
@@ -491,7 +503,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                         null,
                         a.targetEventId(),
                         a.targetOutcomeId(),
-                        REASON_LAST_ELIGIBLE_OUTCOME),
+                        SpecialRejectedEvent.REASON_ERASURE_OUT_OF_BOUNDS),
                 clock));
     }
 

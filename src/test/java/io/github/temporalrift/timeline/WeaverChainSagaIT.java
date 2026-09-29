@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,9 +49,18 @@ class WeaverChainSagaIT {
     @Autowired
     JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    DrawRoll drawRoll;
+
     @BeforeEach
     void clearCollector() {
+        drawRoll.pin(0);
         collector.received.clear();
+    }
+
+    @AfterEach
+    void releaseDrawRoll() {
+        drawRoll.release();
     }
 
     @Test
@@ -133,7 +143,6 @@ class WeaverChainSagaIT {
         // Submitted before the Annihilates, yet judged after them: Reweave escapes the same round's erasure.
         publishReweave(gameId, 3, 2, weaver, event, reAimed);
         publishSpecialActionPlayed(gameId, 3, 2, UUID.randomUUID(), "ANNIHILATE", event, predicted);
-        publishSpecialActionPlayed(gameId, 3, 2, UUID.randomUUID(), "ANNIHILATE", event, other);
         publishActionRoundClosed(gameId, 3, 2);
         await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(payloadsOf(messagesFor(gameId), CHAIN_RE_ANCHORED))
@@ -248,20 +257,13 @@ class WeaverChainSagaIT {
     }
 
     /**
-     * Drafts an era whose threaded outcome is the only eligible winner: the two losing outcomes are
-     * annihilated in round 1, whose replay precedes the round-2 THREAD the caller publishes.
-     * Without this, the THREAD reward's ceiling-clamped push redistributes weight onto the losers
-     * (100 becomes 90/5/5) and the weighted draw only <i>likely</i> confirms the link — a 10% flake
-     * per era that bit {@code threadAcrossThreeEras_completesChainAndEndsSaga} on {@code main}.
+     * Drafts an era whose threaded outcome is declared first, so the pinned roll draws it. No outcome can be
+     * guaranteed, so without the pin the weighted draw would only <i>likely</i> confirm the link.
      */
     private void draftDeterministicEra(UUID gameId, int eraNumber, UUID eventId, UUID winner) {
-        var second = UUID.randomUUID();
-        var third = UUID.randomUUID();
         publishEraStarted(gameId, eraNumber);
-        publishEventsDrawn(gameId, eraNumber, eventId, winner, second, third);
+        publishEventsDrawn(gameId, eraNumber, eventId, winner, UUID.randomUUID(), UUID.randomUUID());
         awaitFutureEventIndexed(gameId, eraNumber);
-        publishSpecialActionPlayed(gameId, eraNumber, UUID.randomUUID(), "ANNIHILATE", eventId, second);
-        publishSpecialActionPlayed(gameId, eraNumber, UUID.randomUUID(), "ANNIHILATE", eventId, third);
         publishActionRoundClosed(gameId, eraNumber, 1);
     }
 
@@ -405,10 +407,8 @@ class WeaverChainSagaIT {
     }
 
     /**
-     * {@code winnerOutcomeId} is weighted 100 against two 0-weight outcomes — this file tests Weaver chain
-     * mechanics, not the weighted draw itself, so the resolved winner must stay deterministic (a nonzero-weight
-     * outcome is only guaranteed, not merely likely, to win the weighted draw
-     * when the other eligible outcomes carry zero weight).
+     * {@code winnerOutcomeId} is declared first with all the weight, so the pinned roll draws it even after a Thread
+     * push spreads weight onto the others; this file tests Weaver chain mechanics, not the weighted draw itself.
      */
     private void publishEventsDrawn(UUID gameId, int eraNumber, UUID futureEventId, UUID winnerOutcomeId) {
         publishEventsDrawn(gameId, eraNumber, futureEventId, winnerOutcomeId, UUID.randomUUID(), UUID.randomUUID());

@@ -14,4 +14,8 @@ public record SpecialRejectedEvent(
         UUID chainId,
         UUID targetEventId,
         UUID targetOutcomeId,
-        String reason) {}
+        String reason) {
+
+    /** An erasure whose weight the remaining eligible outcomes cannot hold within the probability bounds. */
+    public static final String REASON_ERASURE_OUT_OF_BOUNDS = "ERASURE_OUT_OF_BOUNDS";
+}

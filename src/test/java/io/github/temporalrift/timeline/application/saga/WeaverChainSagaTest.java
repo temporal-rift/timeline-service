@@ -726,7 +726,7 @@ class WeaverChainSagaTest {
     void reweave_annihilatedTarget_rejectedAsInvalidCoordinate() {
         openChainWithPendingLink(1, liveOutcome(ERA));
         var target = liveOutcome(ERA);
-        futureEvents.findById(target.eventId()).annihilateOutcome(target.outcomeId());
+        futureEvents.findById(target.eventId()).annihilateOutcome(target.outcomeId(), 0, 90);
 
         saga.playReweave(GAME_ID, ERA, PLAYER_ID, target.eventId(), target.outcomeId());
 
@@ -1045,7 +1045,7 @@ class WeaverChainSagaTest {
                 new Outcome(UUID.randomUUID(), "second", 33),
                 new Outcome(UUID.randomUUID(), "third", 33));
         var event = FutureEvent.replay(eventId, List.of(new FutureEventDrafted(eventId, outcomes)));
-        event.annihilateOutcome(outcomeId);
+        event.annihilateOutcome(outcomeId, 0, 90);
         return event;
     }
 
