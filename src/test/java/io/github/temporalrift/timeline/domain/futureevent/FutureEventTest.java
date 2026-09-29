@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -26,6 +26,8 @@ class FutureEventTest {
 
     static final UUID GAME_ID = UUID.randomUUID();
     static final int ERA_NUMBER = 1;
+    static final int FLOOR = 0;
+    static final int CEILING = 90;
 
     @Test
     void resolve_rollInFirstBucket_firstOutcomeWins() {
@@ -128,11 +130,11 @@ class FutureEventTest {
     @Test
     void resolve_noPositiveWeightAmongEligibleOutcomes_throws() {
         var id = UUID.randomUUID();
-        var zeroA = new Outcome(UUID.randomUUID(), "zeroA", 0);
-        var zeroB = new Outcome(UUID.randomUUID(), "zeroB", 0);
-        var annihilated = new Outcome(UUID.randomUUID(), "annihilated", 100);
-        var event = drafted(id, zeroA, zeroB, annihilated);
-        event.annihilateOutcome(annihilated.outcomeId());
+        var event = drafted(
+                id,
+                new Outcome(UUID.randomUUID(), "zeroA", 0),
+                new Outcome(UUID.randomUUID(), "zeroB", 0),
+                new Outcome(UUID.randomUUID(), "annihilated", 100, false, true));
 
         assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, 0L)).isInstanceOf(IllegalStateException.class);
     }
@@ -856,86 +858,13 @@ class FutureEventTest {
     }
 
     @Test
-    void applyShift_restore_setsExactProbabilitiesIgnoringMagnitude() {
-        var id = UUID.randomUUID();
-        var a = new Outcome(UUID.randomUUID(), "a", 50);
-        var b = new Outcome(UUID.randomUUID(), "b", 30);
-        var c = new Outcome(UUID.randomUUID(), "c", 20);
-        var event = drafted(id, a, b, c);
-        event.applyShift(new ProbabilityShift.Push(a.outcomeId()), 20, 0, 90);
-
-        event.applyShift(
-                new ProbabilityShift.Restore(Map.of(a.outcomeId(), 50, b.outcomeId(), 30, c.outcomeId(), 20)),
-                999,
-                0,
-                90);
-
-        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
-        assertThat(byId(event, b.outcomeId())).isEqualTo(30);
-        assertThat(byId(event, c.outcomeId())).isEqualTo(20);
-    }
-
-    @Test
-    void applyShift_restore_conflictingWithNowSealedOutcome_declinesWithoutBreach() {
-        // The snapshot predates a SEAL cast on b afterward, at a different value than the snapshot holds.
-        // Restoring verbatim would silently overwrite b's frozen probability, so the whole restore is
-        // declined as an ordinary failure — no outcome changes and no breach is recorded.
-        var id = UUID.randomUUID();
-        var a = new Outcome(UUID.randomUUID(), "a", 70);
-        var b = new Outcome(UUID.randomUUID(), "b", 18);
-        var c = new Outcome(UUID.randomUUID(), "c", 12);
-        var event = drafted(id, a, b, c);
-        event.sealOutcome(b.outcomeId());
-
-        var result = event.applyShift(
-                new ProbabilityShift.Restore(Map.of(a.outcomeId(), 50, b.outcomeId(), 30, c.outcomeId(), 20)),
-                0,
-                0,
-                90);
-
-        assertThat(result).isInstanceOf(ProbabilityShifted.class);
-        assertThat(byId(event, a.outcomeId())).isEqualTo(70);
-        assertThat(byId(event, b.outcomeId())).isEqualTo(18);
-        assertThat(byId(event, c.outcomeId())).isEqualTo(12);
-    }
-
-    @Test
-    void applyShift_restore_consistentWithSealedOutcomesValue_stillAppliesWithoutBreach() {
-        // b is sealed but the snapshot's value for b matches its current (frozen) value exactly, so
-        // restoring a/c around it is safe — this is a genuine no-op for b, not a blocked attempt.
-        var id = UUID.randomUUID();
-        var a = new Outcome(UUID.randomUUID(), "a", 70);
-        var b = new Outcome(UUID.randomUUID(), "b", 18);
-        var c = new Outcome(UUID.randomUUID(), "c", 12);
-        var event = drafted(id, a, b, c);
-        event.sealOutcome(b.outcomeId());
-
-        var result = event.applyShift(
-                new ProbabilityShift.Restore(Map.of(a.outcomeId(), 50, b.outcomeId(), 18, c.outcomeId(), 32)),
-                0,
-                0,
-                90);
-
-        assertThat(result).isInstanceOf(ProbabilityShifted.class);
-        assertThat(byId(event, a.outcomeId())).isEqualTo(50);
-        assertThat(byId(event, b.outcomeId())).isEqualTo(18);
-        assertThat(byId(event, c.outcomeId())).isEqualTo(32);
-        assertThat(event.outcomes().stream()
-                        .filter(o -> o.outcomeId().equals(b.outcomeId()))
-                        .findFirst()
-                        .orElseThrow()
-                        .sealed())
-                .isTrue();
-    }
-
-    @Test
     void resolve_annihilatedOutcome_excludedEvenAtHighestProbability() {
         var id = UUID.randomUUID();
         var highest = new Outcome(UUID.randomUUID(), "highest", 45);
         var second = new Outcome(UUID.randomUUID(), "second", 35);
         var third = new Outcome(UUID.randomUUID(), "third", 20);
         var event = drafted(id, highest, second, third);
-        event.annihilateOutcome(highest.outcomeId());
+        event.annihilateOutcome(highest.outcomeId(), FLOOR, CEILING);
 
         var outcomeApplied = event.resolve(GAME_ID, ERA_NUMBER, 0L);
 
@@ -950,7 +879,7 @@ class FutureEventTest {
         var c = new Outcome(UUID.randomUUID(), "c", 20);
         var event = drafted(id, a, b, c);
 
-        event.annihilateOutcome(b.outcomeId());
+        event.annihilateOutcome(b.outcomeId(), FLOOR, CEILING);
         event.resolve(GAME_ID, ERA_NUMBER, 0L);
 
         assertThat(event.outcomes().stream()
@@ -967,47 +896,156 @@ class FutureEventTest {
         var event = drafted(id, new Outcome(UUID.randomUUID(), "only", 100));
         var unknownOutcomeId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> event.annihilateOutcome(unknownOutcomeId)).isInstanceOf(UnknownOutcomeException.class);
+        assertThatThrownBy(() -> event.annihilateOutcome(unknownOutcomeId, FLOOR, CEILING))
+                .isInstanceOf(UnknownOutcomeException.class);
     }
 
     @Test
-    void wouldRemoveLastDrawableWeight_lastLiveOutcome_returnsTrue() {
+    void canAnnihilate_lastLiveOutcome_isFalse() {
         var id = UUID.randomUUID();
-        var lastLive = new Outcome(UUID.randomUUID(), "last", 50);
+        var lastLive = new Outcome(UUID.randomUUID(), "last", 90);
         var event = drafted(
                 id,
                 lastLive,
-                new Outcome(UUID.randomUUID(), "erased-b", 30, false, true),
-                new Outcome(UUID.randomUUID(), "erased-c", 20, false, true));
+                new Outcome(UUID.randomUUID(), "erased-b", 10, false, true),
+                new Outcome(UUID.randomUUID(), "erased-c", 0, false, true));
 
-        assertThat(event.wouldRemoveLastDrawableWeight(lastLive.outcomeId())).isTrue();
+        assertThat(event.canAnnihilate(lastLive.outcomeId(), FLOOR, CEILING)).isFalse();
         assertThat(event.isAnnihilated(lastLive.outcomeId())).isFalse();
     }
 
     @Test
-    void wouldRemoveLastDrawableWeight_liveOutcomeRemaining_returnsFalse() {
+    void canAnnihilate_singleSurvivorWouldPassTheCeiling_isFalse() {
+        var id = UUID.randomUUID();
+        var target = new Outcome(UUID.randomUUID(), "target", 50);
+        var survivor = new Outcome(UUID.randomUUID(), "survivor", 50);
+        var event = drafted(id, target, survivor, new Outcome(UUID.randomUUID(), "erased", 0, false, true));
+
+        assertThat(event.canAnnihilate(target.outcomeId(), FLOOR, CEILING)).isFalse();
+    }
+
+    @Test
+    void canAnnihilate_twoEligibleSurvivors_isTrue() {
+        var id = UUID.randomUUID();
+        var target = new Outcome(UUID.randomUUID(), "target", 34);
+        var event =
+                drafted(id, new Outcome(UUID.randomUUID(), "a", 33), new Outcome(UUID.randomUUID(), "b", 33), target);
+
+        assertThat(event.canAnnihilate(target.outcomeId(), FLOOR, CEILING)).isTrue();
+    }
+
+    @Test
+    void canAnnihilate_sealedSurvivorLeavesTheOtherPastTheCeiling_isFalse() {
+        var id = UUID.randomUUID();
+        var target = new Outcome(UUID.randomUUID(), "target", 35);
+        var event = drafted(
+                id,
+                new Outcome(UUID.randomUUID(), "sealed", 5, true, false),
+                new Outcome(UUID.randomUUID(), "free", 60),
+                target);
+
+        assertThat(event.canAnnihilate(target.outcomeId(), FLOOR, CEILING)).isFalse();
+    }
+
+    @Test
+    void canAnnihilate_alreadyAnnihilated_isTrueAndReErasingChangesNothing() {
+        var id = UUID.randomUUID();
+        var erased = new Outcome(UUID.randomUUID(), "erased", 0, false, true);
+        var event =
+                drafted(id, new Outcome(UUID.randomUUID(), "a", 50), new Outcome(UUID.randomUUID(), "b", 50), erased);
+        var before = event.outcomes();
+
+        assertThat(event.canAnnihilate(erased.outcomeId(), FLOOR, CEILING)).isTrue();
+        assertThat(event.annihilateOutcome(erased.outcomeId(), FLOOR, CEILING).outcomes())
+                .isEqualTo(before);
+    }
+
+    @Test
+    void annihilateOutcome_outOfBounds_throwsWithoutChangingState() {
         var id = UUID.randomUUID();
         var target = new Outcome(UUID.randomUUID(), "target", 50);
         var event = drafted(
                 id,
                 target,
-                new Outcome(UUID.randomUUID(), "other", 30),
-                new Outcome(UUID.randomUUID(), "erased", 20, false, true));
+                new Outcome(UUID.randomUUID(), "b", 50),
+                new Outcome(UUID.randomUUID(), "c", 0, false, true));
+        var before = event.outcomes();
+        var targetId = target.outcomeId();
 
-        assertThat(event.wouldRemoveLastDrawableWeight(target.outcomeId())).isFalse();
+        assertThatThrownBy(() -> event.annihilateOutcome(targetId, FLOOR, CEILING))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(event.outcomes()).isEqualTo(before);
     }
 
     @Test
-    void wouldRemoveLastDrawableWeight_onlyWeightlessOutcomesRemaining_returnsTrue() {
+    void annihilateOutcome_freshEvent_splitsTheErasedWeightEvenly() {
         var id = UUID.randomUUID();
-        var target = new Outcome(UUID.randomUUID(), "target", 100);
-        var event = drafted(
-                id,
-                target,
-                new Outcome(UUID.randomUUID(), "weightless", 0),
-                new Outcome(UUID.randomUUID(), "other", 0));
+        var a = new Outcome(UUID.randomUUID(), "a", 33);
+        var b = new Outcome(UUID.randomUUID(), "b", 33);
+        var c = new Outcome(UUID.randomUUID(), "c", 34);
+        var event = drafted(id, a, b, c);
 
-        assertThat(event.wouldRemoveLastDrawableWeight(target.outcomeId())).isTrue();
+        var erased = event.annihilateOutcome(c.outcomeId(), FLOOR, CEILING);
+
+        assertThat(erased.outcomes()).isEqualTo(event.outcomes());
+        assertThat(probabilities(event, a, b, c)).containsExactly(50, 50, 0);
+        assertThat(event.isAnnihilated(c.outcomeId())).isTrue();
+    }
+
+    @Test
+    void annihilateOutcome_redistributionIsCappedAtTheCeiling() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 85);
+        var b = new Outcome(UUID.randomUUID(), "b", 5);
+        var c = new Outcome(UUID.randomUUID(), "c", 10);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(c.outcomeId(), FLOOR, CEILING);
+
+        assertThat(probabilities(event, a, b, c)).containsExactly(90, 10, 0);
+    }
+
+    @Test
+    void annihilateOutcome_sealedSurvivorKeepsItsWeight() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 40, true, false);
+        var b = new Outcome(UUID.randomUUID(), "b", 30);
+        var c = new Outcome(UUID.randomUUID(), "c", 30);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(c.outcomeId(), FLOOR, CEILING);
+
+        assertThat(probabilities(event, a, b, c)).containsExactly(40, 60, 0);
+        assertThat(event.outcomes().getFirst().sealed()).isTrue();
+    }
+
+    @Test
+    void annihilateOutcome_zeroWeightOutcome_movesNothing() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 90);
+        var b = new Outcome(UUID.randomUUID(), "b", 10);
+        var c = new Outcome(UUID.randomUUID(), "c", 0);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(c.outcomeId(), FLOOR, CEILING);
+
+        assertThat(probabilities(event, a, b, c)).containsExactly(90, 10, 0);
+        assertThat(event.isAnnihilated(c.outcomeId())).isTrue();
+    }
+
+    @Test
+    void annihilateOutcome_sealedTarget_losesItsSealAndWeight() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 33);
+        var b = new Outcome(UUID.randomUUID(), "b", 33);
+        var c = new Outcome(UUID.randomUUID(), "c", 34, true, false);
+        var event = drafted(id, a, b, c);
+
+        event.annihilateOutcome(c.outcomeId(), FLOOR, CEILING);
+
+        assertThat(probabilities(event, a, b, c)).containsExactly(50, 50, 0);
+        assertThat(event.outcomes().get(2).sealed()).isFalse();
+        assertThat(event.outcomes().get(2).annihilated()).isTrue();
     }
 
     @Test
@@ -1028,7 +1066,7 @@ class FutureEventTest {
         event.resolve(GAME_ID, ERA_NUMBER, 0L);
         var outcomeId = outcome.outcomeId();
 
-        assertThatThrownBy(() -> event.annihilateOutcome(outcomeId))
+        assertThatThrownBy(() -> event.annihilateOutcome(outcomeId, FLOOR, CEILING))
                 .isInstanceOf(FutureEventAlreadyResolvedException.class);
     }
 
@@ -1300,7 +1338,7 @@ class FutureEventTest {
         var c = new Outcome(UUID.randomUUID(), "c", 20);
         var event = drafted(UUID.randomUUID(), a, b, c);
 
-        event.annihilateOutcome(a.outcomeId());
+        event.annihilateOutcome(a.outcomeId(), FLOOR, CEILING);
 
         assertThat(event.isEligible(a.outcomeId())).isFalse();
         assertThat(event.isLeadingEligible(a.outcomeId())).isFalse();
@@ -1327,80 +1365,40 @@ class FutureEventTest {
         var c = new Outcome(UUID.randomUUID(), "c", 20);
         var event = drafted(id, a, b, c);
 
-        event.annihilateOutcome(a.outcomeId());
+        event.annihilateOutcome(a.outcomeId(), FLOOR, CEILING);
 
         assertThat(event.hasDrawableWeight()).isTrue();
     }
 
     @Test
-    void hasDrawableWeight_twoAnnihilated_isTrue() {
-        var id = UUID.randomUUID();
-        var a = new Outcome(UUID.randomUUID(), "a", 50);
-        var b = new Outcome(UUID.randomUUID(), "b", 30);
-        var c = new Outcome(UUID.randomUUID(), "c", 20);
-        var event = drafted(id, a, b, c);
-
-        event.annihilateOutcome(a.outcomeId());
-        event.annihilateOutcome(b.outcomeId());
+    void hasDrawableWeight_twoAnnihilatedWithLiveWeight_isTrue() {
+        var event = drafted(
+                UUID.randomUUID(),
+                new Outcome(UUID.randomUUID(), "a", 0, false, true),
+                new Outcome(UUID.randomUUID(), "b", 0, false, true),
+                new Outcome(UUID.randomUUID(), "c", 100));
 
         assertThat(event.hasDrawableWeight()).isTrue();
     }
 
     @Test
-    void hasDrawableWeight_allThreeAnnihilatedInAscendingOrder_isFalse() {
-        var id = UUID.randomUUID();
-        var a = new Outcome(UUID.randomUUID(), "a", 50);
-        var b = new Outcome(UUID.randomUUID(), "b", 30);
-        var c = new Outcome(UUID.randomUUID(), "c", 20);
-        var event = drafted(id, a, b, c);
-
-        event.annihilateOutcome(a.outcomeId());
-        event.annihilateOutcome(b.outcomeId());
-        event.annihilateOutcome(c.outcomeId());
-
-        assertThat(event.hasDrawableWeight()).isFalse();
-    }
-
-    @Test
-    void hasDrawableWeight_allThreeAnnihilatedInDescendingOrder_isFalse() {
-        var id = UUID.randomUUID();
-        var a = new Outcome(UUID.randomUUID(), "a", 50);
-        var b = new Outcome(UUID.randomUUID(), "b", 30);
-        var c = new Outcome(UUID.randomUUID(), "c", 20);
-        var event = drafted(id, a, b, c);
-
-        event.annihilateOutcome(c.outcomeId());
-        event.annihilateOutcome(b.outcomeId());
-        event.annihilateOutcome(a.outcomeId());
-
-        assertThat(event.hasDrawableWeight()).isFalse();
-    }
-
-    @Test
-    void hasDrawableWeight_allThreeAnnihilatedInMixedOrder_isFalse() {
-        var id = UUID.randomUUID();
-        var a = new Outcome(UUID.randomUUID(), "a", 50);
-        var b = new Outcome(UUID.randomUUID(), "b", 30);
-        var c = new Outcome(UUID.randomUUID(), "c", 20);
-        var event = drafted(id, a, b, c);
-
-        event.annihilateOutcome(b.outcomeId());
-        event.annihilateOutcome(c.outcomeId());
-        event.annihilateOutcome(a.outcomeId());
+    void hasDrawableWeight_allThreeAnnihilated_isFalse() {
+        var event = drafted(
+                UUID.randomUUID(),
+                new Outcome(UUID.randomUUID(), "a", 50, false, true),
+                new Outcome(UUID.randomUUID(), "b", 30, false, true),
+                new Outcome(UUID.randomUUID(), "c", 20, false, true));
 
         assertThat(event.hasDrawableWeight()).isFalse();
     }
 
     @Test
     void hasDrawableWeight_eligibleOutcomesAllAtZero_isFalse() {
-        var id = UUID.randomUUID();
-        var a = new Outcome(UUID.randomUUID(), "a", 50);
-        var b = new Outcome(UUID.randomUUID(), "b", 50);
-        var c = new Outcome(UUID.randomUUID(), "c", 0);
-        var event = drafted(id, a, b, c);
-
-        event.annihilateOutcome(a.outcomeId());
-        event.annihilateOutcome(b.outcomeId());
+        var event = drafted(
+                UUID.randomUUID(),
+                new Outcome(UUID.randomUUID(), "a", 50, false, true),
+                new Outcome(UUID.randomUUID(), "b", 50, false, true),
+                new Outcome(UUID.randomUUID(), "c", 0));
 
         assertThat(event.hasDrawableWeight()).isFalse();
     }
@@ -1514,7 +1512,7 @@ class FutureEventTest {
         var leader = new Outcome(UUID.randomUUID(), "leader", 34);
         var event = drafted(id, a, b, leader);
 
-        event.annihilateOutcome(leader.outcomeId());
+        event.annihilateOutcome(leader.outcomeId(), FLOOR, CEILING);
 
         assertThat(ParadoxDetector.detect(event.outcomes(), event.collidedPairs()))
                 .isEmpty();
@@ -1729,6 +1727,102 @@ class FutureEventTest {
         }
     }
 
+    @Test
+    void applyShift_suppressAfterErasure_movesWeightOnlyToTheEligibleSurvivor() {
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 50);
+        var c = new Outcome(UUID.randomUUID(), "c", 0, false, true);
+        var event = drafted(UUID.randomUUID(), a, b, c);
+
+        event.applyShift(new ProbabilityShift.Suppress(a.outcomeId()), -30, FLOOR, CEILING);
+
+        assertThat(probabilities(event, a, b, c)).containsExactly(20, 80, 0);
+    }
+
+    @Test
+    void applyShift_namingAnErasedOutcome_isDeclinedWithWeightsUnchanged() {
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 50);
+        var c = new Outcome(UUID.randomUUID(), "c", 0, false, true);
+        var event = drafted(UUID.randomUUID(), a, b, c);
+        var before = event.outcomes();
+
+        event.applyShift(new ProbabilityShift.Push(c.outcomeId()), 20, FLOOR, CEILING);
+        event.applyShift(new ProbabilityShift.Swing(a.outcomeId(), c.outcomeId()), 20, FLOOR, CEILING);
+        event.applyShift(new ProbabilityShift.Swing(c.outcomeId(), a.outcomeId()), 20, FLOOR, CEILING);
+        var collide = event.applyShift(new ProbabilityShift.Collide(a.outcomeId(), c.outcomeId()), 0, FLOOR, CEILING);
+
+        assertThat(event.outcomes()).isEqualTo(before);
+        assertThat(collide).isInstanceOf(ProbabilityShifted.class);
+        assertThat(event.collidedPairs()).isEmpty();
+    }
+
+    @Test
+    void oneErasure_laterShiftsCannotMakeAnOutcomeCertain() {
+        var a = new Outcome(UUID.randomUUID(), "a", 33);
+        var b = new Outcome(UUID.randomUUID(), "b", 33);
+        var c = new Outcome(UUID.randomUUID(), "c", 34);
+        var event = drafted(UUID.randomUUID(), a, b, c);
+
+        event.annihilateOutcome(c.outcomeId(), FLOOR, CEILING);
+        event.applyShift(new ProbabilityShift.Suppress(b.outcomeId()), -30, FLOOR, CEILING);
+        event.applyShift(new ProbabilityShift.Swing(b.outcomeId(), a.outcomeId()), 10, FLOOR, CEILING);
+        event.applyShift(new ProbabilityShift.Swing(b.outcomeId(), a.outcomeId()), 10, FLOOR, CEILING);
+
+        assertThat(probabilities(event, a, b, c)).containsExactly(90, 10, 0);
+    }
+
+    @Test
+    void carriedErasure_blocksASecondErasureAndKeepsDrawableWeight() {
+        var id = UUID.randomUUID();
+        var a = new Outcome(UUID.randomUUID(), "a", 33);
+        var b = new Outcome(UUID.randomUUID(), "b", 33);
+        var c = new Outcome(UUID.randomUUID(), "c", 34);
+        var event = drafted(id, a, b, c);
+        event.annihilateOutcome(c.outcomeId(), FLOOR, CEILING);
+        event.markStalled();
+        event.clearEraState();
+        event.clearStalled();
+
+        event.annihilateOutcome(c.outcomeId(), FLOOR, CEILING);
+
+        assertThat(event.canAnnihilate(b.outcomeId(), FLOOR, CEILING)).isFalse();
+        event.applyShift(new ProbabilityShift.Suppress(a.outcomeId()), -30, FLOOR, CEILING);
+        event.applyShift(new ProbabilityShift.Suppress(a.outcomeId()), -10, FLOOR, CEILING);
+        event.applyShift(new ProbabilityShift.Suppress(a.outcomeId()), -10, FLOOR, CEILING);
+        assertThat(probabilities(event, a, b, c)).containsExactly(10, 90, 0);
+        assertThat(event.hasDrawableWeight()).isTrue();
+    }
+
+    @Test
+    void clearEraState_keepsAnErasedOutcomeAtZeroAndLetsShiftsRaiseIt() {
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 50);
+        var c = new Outcome(UUID.randomUUID(), "c", 0, false, true);
+        var event = drafted(UUID.randomUUID(), a, b, c);
+
+        event.clearEraState();
+        assertThat(event.isEligible(c.outcomeId())).isTrue();
+        assertThat(probabilities(event, a, b, c)).containsExactly(50, 50, 0);
+
+        event.applyShift(new ProbabilityShift.Push(c.outcomeId()), 10, FLOOR, CEILING);
+
+        assertThat(probabilities(event, a, b, c)).containsExactly(45, 45, 10);
+    }
+
+    @Test
+    void applySimultaneousShifts_afterErasure_fitsTheCombinedResultAroundTheErasedOutcome() {
+        var a = new Outcome(UUID.randomUUID(), "a", 50);
+        var b = new Outcome(UUID.randomUUID(), "b", 50);
+        var c = new Outcome(UUID.randomUUID(), "c", 0, false, true);
+        var event = drafted(UUID.randomUUID(), a, b, c);
+        var suppress = new SimultaneousShift(new ProbabilityShift.Suppress(a.outcomeId()), -30);
+
+        event.applySimultaneousShifts(List.of(suppress, suppress), FLOOR, CEILING);
+
+        assertThat(probabilities(event, a, b, c)).containsExactly(10, 90, 0);
+    }
+
     private static <T> List<List<T>> permutations(List<T> items) {
         if (items.isEmpty()) {
             return List.of(List.of());
@@ -1753,6 +1847,10 @@ class FutureEventTest {
                 .findFirst()
                 .orElseThrow()
                 .probability();
+    }
+
+    private static List<Integer> probabilities(FutureEvent event, Outcome... outcomes) {
+        return Arrays.stream(outcomes).map(o -> byId(event, o.outcomeId())).toList();
     }
 
     private static int sum(FutureEvent event) {

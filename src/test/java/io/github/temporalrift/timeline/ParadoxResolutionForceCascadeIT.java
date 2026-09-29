@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
@@ -166,7 +167,7 @@ class ParadoxResolutionForceCascadeIT {
     }
 
     @Test
-    void finalErasureRejected_eventResolvesNormally_neverCascades() {
+    void sameRoundErasuresLeavingOneSurvivor_areRejected_eventResolvesNormally_neverCascades() {
         var gameId = UUID.randomUUID();
         var eventId = UUID.randomUUID();
         var outcomeA = UUID.randomUUID();
@@ -174,12 +175,13 @@ class ParadoxResolutionForceCascadeIT {
         var outcomeC = UUID.randomUUID();
 
         publishEraStarted(gameId, 1);
-        publishEventsDrawnSingleThreeOutcomeEvent(gameId, 1, eventId, outcomeA, 100, outcomeB, 0, outcomeC, 0);
+        publishEventsDrawnSingleThreeOutcomeEvent(gameId, 1, eventId, outcomeA, 40, outcomeB, 35, outcomeC, 25);
         awaitFutureEventsIndexed(gameId, 1, 1);
 
-        // Annihilating the outcome holding all the weight would leave nothing to draw, so the erasure is
-        // rejected instead of tripping a paradox: the event resolves normally and never cascades.
+        // Erasing A and C together would leave B alone at 100%, past the ceiling, so both erasures are rejected
+        // instead of guaranteeing B: the event resolves normally and never cascades.
         publishSpecialActionPlayed(gameId, 1, eventId, "ANNIHILATE", outcomeA);
+        publishSpecialActionPlayed(gameId, 1, eventId, "ANNIHILATE", outcomeC);
         publishActionRoundClosed(gameId, 1, 1);
         publishResolutionStarted(gameId, 1, UUID.randomUUID());
 
@@ -190,15 +192,13 @@ class ParadoxResolutionForceCascadeIT {
                 .filter(m -> "SpecialRejected".equals(m.eventType()))
                 .map(TimelineEventsTestCollector.CollectedMessage::payload)
                 .filter(p -> Integer.valueOf(1).equals(p.get("eraNumber")))
-                .findFirst()
-                .orElseThrow();
+                .toList();
         assertThat(rejected)
-                .containsEntry("specialAction", "ANNIHILATE")
-                .containsEntry("reason", "LAST_ELIGIBLE_OUTCOME")
-                .containsEntry("targetEventId", eventId.toString())
-                .containsEntry("targetOutcomeId", outcomeA.toString());
+                .extracting(p -> p.get("specialAction"), p -> p.get("reason"), p -> p.get("targetOutcomeId"))
+                .containsExactlyInAnyOrder(
+                        tuple("ANNIHILATE", "ERASURE_OUT_OF_BOUNDS", outcomeA.toString()),
+                        tuple("ANNIHILATE", "ERASURE_OUT_OF_BOUNDS", outcomeC.toString()));
 
-        // The untouched weights still draw: the rejected target holds all the weight, so it wins outright.
         var barrier = messagesFor(gameId).stream()
                 .filter(m -> ERA_RESOLUTION_COMPLETED.equals(m.eventType()))
                 .map(TimelineEventsTestCollector.CollectedMessage::payload)
@@ -207,8 +207,7 @@ class ParadoxResolutionForceCascadeIT {
                 .orElseThrow();
         var terminalResolutions = (List<?>) barrier.get("terminalResolutions");
         assertThat(terminalResolutionFor(terminalResolutions, eventId))
-                .containsEntry("terminalState", "OUTCOME_APPLIED")
-                .containsEntry("winningOutcomeId", outcomeA.toString());
+                .containsEntry("terminalState", "OUTCOME_APPLIED");
 
         // No paradox was ever detected, resolved, or cascaded for this event.
         assertThat(messagesFor(gameId))

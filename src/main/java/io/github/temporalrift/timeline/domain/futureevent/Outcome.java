@@ -9,4 +9,9 @@ public record Outcome(UUID outcomeId, String description, int probability, boole
     public Outcome(UUID outcomeId, String description, int probability) {
         this(outcomeId, description, probability, false, false);
     }
+
+    /** True when no shift may move this outcome's weight: it is sealed, or erased and held at zero. */
+    public boolean fixedWeight() {
+        return sealed || annihilated;
+    }
 }

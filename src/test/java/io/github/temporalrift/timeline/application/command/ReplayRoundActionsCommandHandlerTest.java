@@ -107,6 +107,8 @@ class ReplayRoundActionsCommandHandlerTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(rules.probabilityFloor()).thenReturn(0);
+        lenient().when(rules.probabilityCeiling()).thenReturn(90);
         handler = new ReplayRoundActionsCommandHandler(
                 buffer,
                 futureEvents,
@@ -2096,6 +2098,59 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
+    void replay_erasureBeforeScanAndBands_reportsTheRealDrawChances() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var player = UUID.randomUUID();
+        var history = new ArrayList<Object>(
+                List.of(new FutureEventDrafted(eventId, List.of(outcome(a, 33), outcome(b, 33), outcome(c, 34)))));
+        given(futureEvents.findById(eventId)).willAnswer(_ -> FutureEvent.replay(eventId, List.copyOf(history)));
+        willAnswer(invocation -> {
+                    history.add(invocation.getArgument(1));
+                    return null;
+                })
+                .given(futureEvents)
+                .append(eq(eventId), any());
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, 2))
+                .willReturn(List.of(
+                        specialAction("ANNIHILATE", eventId, c, at(0)),
+                        cardPlayedBy(player, "SCAN", eventId, null, null, at(1))));
+        given(scanEntitlements.findByGameAndEra(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new ScanEntitlement(player, eventId)));
+        given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
+                .willReturn(List.of(new IndexedEventId(eventId, 0)));
+        given(bandRules.bandLowMax()).willReturn(30);
+        given(bandRules.bandMediumMax()).willReturn(60);
+
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeast(1)).publish(captor.capture());
+        var payloads = captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .toList();
+        assertThat(payloads)
+                .filteredOn(ProbabilityStateRevealed.class::isInstance)
+                .singleElement()
+                .satisfies(revealed -> assertThat(((ProbabilityStateRevealed) revealed).outcomes())
+                        .extracting(
+                                ProbabilityStateRevealed.OutcomeState::probability,
+                                ProbabilityStateRevealed.OutcomeState::isAnnihilated)
+                        .containsExactly(tuple(50, false), tuple(50, false), tuple(0, true)));
+        assertThat(payloads)
+                .filteredOn(AdjustedBandsPublished.class::isInstance)
+                .singleElement()
+                .satisfies(published -> {
+                    var eventState =
+                            ((AdjustedBandsPublished) published).eventStates().getFirst();
+                    assertThat(List.of(bandOf(eventState, a), bandOf(eventState, b), bandOf(eventState, c)))
+                            .containsExactly(ProbabilityBand.MEDIUM, ProbabilityBand.MEDIUM, ProbabilityBand.LOW);
+                });
+    }
+
+    @Test
     void replay_reloadsTargetsInLaterRounds() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
@@ -2356,7 +2411,7 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_annihilateRemovingLastDrawableOutcome_rejectedWithoutStateChange() {
+    void replay_annihilateOfLastEligibleOutcome_rejectedWithoutStateChange() {
         var eventId = UUID.randomUUID();
         var lastLive = UUID.randomUUID();
         var player = UUID.randomUUID();
@@ -2384,7 +2439,7 @@ class ReplayRoundActionsCommandHandlerTest {
                         SpecialRejectedEvent::targetEventId,
                         SpecialRejectedEvent::targetOutcomeId,
                         SpecialRejectedEvent::reason)
-                .containsExactly(tuple("ANNIHILATE", player, eventId, lastLive, "LAST_ELIGIBLE_OUTCOME"));
+                .containsExactly(tuple("ANNIHILATE", player, eventId, lastLive, "ERASURE_OUT_OF_BOUNDS"));
     }
 
     @Test
@@ -2441,7 +2496,7 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_twoAnnihilatesOnOneEvent_reportTheSameStandingInEitherSubmissionOrder() {
+    void replay_twoAnnihilatesOnOneEvent_areJudgedTogetherInEitherSubmissionOrder() {
         var eventId = UUID.randomUUID();
         var leader = UUID.randomUUID();
         var trailing = UUID.randomUUID();
@@ -2460,12 +2515,13 @@ class ReplayRoundActionsCommandHandlerTest {
 
             handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-            assertThat(annihilationResolutions())
-                    .extracting(
-                            AnnihilationResolved::annihilatingPlayerId,
-                            AnnihilationResolved::erased,
-                            AnnihilationResolved::wasLeading)
-                    .containsExactlyInAnyOrder(tuple(leaderPlayer, true, true), tuple(trailingPlayer, true, false));
+            // Erasing both would leave the third outcome alone at 100%, so neither applies whichever came first.
+            assertThat(annihilationResolutions()).isEmpty();
+            assertThat(specialRejections())
+                    .extracting(SpecialRejectedEvent::playerId, SpecialRejectedEvent::reason)
+                    .containsExactlyInAnyOrder(
+                            tuple(leaderPlayer, "ERASURE_OUT_OF_BOUNDS"),
+                            tuple(trailingPlayer, "ERASURE_OUT_OF_BOUNDS"));
         }
     }
 
@@ -2484,7 +2540,7 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
-    void replay_twoAnnihilatesForLastTwoLiveOutcomes_firstAppliesSecondRejected() {
+    void replay_twoAnnihilatesForLastTwoLiveOutcomes_bothRejectedTogether() {
         var eventId = UUID.randomUUID();
         var first = UUID.randomUUID();
         var second = UUID.randomUUID();
@@ -2506,23 +2562,18 @@ class ReplayRoundActionsCommandHandlerTest {
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        then(futureEvents)
-                .should(times(1))
-                .append(eq(eventId), any(io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated.class));
-        then(weaverChainSaga).should(times(1)).annihilateOutcome(any(), anyInt(), any(), any());
-        assertThat(annihilationResolutions())
-                .extracting(
-                        AnnihilationResolved::annihilatingPlayerId,
-                        AnnihilationResolved::erased,
-                        AnnihilationResolved::wasLeading)
-                .containsExactly(tuple(firstPlayer, true, true));
+        then(futureEvents).should(never()).append(any(), any());
+        then(weaverChainSaga).should(never()).annihilateOutcome(any(), anyInt(), any(), any());
+        assertThat(annihilationResolutions()).isEmpty();
         assertThat(specialRejections())
                 .extracting(
                         SpecialRejectedEvent::specialAction,
                         SpecialRejectedEvent::playerId,
                         SpecialRejectedEvent::targetOutcomeId,
                         SpecialRejectedEvent::reason)
-                .containsExactly(tuple("ANNIHILATE", secondPlayer, second, "LAST_ELIGIBLE_OUTCOME"));
+                .containsExactly(
+                        tuple("ANNIHILATE", firstPlayer, first, "ERASURE_OUT_OF_BOUNDS"),
+                        tuple("ANNIHILATE", secondPlayer, second, "ERASURE_OUT_OF_BOUNDS"));
     }
 
     @Test

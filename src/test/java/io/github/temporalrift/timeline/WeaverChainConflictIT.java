@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,9 +44,18 @@ class WeaverChainConflictIT {
     @Autowired
     JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    DrawRoll drawRoll;
+
     @BeforeEach
     void clearCollector() {
+        drawRoll.pin(0);
         collector.received.clear();
+    }
+
+    @AfterEach
+    void releaseDrawRoll() {
+        drawRoll.release();
     }
 
     @Test
@@ -151,10 +161,7 @@ class WeaverChainConflictIT {
         assertThat(eventTypesOf(gameId)).doesNotContain(THREAD_REJECTED, CHAIN_BROKEN, CHAIN_LINK_ADDED);
     }
 
-    /**
-     * Confirms era-1 and era-2 links. The losers are annihilated before the Thread so its ceiling-clamped push
-     * cannot hand them weight, keeping each draw deterministic.
-     */
+    /** Confirms era-1 and era-2 links; the pinned roll draws each era's first outcome, the threaded winner. */
     private void confirmTwoLinks(UUID gameId, UUID weaver) {
         for (var era : List.of(1, 2)) {
             var event = UUID.randomUUID();
@@ -162,8 +169,6 @@ class WeaverChainConflictIT {
             var second = UUID.randomUUID();
             var third = UUID.randomUUID();
             drawEra(gameId, era, weaver, event, winner, 100, second, 0, third, 0);
-            publisher.specialActionPlayed(gameId, era, event, "ANNIHILATE", second);
-            publisher.specialActionPlayed(gameId, era, event, "ANNIHILATE", third);
             publisher.actionRoundClosed(gameId, era, 1);
             weaverSpecial(gameId, era, 2, weaver, "THREAD", event, winner);
             publisher.actionRoundClosed(gameId, era, 2);

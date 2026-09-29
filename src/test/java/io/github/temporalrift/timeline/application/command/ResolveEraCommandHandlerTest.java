@@ -175,9 +175,8 @@ class ResolveEraCommandHandlerTest {
                 List.of(new FutureEventDrafted(
                         eventId,
                         List.of(
-                                new Outcome(annihilatedHighest, "highest", 100),
+                                new Outcome(annihilatedHighest, "highest", 100, false, true),
                                 new Outcome(UUID.randomUUID(), "second", 0)))));
-        futureEvent.annihilateOutcome(annihilatedHighest);
 
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
@@ -364,7 +363,7 @@ class ResolveEraCommandHandlerTest {
                                 new Outcome(annihilatedOutcomeId, "annihilated", 30),
                                 new Outcome(plainOutcomeId, "plain", 50)))));
         futureEvent.sealOutcome(sealedOutcomeId);
-        futureEvent.annihilateOutcome(annihilatedOutcomeId);
+        futureEvent.annihilateOutcome(annihilatedOutcomeId, 0, 90);
 
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
@@ -414,9 +413,8 @@ class ResolveEraCommandHandlerTest {
                 List.of(new FutureEventDrafted(
                         eventId,
                         List.of(
-                                new Outcome(annihilatedHighest, "highest", 60),
+                                new Outcome(annihilatedHighest, "highest", 60, false, true),
                                 new Outcome(eligibleSecond, "second", 40)))));
-        futureEvent.annihilateOutcome(annihilatedHighest);
 
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
@@ -443,9 +441,8 @@ class ResolveEraCommandHandlerTest {
                 List.of(new FutureEventDrafted(
                         eventId,
                         List.of(
-                                new Outcome(annihilatedHighest, "highest", 100),
+                                new Outcome(annihilatedHighest, "highest", 100, false, true),
                                 new Outcome(UUID.randomUUID(), "second", 0)))));
-        futureEvent.annihilateOutcome(annihilatedHighest);
 
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
@@ -480,9 +477,8 @@ class ResolveEraCommandHandlerTest {
                 List.of(new FutureEventDrafted(
                         paradoxedEventId,
                         List.of(
-                                new Outcome(annihilatedOutcomeId, "annihilated", 100),
+                                new Outcome(annihilatedOutcomeId, "annihilated", 100, false, true),
                                 new Outcome(UUID.randomUUID(), "second", 0)))));
-        paradoxedEvent.annihilateOutcome(annihilatedOutcomeId);
 
         var eventId1 = UUID.randomUUID();
         var eventId2 = UUID.randomUUID();
@@ -573,9 +569,8 @@ class ResolveEraCommandHandlerTest {
                 List.of(new FutureEventDrafted(
                         eventId,
                         List.of(
-                                new Outcome(annihilatedOutcomeId, "annihilated", 100),
+                                new Outcome(annihilatedOutcomeId, "annihilated", 100, false, true),
                                 new Outcome(UUID.randomUUID(), "second", 0)))));
-        futureEvent.annihilateOutcome(annihilatedOutcomeId);
 
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));
@@ -612,7 +607,7 @@ class ResolveEraCommandHandlerTest {
                                 new Outcome(pendingOutcomeId, "pending", 30),
                                 new Outcome(UUID.randomUUID(), "second", 45),
                                 new Outcome(UUID.randomUUID(), "third", 25)))));
-        futureEvent.annihilateOutcome(pendingOutcomeId);
+        futureEvent.annihilateOutcome(pendingOutcomeId, 0, 90);
 
         given(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER))
                 .willReturn(List.of(new IndexedEventId(eventId, 0)));

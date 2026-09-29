@@ -150,9 +150,12 @@ class SettleCascadeCarryForwardCommandHandlerTest {
                 eventId,
                 List.of(new FutureEventDrafted(
                         eventId,
-                        List.of(new Outcome(outcomeId, "named", 50), new Outcome(UUID.randomUUID(), "o", 50)))));
+                        List.of(
+                                new Outcome(outcomeId, "named", 34),
+                                new Outcome(UUID.randomUUID(), "o", 33),
+                                new Outcome(UUID.randomUUID(), "p", 33)))));
         if (erased) {
-            futureEvent.annihilateOutcome(outcomeId);
+            futureEvent.annihilateOutcome(outcomeId, 0, 90);
         }
         return futureEvent;
     }

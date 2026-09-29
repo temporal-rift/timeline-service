@@ -23,6 +23,7 @@ import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort.C
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
+import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
@@ -47,6 +48,7 @@ class EventsDrawnGameEventHandler {
     private final CascadeCarryForwardPort cascadeCarryForward;
     private final TimelineEventPublisher publisher;
     private final WeaverChainSagaUseCase weaverChainSaga;
+    private final ProbabilityRulesPort rules;
     private final ObjectMapper objectMapper;
     private final GameEventSkipMetrics skipMetrics;
     private final Clock clock;
@@ -58,6 +60,7 @@ class EventsDrawnGameEventHandler {
             CascadeCarryForwardPort cascadeCarryForward,
             TimelineEventPublisher publisher,
             WeaverChainSagaUseCase weaverChainSaga,
+            ProbabilityRulesPort rules,
             ObjectMapper objectMapper,
             GameEventSkipMetrics skipMetrics,
             Clock clock) {
@@ -67,6 +70,7 @@ class EventsDrawnGameEventHandler {
         this.cascadeCarryForward = cascadeCarryForward;
         this.publisher = publisher;
         this.weaverChainSaga = weaverChainSaga;
+        this.rules = rules;
         this.objectMapper = objectMapper;
         this.skipMetrics = skipMetrics;
         this.clock = clock;
@@ -101,8 +105,8 @@ class EventsDrawnGameEventHandler {
      * Applies every CASCADE confirmed for this era, after every carried event's clearing above so the carried
      * erasure lands on top of the fresh state rather than being wiped by it. Settlement already rejects a
      * CASCADE whose event did not carry, so a pending row whose event is absent here is only a defensive drop.
-     * A re-erasure that would remove its event's last drawable outcome weight is rejected privately instead,
-     * leaving the outcome live; re-naming an already-erased outcome stays a silent re-application.
+     * A re-erasure whose weight the remaining eligible outcomes cannot hold within the probability bounds is rejected
+     * privately instead, leaving the outcome live; re-naming an already-erased outcome stays a silent re-application.
      */
     private void applyPendingCascades(UUID gameId, int eraNumber, Set<UUID> carriedEventIds) {
         for (var pending : cascadeCarryForward.findByGameAndEra(gameId, eraNumber)) {
@@ -132,8 +136,9 @@ class EventsDrawnGameEventHandler {
             return;
         }
         var futureEvent = futureEvents.findById(pending.eventId());
-        if (!futureEvent.isAnnihilated(pending.outcomeId())
-                && futureEvent.wouldRemoveLastDrawableWeight(pending.outcomeId())) {
+        int floor = rules.probabilityFloor();
+        int ceiling = rules.probabilityCeiling();
+        if (!futureEvent.canAnnihilate(pending.outcomeId(), floor, ceiling)) {
             cascadeCarryForward.delete(gameId, eraNumber, pending.eventId(), pending.outcomeId());
             publisher.publish(TimelineEventEnvelope.create(
                     pending.eventId(),
@@ -148,11 +153,11 @@ class EventsDrawnGameEventHandler {
                             null,
                             pending.eventId(),
                             pending.outcomeId(),
-                            "LAST_ELIGIBLE_OUTCOME"),
+                            SpecialRejectedEvent.REASON_ERASURE_OUT_OF_BOUNDS),
                     clock));
             return;
         }
-        futureEvents.append(pending.eventId(), futureEvent.annihilateOutcome(pending.outcomeId()));
+        futureEvents.append(pending.eventId(), futureEvent.annihilateOutcome(pending.outcomeId(), floor, ceiling));
         weaverChainSaga.annihilateOutcome(gameId, eraNumber, pending.eventId(), pending.outcomeId());
         cascadeCarryForward.delete(gameId, eraNumber, pending.eventId(), pending.outcomeId());
         publisher.publish(TimelineEventEnvelope.create(
