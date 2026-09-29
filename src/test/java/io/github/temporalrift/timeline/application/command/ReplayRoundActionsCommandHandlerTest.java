@@ -469,6 +469,217 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
+    void replay_twoAmplifiesOnOnePush_applyOnlyTheStrongestMultiplier() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var futureEvent =
+                drafted(eventId, outcome(a, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.amplifyMultiplier(CardGrade.II)).willReturn(2.0);
+        given(rules.amplifyMultiplier(CardGrade.III)).willReturn(3.0);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.III, pushingPlayer, null, at(0)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.II, pushingPlayer, null, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // Only ×3.0 applies: 10 * 3.0 = 30. Multiplying (×6.0 = 60) would have clamped at the 90 ceiling.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(80);
+    }
+
+    @Test
+    void replay_twoEqualAmplifiesOnOnePush_doNotCompound() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var futureEvent =
+                drafted(eventId, outcome(a, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.amplifyMultiplier(CardGrade.III)).willReturn(3.0);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.III, pushingPlayer, null, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.III, pushingPlayer, null, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // Two grade III cards still apply ×3.0 once (10 -> 30), never ×9.0.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(80);
+    }
+
+    @Test
+    void replay_threeAmplifiesOnOnePush_applyOnlyTheStrongestMultiplier() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var futureEvent =
+                drafted(eventId, outcome(a, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.amplifyMultiplier(CardGrade.I)).willReturn(1.5);
+        given(rules.amplifyMultiplier(CardGrade.II)).willReturn(2.0);
+        given(rules.amplifyMultiplier(CardGrade.III)).willReturn(3.0);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.I, pushingPlayer, null, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.III, pushingPlayer, null, at(1)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(2)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.II, pushingPlayer, null, at(3))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(80);
+    }
+
+    @Test
+    void replay_fourAmplifiesOnOnePush_roundTheStrongestMultiplierOnceHalfUp() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var futureEvent =
+                drafted(eventId, outcome(a, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(5);
+        given(rules.amplifyMultiplier(CardGrade.I)).willReturn(1.5);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.I, pushingPlayer, null, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.I, pushingPlayer, null, at(1)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(2)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.I, pushingPlayer, null, at(3)),
+                        playerTargetedCard(UUID.randomUUID(), "AMPLIFY", CardGrade.I, pushingPlayer, null, at(4))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // 5 * 1.5 = 7.5 rounds half-up to 8 once; compounding (×5.0625 ≈ 25) would have pushed to 75.
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(58);
+    }
+
+    @Test
+    void replay_amplifiesOnCollide_haveNoEffect() {
+        var amplifiedEventId = UUID.randomUUID();
+        var amplifiedX = UUID.randomUUID();
+        var amplifiedY = UUID.randomUUID();
+        var amplifiedZ = UUID.randomUUID();
+        var plainEventId = UUID.randomUUID();
+        var plainX = UUID.randomUUID();
+        var plainY = UUID.randomUUID();
+        var plainZ = UUID.randomUUID();
+        var amplifiedCollidingPlayer = UUID.randomUUID();
+        var plainCollidingPlayer = UUID.randomUUID();
+        var amplified =
+                drafted(amplifiedEventId, outcome(amplifiedX, 60), outcome(amplifiedY, 20), outcome(amplifiedZ, 20));
+        var plain = drafted(plainEventId, outcome(plainX, 60), outcome(plainY, 20), outcome(plainZ, 20));
+        given(futureEvents.findById(amplifiedEventId)).willReturn(amplified);
+        given(futureEvents.findById(plainEventId)).willReturn(plain);
+        given(rules.amplifyMultiplier(CardGrade.II)).willReturn(2.0);
+        given(rules.amplifyMultiplier(CardGrade.III)).willReturn(3.0);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(
+                                amplifiedCollidingPlayer, "COLLIDE", amplifiedEventId, amplifiedX, amplifiedY, at(0)),
+                        cardPlayedBy(plainCollidingPlayer, "COLLIDE", plainEventId, plainX, plainY, at(1)),
+                        playerTargetedCard(
+                                UUID.randomUUID(), "AMPLIFY", CardGrade.III, amplifiedCollidingPlayer, null, at(2)),
+                        playerTargetedCard(
+                                UUID.randomUUID(), "AMPLIFY", CardGrade.II, amplifiedCollidingPlayer, null, at(3))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // The amplified Collide lands exactly where an unamplified Collide on identical weights does.
+        assertThat(probabilityOf(amplified, amplifiedX)).isEqualTo(probabilityOf(plain, plainX));
+        assertThat(probabilityOf(amplified, amplifiedY)).isEqualTo(probabilityOf(plain, plainY));
+        assertThat(probabilityOf(amplified, amplifiedZ)).isEqualTo(probabilityOf(plain, plainZ));
+    }
+
+    @Test
+    void replay_twoRedirectsOnOneShift_moveItOnce() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, null, at(0)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, null, at(2))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // One step a -> b, exactly as a single REDIRECT; chaining would have landed on c.
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(40);
+    }
+
+    @Test
+    void replay_threeRedirectsOnOneShift_moveItOnce() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, null, at(1)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, null, at(2)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, null, at(3))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        // Chaining three steps would have cycled back to the submitted outcome a.
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(40);
+    }
+
+    @Test
+    void replay_fourRedirectsOnOneShift_moveItOnce() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var pushingPlayer = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(UUID.randomUUID(), 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(rules.pushShift(CardGrade.II)).willReturn(10);
+        given(rules.probabilityFloor()).willReturn(0);
+        given(rules.probabilityCeiling()).willReturn(90);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, null, at(0)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, null, at(1)),
+                        cardPlayedBy(pushingPlayer, "PUSH", eventId, null, a, at(2)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, null, at(3)),
+                        playerTargetedCard(UUID.randomUUID(), "REDIRECT", pushingPlayer, null, at(4))));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(40);
+    }
+
+    @Test
     void replay_corruptInvertsCorrelatedPush_intoSuppress_andConfirmsTookEffect() {
         var eventId = UUID.randomUUID();
         var target = UUID.randomUUID();

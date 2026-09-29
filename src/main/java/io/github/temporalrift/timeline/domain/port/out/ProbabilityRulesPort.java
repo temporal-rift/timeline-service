@@ -14,7 +14,10 @@ public interface ProbabilityRulesPort {
     /** Magnitude moved from a {@code SWING} card's source outcome to its target outcome at the given grade. */
     int swingShift(CardGrade grade);
 
-    /** Multiplier an {@code AMPLIFY} card of the given grade applies to its eligible target's own magnitude. */
+    /**
+     * Multiplier an {@code AMPLIFY} card of the given grade applies to its eligible target's own magnitude. Several
+     * {@code AMPLIFY} cards on one shift do not stack — only the largest multiplier among them applies.
+     */
     double amplifyMultiplier(CardGrade grade);
 
     /** Inclusive lower bound for any outcome's probability. */

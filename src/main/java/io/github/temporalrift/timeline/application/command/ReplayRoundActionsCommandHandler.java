@@ -658,6 +658,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         return (int) Math.round(magnitude * rules.rallyMultiplier());
     }
 
+    /**
+     * Several {@code AMPLIFY} cards naming the same shift do not stack: only the strongest multiplier among them
+     * applies, so the result never depends on how many players pile on or in which order they submitted.
+     */
     private Map<UUID, Double> resolveAmplifyMultipliers(
             List<BufferedAction> sorted, Map<UUID, BufferedAction> selectedActionByPlayer, Set<UUID> cancelled) {
         var multipliers = new LinkedHashMap<UUID, Double>();
@@ -667,15 +671,16 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             }
             var target = findLiveShifter(selectedActionByPlayer, amplify.targetPlayerId(), cancelled);
             if (target != null) {
-                multipliers.merge(
-                        target.envelopeEventId(),
-                        rules.amplifyMultiplier(amplify.grade()),
-                        (left, right) -> left * right);
+                multipliers.merge(target.envelopeEventId(), rules.amplifyMultiplier(amplify.grade()), Math::max);
             }
         }
         return multipliers;
     }
 
+    /**
+     * Several {@code REDIRECT} cards naming the same shift move it once, to the same destination a single
+     * {@code REDIRECT} would choose — they never chain, so no submission order can pick a different outcome.
+     */
     private static Set<UUID> resolveRedirectedActions(
             List<BufferedAction> sorted, Map<UUID, BufferedAction> selectedActionByPlayer, Set<UUID> cancelled) {
         var redirectedActionIds = new HashSet<UUID>();
@@ -717,7 +722,8 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
     /**
      * The shifter's single effect after its CORRUPT inversion, REDIRECT destination, AMPLIFY multiplier, and Rally
-     * boost — resolved later together with every other effect on the same event.
+     * boost — resolved later together with every other effect on the same event. The amplified magnitude is rounded
+     * half-up to a whole point once, before Rally applies and before the floor/ceiling clamp.
      */
     private RoundEffect shifterEffect(
             BufferedAction a,
