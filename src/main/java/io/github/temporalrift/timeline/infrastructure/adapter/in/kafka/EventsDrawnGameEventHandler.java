@@ -3,6 +3,10 @@ package io.github.temporalrift.timeline.infrastructure.adapter.in.kafka;
 import static org.springframework.transaction.annotation.Propagation.REQUIRES_NEW;
 
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -105,67 +109,66 @@ class EventsDrawnGameEventHandler {
      * Applies every CASCADE confirmed for this era, after every carried event's clearing above so the carried
      * erasure lands on top of the fresh state rather than being wiped by it. Settlement already rejects a
      * CASCADE whose event did not carry, so a pending row whose event is absent here is only a defensive drop.
-     * A re-erasure whose weight the remaining eligible outcomes cannot hold within the probability bounds is rejected
-     * privately instead, leaving the outcome live; re-naming an already-erased outcome stays a silent re-application.
+     * Each carried event's pending rows are judged as one combined erasure, so row order never decides which one
+     * applies: when the remaining eligible outcomes cannot hold it within the probability bounds, every row is
+     * rejected privately and its outcome stays live.
      */
     private void applyPendingCascades(UUID gameId, int eraNumber, Set<UUID> carriedEventIds) {
+        var carriedByEvent = new LinkedHashMap<UUID, List<CascadeCarryForward>>();
         for (var pending : cascadeCarryForward.findByGameAndEra(gameId, eraNumber)) {
-            applyOnePendingCascade(gameId, eraNumber, carriedEventIds, pending);
+            if (carriedEventIds.contains(pending.eventId())) {
+                carriedByEvent
+                        .computeIfAbsent(pending.eventId(), _ -> new ArrayList<>())
+                        .add(pending);
+            } else {
+                reject(gameId, eraNumber, pending, "CARRY_FORWARD_EVENT_NOT_ACTIVE");
+            }
+        }
+        carriedByEvent.forEach((eventId, pendings) -> applyCarriedErasure(gameId, eraNumber, eventId, pendings));
+    }
+
+    private void applyCarriedErasure(UUID gameId, int eraNumber, UUID eventId, List<CascadeCarryForward> pendings) {
+        var futureEvent = futureEvents.findById(eventId);
+        var targets = pendings.stream()
+                .map(CascadeCarryForward::outcomeId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        int floor = rules.probabilityFloor();
+        int ceiling = rules.probabilityCeiling();
+        if (!futureEvent.canAnnihilate(targets, floor, ceiling)) {
+            pendings.forEach(
+                    pending -> reject(gameId, eraNumber, pending, SpecialRejectedEvent.REASON_ERASURE_OUT_OF_BOUNDS));
+            return;
+        }
+        futureEvents.append(eventId, futureEvent.annihilateOutcomes(targets, floor, ceiling));
+        targets.forEach(outcomeId -> weaverChainSaga.annihilateOutcome(gameId, eraNumber, eventId, outcomeId));
+        for (var pending : pendings) {
+            cascadeCarryForward.delete(gameId, eraNumber, eventId, pending.outcomeId());
+            publisher.publish(TimelineEventEnvelope.create(
+                    eventId,
+                    FUTURE_EVENT_AGGREGATE_TYPE,
+                    gameId,
+                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
+                    new CascadeCarriedForwardEvent(gameId, eraNumber, eventId, pending.outcomeId()),
+                    clock));
         }
     }
 
-    private void applyOnePendingCascade(
-            UUID gameId, int eraNumber, Set<UUID> carriedEventIds, CascadeCarryForward pending) {
-        if (!carriedEventIds.contains(pending.eventId())) {
-            cascadeCarryForward.delete(gameId, eraNumber, pending.eventId(), pending.outcomeId());
-            publisher.publish(TimelineEventEnvelope.create(
-                    pending.eventId(),
-                    FUTURE_EVENT_AGGREGATE_TYPE,
-                    gameId,
-                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new SpecialRejectedEvent(
-                            gameId,
-                            eraNumber,
-                            pending.playerId(),
-                            "CASCADE",
-                            null,
-                            pending.eventId(),
-                            pending.outcomeId(),
-                            "CARRY_FORWARD_EVENT_NOT_ACTIVE"),
-                    clock));
-            return;
-        }
-        var futureEvent = futureEvents.findById(pending.eventId());
-        int floor = rules.probabilityFloor();
-        int ceiling = rules.probabilityCeiling();
-        if (!futureEvent.canAnnihilate(pending.outcomeId(), floor, ceiling)) {
-            cascadeCarryForward.delete(gameId, eraNumber, pending.eventId(), pending.outcomeId());
-            publisher.publish(TimelineEventEnvelope.create(
-                    pending.eventId(),
-                    FUTURE_EVENT_AGGREGATE_TYPE,
-                    gameId,
-                    TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                    new SpecialRejectedEvent(
-                            gameId,
-                            eraNumber,
-                            pending.playerId(),
-                            "CASCADE",
-                            null,
-                            pending.eventId(),
-                            pending.outcomeId(),
-                            SpecialRejectedEvent.REASON_ERASURE_OUT_OF_BOUNDS),
-                    clock));
-            return;
-        }
-        futureEvents.append(pending.eventId(), futureEvent.annihilateOutcome(pending.outcomeId(), floor, ceiling));
-        weaverChainSaga.annihilateOutcome(gameId, eraNumber, pending.eventId(), pending.outcomeId());
+    private void reject(UUID gameId, int eraNumber, CascadeCarryForward pending, String reason) {
         cascadeCarryForward.delete(gameId, eraNumber, pending.eventId(), pending.outcomeId());
         publisher.publish(TimelineEventEnvelope.create(
                 pending.eventId(),
                 FUTURE_EVENT_AGGREGATE_TYPE,
                 gameId,
                 TimelineEventEnvelope.SCHEMA_VERSION_V1,
-                new CascadeCarriedForwardEvent(gameId, eraNumber, pending.eventId(), pending.outcomeId()),
+                new SpecialRejectedEvent(
+                        gameId,
+                        eraNumber,
+                        pending.playerId(),
+                        "CASCADE",
+                        null,
+                        pending.eventId(),
+                        pending.outcomeId(),
+                        reason),
                 clock));
     }
 }
