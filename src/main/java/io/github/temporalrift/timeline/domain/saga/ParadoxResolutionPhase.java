@@ -206,7 +206,17 @@ public record ParadoxResolutionPhase(
      * — {@code cardType} is one of the wire {@code ParadoxResolutionCardPlayed}
      * payload's values (only {@code PUSH}/{@code SUPPRESS}/{@code SWING} are applied; anything else is a no-op at
      * close). {@code grade} is the submitted card's own grade, consulted only for {@code PUSH}/{@code SUPPRESS}.
+     * A {@link #pass} consumes the player's slot with no card or target, so it counts toward the all-submitted
+     * close and is a no-op at close, exactly like a player the timer skipped.
      */
     public record Submission(
-            UUID playerId, String cardType, CardGrade grade, UUID targetEventId, UUID targetOutcomeId) {}
+            UUID playerId, String cardType, CardGrade grade, UUID targetEventId, UUID targetOutcomeId) {
+
+        public static final String PASS = "PASS";
+
+        /** A player's explicit pass, from a wire {@code ParadoxResolutionPassed}. */
+        public static Submission pass(UUID playerId) {
+            return new Submission(playerId, PASS, null, null, null);
+        }
+    }
 }
