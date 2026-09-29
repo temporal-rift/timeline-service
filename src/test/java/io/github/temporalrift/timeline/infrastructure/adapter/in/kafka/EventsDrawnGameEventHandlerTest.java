@@ -38,6 +38,7 @@ import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCas
 import io.github.temporalrift.timeline.domain.event.CascadeCarriedForwardEvent;
 import io.github.temporalrift.timeline.domain.event.EraStateCleared;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
+import io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
@@ -245,8 +246,8 @@ class EventsDrawnGameEventHandlerTest {
     }
 
     @Test
-    @DisplayName("three pending CASCADEs for one carried event — first re-erases, the rest would leave one survivor")
-    void handle_threePendingCascadesForOneCarriedEvent_onlyFirstFitsWithinBounds() {
+    @DisplayName("two pending CASCADEs for one carried event — judged together, both rejected in any row order")
+    void handle_twoPendingCascadesForOneCarriedEvent_areJudgedTogether() {
         var eventId = UUID.randomUUID();
         var gameId = UUID.randomUUID();
         var eraNumber = 2;
@@ -256,7 +257,6 @@ class EventsDrawnGameEventHandlerTest {
         var outcomeC = UUID.randomUUID();
         var playerA = UUID.randomUUID();
         var playerB = UUID.randomUUID();
-        var playerC = UUID.randomUUID();
         var carried = FutureEvent.replay(
                 carriedOverEventId,
                 List.of(new FutureEventDrafted(
@@ -272,8 +272,7 @@ class EventsDrawnGameEventHandlerTest {
         given(cascadeCarryForward.findByGameAndEra(gameId, eraNumber))
                 .willReturn(List.of(
                         new CascadeCarryForward(playerA, carriedOverEventId, outcomeA),
-                        new CascadeCarryForward(playerB, carriedOverEventId, outcomeB),
-                        new CascadeCarryForward(playerC, carriedOverEventId, outcomeC)));
+                        new CascadeCarryForward(playerB, carriedOverEventId, outcomeB)));
         var payload = new EventsDrawnPayload(
                 gameId,
                 eraNumber,
@@ -288,18 +287,16 @@ class EventsDrawnGameEventHandlerTest {
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, EVENT_TYPE, 1));
 
-        // Erasing A moves its weight to B and C; erasing either of them next would leave a lone survivor past 90.
+        // Erasing A and B together would leave C alone at 100%, past the ceiling, so neither row applies.
         assertThat(carried.outcomes())
                 .extracting(Outcome::probability, Outcome::annihilated)
-                .containsExactly(tuple(0, true), tuple(58, false), tuple(42, false));
+                .containsExactly(tuple(40, false), tuple(35, false), tuple(25, false));
         then(cascadeCarryForward).should().delete(gameId, eraNumber, carriedOverEventId, outcomeA);
         then(cascadeCarryForward).should().delete(gameId, eraNumber, carriedOverEventId, outcomeB);
-        then(cascadeCarryForward).should().delete(gameId, eraNumber, carriedOverEventId, outcomeC);
-        then(weaverChainSaga).should().annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeA);
-        then(weaverChainSaga).should(never()).annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeB);
-        then(weaverChainSaga).should(never()).annihilateOutcome(gameId, eraNumber, carriedOverEventId, outcomeC);
+        then(futureEvents).should(never()).append(eq(carriedOverEventId), any(OutcomeAnnihilated.class));
+        then(weaverChainSaga).should(never()).annihilateOutcome(any(), anyInt(), any(), any());
         var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
-        then(publisher).should(times(3)).publish(captor.capture());
+        then(publisher).should(times(2)).publish(captor.capture());
         assertThat(captor.getAllValues().stream()
                         .map(TimelineEventEnvelope::payload)
                         .filter(SpecialRejectedEvent.class::isInstance)
@@ -312,8 +309,8 @@ class EventsDrawnGameEventHandlerTest {
                         SpecialRejectedEvent::targetOutcomeId,
                         SpecialRejectedEvent::reason)
                 .containsExactly(
-                        tuple("CASCADE", playerB, carriedOverEventId, outcomeB, "ERASURE_OUT_OF_BOUNDS"),
-                        tuple("CASCADE", playerC, carriedOverEventId, outcomeC, "ERASURE_OUT_OF_BOUNDS"));
+                        tuple("CASCADE", playerA, carriedOverEventId, outcomeA, "ERASURE_OUT_OF_BOUNDS"),
+                        tuple("CASCADE", playerB, carriedOverEventId, outcomeB, "ERASURE_OUT_OF_BOUNDS"));
     }
 
     @Test
