@@ -48,6 +48,7 @@ final class GameEventIngestion {
             "ActionRoundStarted",
             "CardPlayed",
             "ParadoxResolutionCardPlayed",
+            "ParadoxResolutionPassed",
             "SpecialActionPlayed",
             "PlayerJammed",
             "InfluenceTraced",

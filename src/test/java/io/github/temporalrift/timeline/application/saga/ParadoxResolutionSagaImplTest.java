@@ -542,6 +542,79 @@ class ParadoxResolutionSagaImplTest {
     }
 
     @Test
+    void handlePlayerSubmitted_lastPlayerPasses_closesEarlyWithoutApplyingOrCreditingThePass() {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        var shifterId = UUID.randomUUID();
+        var passerId = UUID.randomUUID();
+        var futureEvent = deadHeatFutureEvent(affectedEventId, outcomeIds, 20, 40, 40, false);
+        var suppress = new Submission(shifterId, "SUPPRESS", CardGrade.II, affectedEventId, outcomeIds.get(1));
+        var pass = Submission.pass(passerId);
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.DEAD_HEAT, outcomeIds.subList(1, 3), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(suppress, pass),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, pass)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+        given(probabilityRules.suppressShift(CardGrade.II)).willReturn(-10);
+        given(probabilityRules.probabilityFloor()).willReturn(0);
+        given(probabilityRules.probabilityCeiling()).willReturn(90);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, pass);
+
+        then(stateManager).should().complete(phase);
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(3)).publish(captor.capture());
+        var resolved = (ParadoxResolved) captor.getAllValues().getFirst().payload();
+        assertThat(resolved.resolvedByPlayerIds()).containsExactly(shifterId);
+    }
+
+    @Test
+    void handlePlayerSubmitted_everyPlayerPasses_closesEarlyAndCascadesExactlyAsTheTimerWould() {
+        var sagaId = UUID.randomUUID();
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var annihilatedId = UUID.randomUUID();
+        var futureEvent = impossibleErasureFutureEvent(affectedEventId, annihilatedId);
+        var pass = Submission.pass(UUID.randomUUID());
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                sagaId,
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.IMPOSSIBLE_ERASURE, List.of(annihilatedId), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(pass),
+                clock.instant());
+
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, pass)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+
+        saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, pass);
+
+        then(stateManager).should().complete(phase);
+        then(eraIndex).should().add(affectedEventId, GAME_ID, ERA_NUMBER + 1, 0);
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(times(2)).publish(captor.capture());
+        var cascaded = (ParadoxCascaded) captor.getAllValues().getFirst().payload();
+        assertThat(cascaded.paradoxId()).isEqualTo(paradoxId);
+        assertThat(cascaded.detonatedByPlayerIds()).isEmpty();
+        assertThat(captor.getAllValues().get(1).payload()).isInstanceOf(EraResolutionCompleted.class);
+    }
+
+    @Test
     void handlePlayerSubmitted_shiftsAroundAnErasedOutcome_neverMoveItsWeight() {
         var affectedEventId = UUID.randomUUID();
         var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());

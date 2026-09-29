@@ -37,11 +37,13 @@ import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.Car
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardPlayedPayload;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardType;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ParadoxResolutionCardPlayedPayload;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ParadoxResolutionPassedPayload;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialAction;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialActionPlayedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EraEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.GameEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.ResolutionStartedPayload;
+import io.github.temporalrift.timeline.application.port.in.PassParadoxResolutionUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
@@ -66,6 +68,8 @@ class RoundResolutionGameEventHandlerTest {
     private static final String RESOLUTION_STARTED_CONSUMER = "futureevent.resolution-started";
     private static final String PARADOX_RESOLUTION_CARD_PLAYED_EVENT_TYPE = "ParadoxResolutionCardPlayed";
     private static final String PARADOX_RESOLUTION_CARD_PLAYED_CONSUMER = "futureevent.paradox-resolution-card-played";
+    private static final String PARADOX_RESOLUTION_PASSED_EVENT_TYPE = "ParadoxResolutionPassed";
+    private static final String PARADOX_RESOLUTION_PASSED_CONSUMER = "futureevent.paradox-resolution-passed";
     private static final String ACTIVIST_DECLARATION_RECORDED_EVENT_TYPE = "ActivistDeclarationRecorded";
     private static final String ACTIVIST_DECLARATION_RECORDED_CONSUMER = "futureevent.activist-declaration-recorded";
     private static final String ERA_ENDED_EVENT_TYPE = "EraEnded";
@@ -93,6 +97,9 @@ class RoundResolutionGameEventHandlerTest {
 
     @Mock
     PlayParadoxResolutionCardUseCase playParadoxResolutionCard;
+
+    @Mock
+    PassParadoxResolutionUseCase passParadoxResolution;
 
     @Mock
     WeaverChainSagaUseCase weaverChainSaga;
@@ -628,6 +635,35 @@ class RoundResolutionGameEventHandlerTest {
                         io.github.temporalrift.timeline.domain.futureevent.CardGrade.II,
                         targetEventId,
                         targetOutcomeId);
+    }
+
+    @Test
+    @DisplayName("ParadoxResolutionPassed — routed to PassParadoxResolutionUseCase, never played as a card")
+    void handle_paradoxResolutionPassed_passesThePhaseSlot() {
+        var eventId = UUID.randomUUID();
+        var gameId = UUID.randomUUID();
+        var playerId = UUID.randomUUID();
+        var payload = new ParadoxResolutionPassedPayload(gameId, ERA_NUMBER, playerId);
+        given(processedEvents.claim(eventId, PARADOX_RESOLUTION_PASSED_CONSUMER))
+                .willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, PARADOX_RESOLUTION_PASSED_EVENT_TYPE, 1));
+
+        then(passParadoxResolution).should().pass(gameId, ERA_NUMBER, playerId);
+        then(playParadoxResolutionCard).should(never()).play(any(), anyInt(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("ParadoxResolutionPassed redelivered under an already-claimed eventId — passes nothing")
+    void handle_paradoxResolutionPassedDuplicate_passesNothing() {
+        var eventId = UUID.randomUUID();
+        var payload = new ParadoxResolutionPassedPayload(UUID.randomUUID(), ERA_NUMBER, UUID.randomUUID());
+        given(processedEvents.claim(eventId, PARADOX_RESOLUTION_PASSED_CONSUMER))
+                .willReturn(false);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, PARADOX_RESOLUTION_PASSED_EVENT_TYPE, 1));
+
+        then(passParadoxResolution).should(never()).pass(any(), anyInt(), any());
     }
 
     @Test

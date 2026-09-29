@@ -16,11 +16,13 @@ import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.Act
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardPlayedPayload;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardType;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ParadoxResolutionCardPlayedPayload;
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ParadoxResolutionPassedPayload;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialAction;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.SpecialActionPlayedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EraEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.GameEndedPayload;
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.ResolutionStartedPayload;
+import io.github.temporalrift.timeline.application.port.in.PassParadoxResolutionUseCase;
 import io.github.temporalrift.timeline.application.port.in.PlayParadoxResolutionCardUseCase;
 import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUseCase;
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
@@ -51,6 +53,8 @@ class RoundResolutionGameEventHandler {
             new GameEventIngestion.Spec("ResolutionStarted", "futureevent.resolution-started", 1);
     private static final GameEventIngestion.Spec PARADOX_RESOLUTION_CARD_PLAYED_SPEC =
             new GameEventIngestion.Spec("ParadoxResolutionCardPlayed", "futureevent.paradox-resolution-card-played", 1);
+    private static final GameEventIngestion.Spec PARADOX_RESOLUTION_PASSED_SPEC =
+            new GameEventIngestion.Spec("ParadoxResolutionPassed", "futureevent.paradox-resolution-passed", 1);
     private static final GameEventIngestion.Spec ACTIVIST_DECLARATION_RECORDED_SPEC =
             new GameEventIngestion.Spec("ActivistDeclarationRecorded", "futureevent.activist-declaration-recorded", 1);
     private static final GameEventIngestion.Spec ERA_ENDED_SPEC =
@@ -103,6 +107,7 @@ class RoundResolutionGameEventHandler {
     private final ReplayRoundActionsUseCase replayRoundActions;
     private final ResolveEraUseCase resolveEra;
     private final PlayParadoxResolutionCardUseCase playParadoxResolutionCard;
+    private final PassParadoxResolutionUseCase passParadoxResolution;
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final ScanEntitlementPort scanEntitlements;
     private final CascadeCarryForwardPort cascadeCarryForward;
@@ -115,6 +120,7 @@ class RoundResolutionGameEventHandler {
             ReplayRoundActionsUseCase replayRoundActions,
             ResolveEraUseCase resolveEra,
             PlayParadoxResolutionCardUseCase playParadoxResolutionCard,
+            PassParadoxResolutionUseCase passParadoxResolution,
             WeaverChainSagaUseCase weaverChainSaga,
             ScanEntitlementPort scanEntitlements,
             CascadeCarryForwardPort cascadeCarryForward,
@@ -125,6 +131,7 @@ class RoundResolutionGameEventHandler {
         this.replayRoundActions = replayRoundActions;
         this.resolveEra = resolveEra;
         this.playParadoxResolutionCard = playParadoxResolutionCard;
+        this.passParadoxResolution = passParadoxResolution;
         this.weaverChainSaga = weaverChainSaga;
         this.scanEntitlements = scanEntitlements;
         this.cascadeCarryForward = cascadeCarryForward;
@@ -195,6 +202,12 @@ class RoundResolutionGameEventHandler {
                             grade,
                             payload.targetEventId(),
                             payload.targetOutcomeId());
+                });
+        GameEventIngestion.accept(message, PARADOX_RESOLUTION_PASSED_SPEC, processedEvents, skipMetrics)
+                .ifPresent(envelope -> {
+                    var payload = GameEventPayloads.read(
+                            objectMapper, message.getPayload(), ParadoxResolutionPassedPayload.class);
+                    passParadoxResolution.pass(payload.gameId(), payload.eraNumber(), payload.playerId());
                 });
         GameEventIngestion.accept(message, ACTIVIST_DECLARATION_RECORDED_SPEC, processedEvents, skipMetrics)
                 .ifPresent(envelope -> {

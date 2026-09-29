@@ -82,6 +82,29 @@ class ParadoxResolutionPhaseTest {
     }
 
     @Test
+    void withSubmission_passByTheLastPendingPlayer_meetsTheAllSubmittedTrigger() {
+        var passerId = UUID.randomUUID();
+        var cardPlayerId = UUID.randomUUID();
+
+        var phase = knownRosterPhase(List.of(passerId, cardPlayerId), List.of())
+                .withSubmission(push(cardPlayerId))
+                .withSubmission(Submission.pass(passerId));
+
+        assertThat(phase.pendingPlayerIds()).isEmpty();
+        assertThat(phase.allPlayersSubmitted()).isTrue();
+        assertThat(phase.submissions()).contains(new Submission(passerId, Submission.PASS, null, null, null));
+    }
+
+    @Test
+    void withSubmission_afterAPass_ignoresTheSamePlayersCard() {
+        var passerId = UUID.randomUUID();
+        var phase = knownRosterPhase(List.of(passerId, UUID.randomUUID()), List.of())
+                .withSubmission(Submission.pass(passerId));
+
+        assertThat(phase.withSubmission(push(passerId))).isEqualTo(phase);
+    }
+
+    @Test
     void withRoster_leavesPendingEveryPlayerWhoHasNotSubmittedYet() {
         var submittedPlayerId = UUID.randomUUID();
         var otherPlayerId = UUID.randomUUID();
