@@ -608,16 +608,12 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     /** Every live THREAD the Weaver chain saga accepted; each one's shift joins the simultaneous tier. */
     private List<BufferedAction> resolveAcceptedThreads(
             UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
-        var accepted = new ArrayList<BufferedAction>();
-        for (var a : sorted) {
-            if (isSpecial(a, SPECIAL_ACTION_THREAD)
-                    && !cancelled.contains(a.envelopeEventId())
-                    && weaverChainSaga.playThread(
-                            gameId, eraNumber, a.playerId(), a.targetEventId(), a.targetOutcomeId())) {
-                accepted.add(a);
-            }
-        }
-        return accepted;
+        // Sequential and in submission order: playThread changes Weaver chain state, so each call must see the last.
+        return sorted.stream()
+                .filter(a -> isSpecial(a, SPECIAL_ACTION_THREAD) && !cancelled.contains(a.envelopeEventId()))
+                .filter(a -> weaverChainSaga.playThread(
+                        gameId, eraNumber, a.playerId(), a.targetEventId(), a.targetOutcomeId()))
+                .toList();
     }
 
     /** An accepted THREAD's configured favorable shift, a direct transfer to its named outcome that Rally boosts. */
