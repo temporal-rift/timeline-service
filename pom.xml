@@ -56,7 +56,7 @@
 
         <timeline-event.version>7.1.0</timeline-event.version>
         <session-event.version>6.0.0</session-event.version>
-        <action-event.version>9.1.0</action-event.version>
+        <action-event.version>9.2.0</action-event.version>
         <chains-api.version>2.0.0</chains-api.version>
         <archunit-junit5.version>1.5.1</archunit-junit5.version>
     </properties>
