@@ -13,6 +13,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.support.MessageBuilder;
@@ -71,12 +73,13 @@ class GameEventIngestionTest {
         verify(processedEvents).claim(eventId, "futureevent.added");
     }
 
-    @Test
-    void knownButUnhandledType_isNotCountedAsUnknown() {
+    @ParameterizedTest
+    @ValueSource(strings = {"GameStarted", "ActionRoundPassed", "ParadoxResolutionCardsOffered"})
+    void knownButUnhandledType_isNotCountedAsUnknown(String eventType) {
         var spec = new GameEventIngestion.Spec("FactionAssigned", "membership.faction-assigned", 1, true);
 
         GameEventIngestion.accept(
-                KafkaTestMessages.withHeaders(new Object(), UUID.randomUUID(), "GameStarted", 1),
+                KafkaTestMessages.withHeaders(new Object(), UUID.randomUUID(), eventType, 1),
                 spec,
                 processedEvents,
                 skipMetrics);
