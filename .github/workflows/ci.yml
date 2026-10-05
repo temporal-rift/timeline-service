@@ -22,7 +22,7 @@ jobs:
           checkout-enabled: false
           java-version: 26
           java-distribution: temurin
-          maven-version: 3.9.13
+          maven-version: 4.0.0-rc-7
           settings-githubServer: false
 
       - name: Cache Maven packages
@@ -70,7 +70,7 @@ jobs:
           checkout-enabled: false
           java-version: 26
           java-distribution: temurin
-          maven-version: 3.9.13
+          maven-version: 4.0.0-rc-7
           settings-githubServer: false
 
       - name: Cache SonarQube packages
