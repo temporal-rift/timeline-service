@@ -1,4 +1,4 @@
-FROM maven:3.9.16-eclipse-temurin-26 AS build
+FROM maven:4.0.0-rc-7-eclipse-temurin-26 AS build
 WORKDIR /app
 COPY pom.xml .
 RUN mvn dependency:go-offline -q -Dspotless.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true
