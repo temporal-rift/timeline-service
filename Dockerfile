@@ -1,9 +1,13 @@
+# syntax=docker/dockerfile:1
 FROM maven:4.0.0-rc-7-eclipse-temurin-26 AS build
 WORKDIR /app
 COPY pom.xml .
-RUN mvn dependency:go-offline -q -Dspotless.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true
+COPY .mvn .mvn
+RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN --mount=type=secret,id=github_actor,env=GITHUB_ACTOR \
+    mvn dependency:go-offline -q -Dspotless.skip=true -Dcheckstyle.skip=true -Denforcer.skip=true
 COPY src ./src
-RUN mvn package -DskipTests -q -Dspotless.skip=true -Dcheckstyle.skip=true
+RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN --mount=type=secret,id=github_actor,env=GITHUB_ACTOR \
+    mvn package -DskipTests -q -Dspotless.skip=true -Dcheckstyle.skip=true
 
 FROM eclipse-temurin:26
 WORKDIR /app
