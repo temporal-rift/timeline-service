@@ -38,7 +38,7 @@ jobs:
           restore-keys: ${{ runner.os }}-m2-format-check-
 
       - name: Format and Checkstyle
-        run: mvn --batch-mode -f pom.xml validate
+        run: mvn --batch-mode -f pom.xml validate -X
 
   security-snyk:
     runs-on: ubuntu-latest
