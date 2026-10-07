@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      A round's actions resolve simultaneously and replay orders them by gameplay identity, so the submission
+      timestamp has no reader.
+  -->
+  <changeSet id="007-drop-round-action-buffer-occurred-at" author="timeline-service">
+    <dropColumn tableName="round_action_buffer" columnName="occurred_at"/>
+  </changeSet>
+
+</databaseChangeLog>

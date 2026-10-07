@@ -75,9 +75,22 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final String SPECIAL_ACTION_CASCADE = "CASCADE";
     private static final String SPECIAL_ACTION_ANNIHILATE = "ANNIHILATE";
     private static final String SPECIAL_ACTION_MOMENTUM = "MOMENTUM";
+    private static final String SPECIAL_ACTION_RALLY = "RALLY";
     private static final String SPECIAL_ACTION_TAPESTRY = "TAPESTRY";
     private static final String SPECIAL_ACTION_REWEAVE = "REWEAVE";
     private static final String SPECIAL_ACTION_THREAD = "THREAD";
+
+    /**
+     * A round's actions resolve simultaneously, so submission time and transport ids never order them. A declaration
+     * is made in the window before Round 1, so it precedes its declarer's Round 1 action; the rest follow identities.
+     */
+    private static final Comparator<BufferedAction> SIMULTANEOUS_ORDER = Comparator.comparing(
+                    (BufferedAction a) -> !isDeclaration(a))
+            .thenComparing(BufferedAction::playerId)
+            .thenComparing(BufferedAction::kind)
+            .thenComparing(BufferedAction::cardType, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(BufferedAction::specialAction, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(BufferedAction::cardInstanceId, Comparator.nullsFirst(Comparator.naturalOrder()));
 
     /** Eligible for AMPLIFY's doubling and NULLIFY's cancellation like any other remaining-tier card. */
     private static final Set<String> AMPLIFIABLE_SHIFTER_TYPES =
@@ -150,9 +163,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
 
     private void replayActions(
             UUID gameId, int eraNumber, int roundNumber, List<BufferedAction> actions, ReplayEvents events) {
-        var submitted = actions.stream()
-                .sorted(Comparator.comparing(BufferedAction::occurredAt).thenComparing(BufferedAction::envelopeEventId))
-                .toList();
+        var submitted = actions.stream().sorted(SIMULTANEOUS_ORDER).toList();
         var byEnvelopeId = submitted.stream().collect(Collectors.toMap(BufferedAction::envelopeEventId, a -> a));
         var selectedActionByPlayer = indexActionsByPlayer(submitted);
 
@@ -645,7 +656,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      */
     private static Set<UUID> resolveRallyDeclaredOutcomes(List<BufferedAction> sorted, Set<UUID> cancelled) {
         return sorted.stream()
-                .filter(a -> isSpecial(a, "RALLY") && !cancelled.contains(a.envelopeEventId()))
+                .filter(a -> isSpecial(a, SPECIAL_ACTION_RALLY) && !cancelled.contains(a.envelopeEventId()))
                 .map(BufferedAction::targetOutcomeId)
                 .collect(Collectors.toSet());
     }
@@ -898,6 +909,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                         clock));
             }
         }
+    }
+
+    private static boolean isDeclaration(BufferedAction a) {
+        return isSpecial(a, SPECIAL_ACTION_RALLY) || isSpecial(a, SPECIAL_ACTION_MOMENTUM);
     }
 
     private static boolean isSpecial(BufferedAction a, String specialAction) {
