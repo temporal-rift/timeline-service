@@ -52,6 +52,7 @@ import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
+import io.github.temporalrift.timeline.domain.port.out.StubExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
@@ -90,7 +91,8 @@ class WeaverChainSagaTest {
     void setUp() {
         chains = new FakeChains();
         sagas = new FakeSagas();
-        saga = new WeaverChainSaga(chains, sagas, futureEvents, eraIndex, publisher, clock);
+        saga = new WeaverChainSaga(
+                chains, sagas, futureEvents, eraIndex, publisher, StubExecutionEntropy.unpredictable(), clock);
     }
 
     private record Coordinate(UUID eventId, UUID outcomeId) {}
@@ -909,7 +911,8 @@ class WeaverChainSagaTest {
     void restart_resumesOpenSagaForNextThread() {
         var chainId = openChainWithConfirmedLinks(1);
         // Simulate a restart: rebuild the saga service over the same durable repositories.
-        var restarted = new WeaverChainSaga(chains, sagas, futureEvents, eraIndex, publisher, clock);
+        var restarted = new WeaverChainSaga(
+                chains, sagas, futureEvents, eraIndex, publisher, StubExecutionEntropy.unpredictable(), clock);
         var coordinate = stubValidCoordinate();
 
         restarted.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());

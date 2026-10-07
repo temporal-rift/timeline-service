@@ -12,7 +12,6 @@ import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.UUID;
-import java.util.random.RandomGenerator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +25,9 @@ import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolutionPhaseStarted;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
+import io.github.temporalrift.timeline.domain.execution.EntropyCoordinate;
+import io.github.temporalrift.timeline.domain.execution.EntropyPurpose;
+import io.github.temporalrift.timeline.domain.execution.IdentityKind;
 import io.github.temporalrift.timeline.domain.futureevent.DetectedParadox;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxDetector;
@@ -33,6 +35,7 @@ import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.futureevent.SimultaneousShift;
 import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
+import io.github.temporalrift.timeline.domain.port.out.ExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionRulesPort;
@@ -75,7 +78,7 @@ class ParadoxResolutionSagaImpl {
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final SettleCascadeCarryForwardUseCase settleCascades;
     private final Clock clock;
-    private final RandomGenerator random;
+    private final ExecutionEntropy entropy;
 
     ParadoxResolutionSagaImpl(
             ParadoxResolutionPhaseStateManager stateManager,
@@ -90,7 +93,7 @@ class ParadoxResolutionSagaImpl {
             WeaverChainSagaUseCase weaverChainSaga,
             SettleCascadeCarryForwardUseCase settleCascades,
             Clock clock,
-            RandomGenerator random) {
+            ExecutionEntropy entropy) {
         this.stateManager = stateManager;
         this.futureEvents = futureEvents;
         this.eraIndex = eraIndex;
@@ -103,7 +106,7 @@ class ParadoxResolutionSagaImpl {
         this.weaverChainSaga = weaverChainSaga;
         this.settleCascades = settleCascades;
         this.clock = clock;
-        this.random = random;
+        this.entropy = entropy;
     }
 
     /**
@@ -338,7 +341,12 @@ class ParadoxResolutionSagaImpl {
                 resolversByEvent.getOrDefault(affectedEventId, List.of()));
 
         if (persistingIds.isEmpty()) {
-            var outcomeApplied = futureEvent.resolve(phase.gameId(), phase.eraNumber(), random.nextLong());
+            var outcomeApplied = futureEvent.resolve(
+                    phase.gameId(),
+                    phase.eraNumber(),
+                    entropy.generator(
+                            EntropyPurpose.OUTCOME_RESOLUTION,
+                            EntropyCoordinate.none().era(phase.eraNumber()).subject(affectedEventId)));
             futureEvents.append(affectedEventId, outcomeApplied);
             weaverChainSaga.resolvePendingLink(
                     phase.gameId(), phase.eraNumber(), affectedEventId, outcomeApplied.winningOutcomeId());
@@ -413,8 +421,14 @@ class ParadoxResolutionSagaImpl {
 
         if (!unmatchedFresh.isEmpty()) {
             var newFindings = new ArrayList<ParadoxDetected.Paradox>();
-            for (var fresh : unmatchedFresh) {
-                var paradoxId = UUID.randomUUID();
+            for (var slot = 0; slot < unmatchedFresh.size(); slot++) {
+                var fresh = unmatchedFresh.get(slot);
+                var paradoxId = entropy.identity(
+                        IdentityKind.PHASE_CLOSE_PARADOX,
+                        EntropyCoordinate.none()
+                                .era(phase.eraNumber())
+                                .subject(affectedEventId)
+                                .slot(slot));
                 persistingIds.add(paradoxId);
                 newFindings.add(new ParadoxDetected.Paradox(
                         paradoxId, fresh.type(), affectedEventId, fresh.affectedOutcomeIds(), fresh.description()));

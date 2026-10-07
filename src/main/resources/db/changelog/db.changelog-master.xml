@@ -51,5 +51,6 @@
 
     <!-- Durable per-(game, era, event, outcome) CASCADE carry-forward rows -->
     <include file="db/changelog/cascadecarryforward/001-create-cascade-carry-forward.xml"/>
+    <include file="db/changelog/simulation/001-create-simulation-execution.xml"/>
 
 </databaseChangeLog>

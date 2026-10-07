@@ -49,6 +49,7 @@ import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionPhaseRepository.CreateResult;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
+import io.github.temporalrift.timeline.domain.port.out.StubExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase;
@@ -121,7 +122,7 @@ class ParadoxResolutionSagaImplTest {
                 weaverChainSaga,
                 settleCascades,
                 clock,
-                random);
+                StubExecutionEntropy.using(random));
         lenient().when(chainSagas.findOpenByGame(any())).thenReturn(List.of());
     }
 
@@ -1072,7 +1073,7 @@ class ParadoxResolutionSagaImplTest {
     @ParameterizedTest
     @CsvSource({"0, 0", "23, 0", "24, 1", "61, 1", "62, 2", "99, 2"})
     void handlePlayerSubmitted_stabilizeLeavesDeadHeat_weightedDrawOverUnchangedWeightsPicksWinner(
-            long roll, int expectedWinnerIndex) {
+            int roll, int expectedWinnerIndex) {
         var sagaId = UUID.randomUUID();
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
@@ -1098,7 +1099,7 @@ class ParadoxResolutionSagaImplTest {
 
         given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
         given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
-        given(random.nextLong()).willReturn(roll);
+        given(random.nextInt(anyInt())).willReturn(roll);
 
         saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
 
@@ -1121,9 +1122,9 @@ class ParadoxResolutionSagaImplTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"0, 1", "39, 1", "40, 2", "79, 2", "80, 1"})
+    @CsvSource({"0, 1", "39, 1", "40, 2", "79, 2"})
     void handlePlayerSubmitted_stabilizeLeavesDeadHeatBesideAnnihilatedOutcome_tiedLeadersSplitTheDraw(
-            long roll, int expectedWinnerIndex) {
+            int roll, int expectedWinnerIndex) {
         var sagaId = UUID.randomUUID();
         var paradoxId = UUID.randomUUID();
         var affectedEventId = UUID.randomUUID();
@@ -1148,7 +1149,7 @@ class ParadoxResolutionSagaImplTest {
 
         given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
         given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
-        given(random.nextLong()).willReturn(roll);
+        given(random.nextInt(anyInt())).willReturn(roll);
 
         saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
 
@@ -1195,7 +1196,7 @@ class ParadoxResolutionSagaImplTest {
                 .willReturn(deadHeatFutureEvent(stabilizedEventId, stabilizedOutcomeIds, 24, 38, 38, false));
         given(futureEvents.findById(untouchedEventId))
                 .willReturn(deadHeatFutureEvent(untouchedEventId, untouchedOutcomeIds, 24, 38, 38, false));
-        given(random.nextLong()).willReturn(70L);
+        given(random.nextInt(anyInt())).willReturn(70);
 
         saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
 
@@ -1243,7 +1244,7 @@ class ParadoxResolutionSagaImplTest {
         given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, submission)).willReturn(Optional.of(phase));
         given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
         givenActiveChainWithPendingLink(affectedEventId, pendingOutcomeId);
-        given(random.nextLong()).willReturn(30L);
+        given(random.nextInt(anyInt())).willReturn(30);
 
         saga.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, submission);
 

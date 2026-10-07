@@ -4,7 +4,6 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -18,8 +17,12 @@ import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxDetected;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateCalculated;
 import io.github.temporalrift.timeline.domain.event.TerminalResolution;
+import io.github.temporalrift.timeline.domain.execution.EntropyCoordinate;
+import io.github.temporalrift.timeline.domain.execution.EntropyPurpose;
+import io.github.temporalrift.timeline.domain.execution.IdentityKind;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.ParadoxDetector;
+import io.github.temporalrift.timeline.domain.port.out.ExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -57,7 +60,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     private final WeaverChainRepository chains;
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final Clock clock;
-    private final RandomGenerator random;
+    private final ExecutionEntropy entropy;
 
     ResolveEraCommandHandler(
             FutureEventEraIndexPort eraIndex,
@@ -69,7 +72,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             WeaverChainRepository chains,
             WeaverChainSagaUseCase weaverChainSaga,
             Clock clock,
-            RandomGenerator random) {
+            ExecutionEntropy entropy) {
         this.eraIndex = eraIndex;
         this.futureEvents = futureEvents;
         this.settleCascades = settleCascades;
@@ -79,7 +82,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
         this.chains = chains;
         this.weaverChainSaga = weaverChainSaga;
         this.clock = clock;
-        this.random = random;
+        this.entropy = entropy;
     }
 
     @Override
@@ -153,8 +156,14 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             // of skipping it as already-handled. Each finding's paradoxId is shared between the
             // ParadoxDetected fact and the ParadoxResolutionSaga's pending-paradox entry so the saga's
             // later ParadoxCascaded references the same paradoxId this cycle announced.
-            detected.forEach(d -> {
-                var paradoxId = UUID.randomUUID();
+            for (var slot = 0; slot < detected.size(); slot++) {
+                var d = detected.get(slot);
+                var paradoxId = entropy.identity(
+                        IdentityKind.ERA_RESOLUTION_PARADOX,
+                        EntropyCoordinate.none()
+                                .era(eraNumber)
+                                .subject(futureEvent.id())
+                                .slot(slot));
                 accumulator
                         .paradoxes()
                         .add(new ParadoxDetected.Paradox(
@@ -167,7 +176,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
                                 d.affectedOutcomeIds(),
                                 futureEvent.id(),
                                 indexedEventId.revealIndex()));
-            });
+            }
         }
     }
 
@@ -277,7 +286,12 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     }
 
     private OutcomeApplied resolveOne(FutureEvent futureEvent, UUID gameId, int eraNumber) {
-        var outcomeApplied = futureEvent.resolve(gameId, eraNumber, random.nextLong());
+        var outcomeApplied = futureEvent.resolve(
+                gameId,
+                eraNumber,
+                entropy.generator(
+                        EntropyPurpose.OUTCOME_RESOLUTION,
+                        EntropyCoordinate.none().era(eraNumber).subject(futureEvent.id())));
         futureEvents.append(futureEvent.id(), outcomeApplied);
         return outcomeApplied;
     }

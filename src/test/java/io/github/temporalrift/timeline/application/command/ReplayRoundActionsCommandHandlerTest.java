@@ -46,6 +46,7 @@ import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
+import io.github.temporalrift.timeline.domain.futureevent.FixedDraw;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
@@ -2179,7 +2180,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var outcomeId = UUID.randomUUID();
         if (resolved) {
             var futureEvent = drafted(eventId, outcome(outcomeId, 100));
-            futureEvent.resolve(GAME_ID, ERA_NUMBER, 0L);
+            futureEvent.resolve(GAME_ID, ERA_NUMBER, FixedDraw.of(0));
             given(futureEvents.findById(eventId)).willReturn(futureEvent);
         } else {
             given(futureEvents.findById(eventId)).willThrow(new FutureEventNotFoundException(eventId));
@@ -2285,7 +2286,7 @@ class ReplayRoundActionsCommandHandlerTest {
         var outcomeId = UUID.randomUUID();
         var futureEvent = drafted(
                 eventId, outcome(outcomeId, 50), outcome(UUID.randomUUID(), 30), outcome(UUID.randomUUID(), 20));
-        futureEvent.resolve(GAME_ID, ERA_NUMBER, 0L);
+        futureEvent.resolve(GAME_ID, ERA_NUMBER, FixedDraw.of(0));
         given(futureEvents.findById(eventId)).willReturn(futureEvent);
         given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
                 .willReturn(List.of(specialAction("ANNIHILATE", eventId, outcomeId)));

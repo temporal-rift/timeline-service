@@ -4,9 +4,11 @@ import java.time.Clock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import io.github.temporalrift.timeline.domain.event.LogicalClockAdvanced;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase;
 
 /**
@@ -31,6 +33,11 @@ class ParadoxResolutionTimerSweep {
         this.stateManager = stateManager;
         this.timeoutProcessor = timeoutProcessor;
         this.clock = clock;
+    }
+
+    @EventListener
+    void onLogicalClockAdvanced(LogicalClockAdvanced ignored) {
+        sweep();
     }
 
     @Scheduled(fixedDelayString = "${game.timers.paradox-resolution-sweep-interval}")
