@@ -710,11 +710,12 @@ class ReplayRoundActionsCommandHandlerTest {
         for (var weakFirst : List.of(true, false)) {
             var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
             given(futureEvents.findById(eventId)).willReturn(futureEvent);
+            var arrival = List.of(
+                    cardPlayedByGraded(weakPlayer, "PUSH", CardGrade.I, eventId, null, a),
+                    cardPlayedByGraded(strongPlayer, "PUSH", CardGrade.III, eventId, null, a),
+                    mimic(mimicPlayer, eventId, a));
             given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                    .willReturn(List.of(
-                            cardPlayedByGraded(weakPlayer, "PUSH", CardGrade.I, eventId, null, a),
-                            cardPlayedByGraded(strongPlayer, "PUSH", CardGrade.III, eventId, null, a),
-                            mimic(mimicPlayer, eventId, a)));
+                    .willReturn(weakFirst ? arrival : arrival.reversed());
 
             handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -737,11 +738,12 @@ class ReplayRoundActionsCommandHandlerTest {
         for (var pushFirst : List.of(true, false)) {
             var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
             given(futureEvents.findById(eventId)).willReturn(futureEvent);
+            var arrival = List.of(
+                    cardPlayedByGraded(UUID.randomUUID(), "PUSH", CardGrade.I, eventId, null, a),
+                    cardPlayedByGraded(UUID.randomUUID(), "SUPPRESS", CardGrade.III, eventId, null, a),
+                    mimic(UUID.randomUUID(), eventId, a));
             given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                    .willReturn(List.of(
-                            cardPlayedByGraded(UUID.randomUUID(), "PUSH", CardGrade.I, eventId, null, a),
-                            cardPlayedByGraded(UUID.randomUUID(), "SUPPRESS", CardGrade.III, eventId, null, a),
-                            mimic(UUID.randomUUID(), eventId, a)));
+                    .willReturn(pushFirst ? arrival : arrival.reversed());
 
             handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
@@ -1270,6 +1272,29 @@ class ReplayRoundActionsCommandHandlerTest {
 
         assertThat(probabilityOf(futureEvent, a)).isEqualTo(70);
         then(rules).should(never()).rallyMultiplier();
+    }
+
+    @Test
+    void replay_sameWeaverThreadsTwice_offersTheLinksInTargetOrderWhateverTheArrivalOrder() {
+        var weaver = UUID.randomUUID();
+        var lowerEvent = UUID.fromString("00000000-0000-4000-8000-000000000001");
+        var higherEvent = UUID.fromString("00000000-0000-4000-8000-000000000002");
+        var outcome = UUID.randomUUID();
+        given(futureEvents.findById(any())).willReturn(drafted(UUID.randomUUID(), outcome(outcome, 100)));
+        var actions = List.of(
+                specialActionBy(weaver, "THREAD", higherEvent, outcome),
+                specialActionBy(weaver, "THREAD", lowerEvent, outcome));
+
+        for (var arrival : List.of(actions, actions.reversed())) {
+            given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER)).willReturn(arrival);
+            var order = inOrder(weaverChainSaga);
+
+            handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+            order.verify(weaverChainSaga).playThread(GAME_ID, ERA_NUMBER, weaver, lowerEvent, outcome);
+            order.verify(weaverChainSaga).playThread(GAME_ID, ERA_NUMBER, weaver, higherEvent, outcome);
+            clearInvocations(weaverChainSaga);
+        }
     }
 
     @Test
@@ -2502,10 +2527,11 @@ class ReplayRoundActionsCommandHandlerTest {
             given(futureEvents.findById(eventId))
                     .willReturn(drafted(
                             eventId, outcome(leader, 34), outcome(trailing, 33), outcome(UUID.randomUUID(), 33)));
+            var arrival = List.of(
+                    specialActionBy(leaderPlayer, "ANNIHILATE", eventId, leader),
+                    specialActionBy(trailingPlayer, "ANNIHILATE", eventId, trailing));
             given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
-                    .willReturn(List.of(
-                            specialActionBy(leaderPlayer, "ANNIHILATE", eventId, leader),
-                            specialActionBy(trailingPlayer, "ANNIHILATE", eventId, trailing)));
+                    .willReturn(leaderFirst ? arrival : arrival.reversed());
 
             handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 

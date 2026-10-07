@@ -90,7 +90,10 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             .thenComparing(BufferedAction::kind)
             .thenComparing(BufferedAction::cardType, Comparator.nullsFirst(Comparator.naturalOrder()))
             .thenComparing(BufferedAction::specialAction, Comparator.nullsFirst(Comparator.naturalOrder()))
-            .thenComparing(BufferedAction::cardInstanceId, Comparator.nullsFirst(Comparator.naturalOrder()));
+            .thenComparing(BufferedAction::cardInstanceId, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(BufferedAction::targetEventId, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(BufferedAction::targetOutcomeId, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(BufferedAction::targetPlayerId, Comparator.nullsFirst(Comparator.naturalOrder()));
 
     /** Eligible for AMPLIFY's doubling and NULLIFY's cancellation like any other remaining-tier card. */
     private static final Set<String> AMPLIFIABLE_SHIFTER_TYPES =
@@ -630,7 +633,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     /** Every live THREAD the Weaver chain saga accepted; each one's shift joins the simultaneous tier. */
     private List<BufferedAction> resolveAcceptedThreads(
             UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
-        // Sequential and in submission order: playThread changes Weaver chain state, so each call must see the last.
+        // Sequential in replay order: playThread changes Weaver chain state, so each call must see the last.
         return sorted.stream()
                 .filter(a -> isSpecial(a, SPECIAL_ACTION_THREAD) && !cancelled.contains(a.envelopeEventId()))
                 .filter(a -> weaverChainSaga.playThread(
