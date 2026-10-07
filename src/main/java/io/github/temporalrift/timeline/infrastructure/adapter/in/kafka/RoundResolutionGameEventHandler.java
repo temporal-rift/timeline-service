@@ -277,7 +277,6 @@ class RoundResolutionGameEventHandler {
                 payload.targetPlayerId(),
                 payload.targetPlayerIds(),
                 grade,
-                envelope.occurredAt(),
                 envelope.eventId());
     }
 
@@ -295,7 +294,6 @@ class RoundResolutionGameEventHandler {
                 payload.targetPlayerId(),
                 null,
                 null,
-                envelope.occurredAt(),
                 envelope.eventId());
     }
 
@@ -314,7 +312,6 @@ class RoundResolutionGameEventHandler {
                 null,
                 null,
                 null,
-                envelope.occurredAt(),
                 envelope.eventId());
     }
 

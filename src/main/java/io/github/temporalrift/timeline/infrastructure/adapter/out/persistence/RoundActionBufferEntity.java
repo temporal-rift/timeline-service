@@ -1,6 +1,5 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 
-import java.time.Instant;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
@@ -60,9 +59,6 @@ class RoundActionBufferEntity extends RoundScopedEntity {
     @Column(name = "target_player_ids")
     private String targetPlayerIds;
 
-    @Column(name = "occurred_at", nullable = false)
-    private Instant occurredAt;
-
     @Column(name = "envelope_event_id", nullable = false)
     private UUID envelopeEventId;
 
@@ -84,7 +80,6 @@ class RoundActionBufferEntity extends RoundScopedEntity {
         this.targetOutcomeId = action.targetOutcomeId();
         this.targetPlayerId = action.targetPlayerId();
         this.targetPlayerIds = targetPlayerIds;
-        this.occurredAt = action.occurredAt();
         this.envelopeEventId = action.envelopeEventId();
     }
 
@@ -134,10 +129,6 @@ class RoundActionBufferEntity extends RoundScopedEntity {
 
     String targetPlayerIds() {
         return targetPlayerIds;
-    }
-
-    Instant occurredAt() {
-        return occurredAt;
     }
 
     UUID envelopeEventId() {

@@ -2,7 +2,6 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -78,7 +77,6 @@ class JpaRoundActionBufferAdapterTest {
                 null,
                 null,
                 CardGrade.II,
-                Instant.now(),
                 UUID.randomUUID());
 
         buffer.save(gameId, 1, 1, action);
@@ -106,7 +104,6 @@ class JpaRoundActionBufferAdapterTest {
                 null,
                 null,
                 CardGrade.I,
-                Instant.now(),
                 UUID.randomUUID());
         var entity =
                 new RoundActionBufferEntity(new RoundKey(gameId, 1, 1), action, "[\"" + eventId + "\", null]", null);
@@ -146,7 +143,6 @@ class JpaRoundActionBufferAdapterTest {
                 null,
                 targets,
                 CardGrade.II,
-                Instant.parse("2026-09-28T00:00:00Z"),
                 UUID.randomUUID());
     }
 
@@ -164,7 +160,6 @@ class JpaRoundActionBufferAdapterTest {
                 null,
                 null,
                 CardGrade.II,
-                Instant.now(),
                 UUID.randomUUID());
     }
 }

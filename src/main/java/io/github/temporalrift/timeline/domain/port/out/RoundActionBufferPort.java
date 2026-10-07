@@ -1,6 +1,5 @@
 package io.github.temporalrift.timeline.domain.port.out;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,7 +17,7 @@ public interface RoundActionBufferPort {
 
     void save(UUID gameId, int eraNumber, int roundNumber, BufferedAction action);
 
-    /** Returned in no particular order; callers sort by {@link BufferedAction#occurredAt()} as needed. */
+    /** Returned in no particular order; a round's actions resolve simultaneously. */
     List<BufferedAction> findByRound(UUID gameId, int eraNumber, int roundNumber);
 
     enum ActionKind {
@@ -36,8 +35,7 @@ public interface RoundActionBufferPort {
      * {@code isEmpty()} without a null check. {@code targetPlayerIds} holds Nullify's complete selection;
      * it is immutable and empty for other actions. {@code grade} is populated for {@code CARD_PLAYED} only, from the
      * originating {@code CardPlayedPayload}'s grade; {@code null} for {@code SPECIAL_ACTION_PLAYED}, which carries
-     * no grade. {@code envelopeEventId} is the tie-break secondary sort key for two actions sharing an identical
-     * {@code occurredAt}.
+     * no grade. {@code envelopeEventId} correlates the action with its originating record.
      */
     record BufferedAction(
             ActionKind kind,
@@ -52,7 +50,6 @@ public interface RoundActionBufferPort {
             UUID targetPlayerId,
             List<UUID> targetPlayerIds,
             CardGrade grade,
-            Instant occurredAt,
             UUID envelopeEventId) {
         public BufferedAction {
             targetEventIds = targetEventIds == null ? List.of() : List.copyOf(targetEventIds);

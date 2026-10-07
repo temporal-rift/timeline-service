@@ -41,6 +41,7 @@
 
     <!-- Round-scoped buffer of not-yet-applied actions, replayed in priority order at ActionRoundClosed -->
     <include file="db/changelog/roundeffect/006-create-round-action-buffer.xml"/>
+    <include file="db/changelog/roundeffect/007-drop-round-action-buffer-occurred-at.xml"/>
 
     <!-- ParadoxResolutionSaga state -->
     <include file="db/changelog/paradoxresolution/001-create-paradox-resolution-phase.xml"/>

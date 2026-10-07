@@ -53,7 +53,6 @@ class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
                 e.targetPlayerId(),
                 toTargetIds(e.targetPlayerIds()),
                 e.grade(),
-                e.occurredAt(),
                 e.envelopeEventId());
     }
 
