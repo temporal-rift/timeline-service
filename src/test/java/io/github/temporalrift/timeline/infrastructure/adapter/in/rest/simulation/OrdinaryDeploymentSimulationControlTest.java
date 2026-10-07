@@ -26,14 +26,14 @@ import io.github.temporalrift.timeline.TestSecurityConfig;
 import io.github.temporalrift.timeline.infrastructure.config.SecurityConfig;
 import io.github.temporalrift.timeline.infrastructure.config.SimulationControlSecurityConfig;
 
-@WebMvcTest(controllers = OrdinaryDeploymentSimulationControlIT.Probe.class)
+@WebMvcTest(controllers = OrdinaryDeploymentSimulationControlTest.Probe.class)
 @Import({
     SecurityConfig.class,
     SimulationControlSecurityConfig.class,
     TestSecurityConfig.class,
-    OrdinaryDeploymentSimulationControlIT.Probe.class
+    OrdinaryDeploymentSimulationControlTest.Probe.class
 })
-class OrdinaryDeploymentSimulationControlIT {
+class OrdinaryDeploymentSimulationControlTest {
 
     @Autowired
     MockMvc mockMvc;
