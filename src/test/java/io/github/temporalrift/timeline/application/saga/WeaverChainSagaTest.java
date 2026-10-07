@@ -949,6 +949,33 @@ class WeaverChainSagaTest {
         assertThat(published(ChainLinkAddedEvent.class).chainLength()).isEqualTo(1);
     }
 
+    @Test
+    void thread_afterBreak_withCaseDerivedIdentities_startsADistinctChain() {
+        saga = new WeaverChainSaga(
+                chains,
+                sagas,
+                futureEvents,
+                eraIndex,
+                publisher,
+                StubExecutionEntropy.deterministicIdentities(),
+                clock);
+        var first = liveOutcome(1);
+        saga.playThread(GAME_ID, 1, PLAYER_ID, first.eventId(), first.outcomeId());
+        var brokenChainId =
+                sagas.findOpenByGameAndPlayer(GAME_ID, PLAYER_ID).orElseThrow().chainId();
+        saga.breakChainOnCascadedParadox(GAME_ID, 1, first.eventId(), first.outcomeId(), UUID.randomUUID());
+
+        var second = liveOutcome(2);
+        saga.playThread(GAME_ID, 2, PLAYER_ID, second.eventId(), second.outcomeId());
+
+        var rebuiltChainId =
+                sagas.findOpenByGameAndPlayer(GAME_ID, PLAYER_ID).orElseThrow().chainId();
+        assertThat(rebuiltChainId).isNotEqualTo(brokenChainId);
+        assertThat(chains.findById(brokenChainId).status()).isEqualTo(ChainStatus.BROKEN);
+        assertThat(chains.findById(rebuiltChainId).pendingLink().eventId()).isEqualTo(second.eventId());
+        assertThat(sagas.findByChainId(brokenChainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.BROKEN);
+    }
+
     /** Opens a chain with {@code linkCount} confirmed links (each threaded then immediately confirmed). */
     private UUID openChainWithConfirmedLinks(int linkCount) {
         var chainId = UUID.randomUUID();
