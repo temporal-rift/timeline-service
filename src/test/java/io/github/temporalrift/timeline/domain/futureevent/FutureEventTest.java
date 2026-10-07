@@ -136,8 +136,8 @@ class FutureEventTest {
                 new Outcome(UUID.randomUUID(), "zeroB", 0),
                 new Outcome(UUID.randomUUID(), "annihilated", 100, false, true));
 
-        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, FixedDraw.of(0)))
-                .isInstanceOf(IllegalStateException.class);
+        var draw = FixedDraw.of(0);
+        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, draw)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -175,7 +175,8 @@ class FutureEventTest {
         var event = drafted(id, new Outcome(UUID.randomUUID(), "only", 100));
         event.resolve(GAME_ID, ERA_NUMBER, FixedDraw.of(0));
 
-        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, FixedDraw.of(0)))
+        var draw = FixedDraw.of(0);
+        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, draw))
                 .isInstanceOf(FutureEventAlreadyResolvedException.class);
     }
 
@@ -236,7 +237,8 @@ class FutureEventTest {
         var event = FutureEvent.replay(id, List.of(drafted, applied));
 
         assertThat(event.resolved()).isTrue();
-        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, FixedDraw.of(0)))
+        var draw = FixedDraw.of(0);
+        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, draw))
                 .isInstanceOf(FutureEventAlreadyResolvedException.class);
     }
 
@@ -811,7 +813,8 @@ class FutureEventTest {
         event.markStalled();
 
         assertThat(event.stalled()).isTrue();
-        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, FixedDraw.of(0)))
+        var draw = FixedDraw.of(0);
+        assertThatThrownBy(() -> event.resolve(GAME_ID, ERA_NUMBER, draw))
                 .isInstanceOf(FutureEventStalledException.class);
     }
 
