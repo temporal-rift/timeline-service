@@ -23,8 +23,11 @@ import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.ThreadRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
+import io.github.temporalrift.timeline.domain.execution.EntropyCoordinate;
+import io.github.temporalrift.timeline.domain.execution.IdentityKind;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
+import io.github.temporalrift.timeline.domain.port.out.ExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
@@ -71,6 +74,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     private final FutureEventRepository futureEvents;
     private final FutureEventEraIndexPort eraIndex;
     private final TimelineEventPublisher publisher;
+    private final ExecutionEntropy entropy;
     private final Clock clock;
 
     WeaverChainSaga(
@@ -79,12 +83,14 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             FutureEventRepository futureEvents,
             FutureEventEraIndexPort eraIndex,
             TimelineEventPublisher publisher,
+            ExecutionEntropy entropy,
             Clock clock) {
         this.chains = chains;
         this.sagas = sagas;
         this.futureEvents = futureEvents;
         this.eraIndex = eraIndex;
         this.publisher = publisher;
+        this.entropy = entropy;
         this.clock = clock;
     }
 
@@ -132,7 +138,10 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     /** Opens (or starts) a pending link once THREAD's coordinate is known valid. */
     private boolean acceptThread(
             UUID gameId, int eraNumber, UUID playerId, WeaverChainSagaState saga, OutcomeCoordinate coordinate) {
-        UUID chainId = saga == null ? UUID.randomUUID() : saga.chainId();
+        UUID chainId = saga == null
+                ? entropy.identity(
+                        IdentityKind.WEAVER_CHAIN, EntropyCoordinate.none().player(playerId))
+                : saga.chainId();
         if (saga == null) {
             chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
             sagas.save(

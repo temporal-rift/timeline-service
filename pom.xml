@@ -58,6 +58,7 @@
         <session-event.version>7.0.0</session-event.version>
         <action-event.version>9.3.0</action-event.version>
         <chains-api.version>2.0.0</chains-api.version>
+        <simulation-control-api.version>1.1.1</simulation-control-api.version>
         <archunit-junit5.version>1.5.1</archunit-junit5.version>
     </properties>
 
@@ -89,6 +90,11 @@
             <groupId>io.github.temporal-rift</groupId>
             <artifactId>chains-api</artifactId>
             <version>${chains-api.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.temporal-rift</groupId>
+            <artifactId>simulation-control-api</artifactId>
+            <version>${simulation-control-api.version}</version>
         </dependency>
 
         <dependency>
@@ -267,6 +273,29 @@
                             </modelPackage>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>generate-simulation-control-api</id>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <inputSpec>
+                                ${project.build.directory}/dependency-specs/simulation-control-api-${simulation-control-api.version}-jar/openapi/v1/simulation-control.yml
+                            </inputSpec>
+                            <output>${project.build.directory}/generated-sources/openapi/simulation</output>
+                            <apiPackage>io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation.v1
+                            </apiPackage>
+                            <modelPackage>io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation.v1.model
+                            </modelPackage>
+                            <!-- Every response field of this contract is required, including the nullable ones, so the
+                                 service-wide non_null inclusion must not drop them. -->
+                            <configOptions>
+                                <additionalModelTypeAnnotations>
+                                    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)
+                                </additionalModelTypeAnnotations>
+                            </configOptions>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
             <plugin>
@@ -295,6 +324,9 @@
                             <sources>
                                 <source>
                                     ${project.build.directory}/generated-sources/openapi/chains/src/main/java
+                                </source>
+                                <source>
+                                    ${project.build.directory}/generated-sources/openapi/simulation/src/main/java
                                 </source>
                             </sources>
                         </configuration>

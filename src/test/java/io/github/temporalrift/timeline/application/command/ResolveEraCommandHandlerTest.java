@@ -42,6 +42,7 @@ import io.github.temporalrift.timeline.domain.futureevent.ParadoxType;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
+import io.github.temporalrift.timeline.domain.port.out.StubExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
@@ -100,7 +101,7 @@ class ResolveEraCommandHandlerTest {
                 chains,
                 weaverChainSaga,
                 clock,
-                random);
+                StubExecutionEntropy.using(random));
         given(chainSagas.findOpenByGame(any())).willReturn(List.of());
     }
 

@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      Isolated simulation execution: the single configured case of this lane, its seats, applied clock operations
+      and every realized random word. Ordinary deployments never write these tables.
+  -->
+  <changeSet id="simulation-001-create-simulation-execution" author="timeline-service">
+    <createTable tableName="simulation_execution">
+      <column name="id" type="SMALLINT" defaultValueNumeric="1">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="case_key" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+      <column name="seed" type="VARCHAR(20)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="entropy_version" type="VARCHAR(32)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="manifest_digest" type="VARCHAR(64)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="configured_logical_time" type="TIMESTAMP WITH TIME ZONE">
+        <constraints nullable="false"/>
+      </column>
+      <column name="logical_time" type="TIMESTAMP WITH TIME ZONE">
+        <constraints nullable="false"/>
+      </column>
+      <column name="revision" type="BIGINT">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+    <sql>ALTER TABLE simulation_execution ADD CONSTRAINT ck_simulation_execution_singleton CHECK (id = 1)</sql>
+
+    <createTable tableName="simulation_seat">
+      <column name="seat_index" type="INT">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="player_id" type="UUID">
+        <constraints nullable="false" unique="true"/>
+      </column>
+      <column name="faction" type="VARCHAR(32)">
+        <constraints nullable="false" unique="true"/>
+      </column>
+    </createTable>
+
+    <createTable tableName="simulation_clock_operation">
+      <column name="operation_id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="expected_revision" type="BIGINT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="target_time" type="TIMESTAMP WITH TIME ZONE">
+        <constraints nullable="false"/>
+      </column>
+      <column name="applied_revision" type="BIGINT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="logical_time" type="TIMESTAMP WITH TIME ZONE">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+
+    <createTable tableName="simulation_entropy_decision">
+      <column name="purpose" type="VARCHAR(64)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="coordinate" type="VARCHAR(512)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="draw_index" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="word" type="BIGINT">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+    <addPrimaryKey tableName="simulation_entropy_decision" columnNames="purpose, coordinate, draw_index"
+        constraintName="pk_simulation_entropy_decision"/>
+  </changeSet>
+
+</databaseChangeLog>

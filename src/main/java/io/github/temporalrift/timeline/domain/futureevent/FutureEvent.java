@@ -9,6 +9,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
 
 import io.github.temporalrift.timeline.domain.event.EraStateCleared;
@@ -117,21 +118,19 @@ public final class FutureEvent {
     /**
      * Resolves this event by drawing the winning outcome at random from its non-annihilated outcomes, weighted by
      * each one's current probability — no outcome is guaranteed regardless of its lead, matching the documented
-     * 0-90% probability model. {@code roll} is an already-generated random value supplied by the caller (this
-     * aggregate stays free of any randomness-port coupling, mirroring how {@link #applyShift} takes
-     * caller-resolved magnitude/floor/ceiling instead of a port reference); it is folded into {@code [0, total)}
-     * via {@link Math#floorMod} against the sum of eligible weights, then walked cumulatively. An annihilated
-     * outcome contributes no weight and can never win. Tied outcomes, including a Dead Heat cleared by Stabilize, are
-     * equally likely. Callers must check {@link #hasDrawableWeight()} first.
+     * 0-90% probability model. {@code random} draws one unbiased value in {@code [0, total)} against the sum of
+     * eligible weights, then the eligible outcomes are walked cumulatively. An annihilated outcome contributes no
+     * weight and can never win. Tied outcomes, including a Dead Heat cleared by Stabilize, are equally likely.
+     * Callers must check {@link #hasDrawableWeight()} first.
      */
-    public OutcomeApplied resolve(UUID gameId, int eraNumber, long roll) {
+    public OutcomeApplied resolve(UUID gameId, int eraNumber, RandomGenerator random) {
         if (resolved()) {
             throw new FutureEventAlreadyResolvedException(id);
         }
         if (stalled) {
             throw new FutureEventStalledException(id);
         }
-        var winner = drawWeighted(roll);
+        var winner = drawWeighted(random);
         var event = new OutcomeApplied(gameId, eraNumber, id, winner.outcomeId(), outcomes);
         this.outcomes = event.finalOutcomes();
         this.resolution = new Resolution(winner.outcomeId(), eraNumber);
@@ -142,7 +141,7 @@ public final class FutureEvent {
      * Cumulative-weight walk over the non-annihilated outcomes. A zero eligible total is {@code IMPOSSIBLE_ERASURE}
      * and never reaches here, so the defensive exceptions below are not expected runtime paths.
      */
-    private Outcome drawWeighted(long roll) {
+    private Outcome drawWeighted(RandomGenerator random) {
         var eligible = outcomes.stream().filter(o -> !o.annihilated()).toList();
         if (eligible.isEmpty()) {
             throw new IllegalStateException("FutureEvent " + id + " has no eligible outcomes");
@@ -151,11 +150,11 @@ public final class FutureEvent {
         if (total <= 0) {
             throw new IllegalStateException("FutureEvent " + id + " has no positive weight among eligible outcomes");
         }
-        long normalizedRoll = Math.floorMod(roll, total);
+        int roll = random.nextInt(total);
         int cumulative = 0;
         for (var outcome : eligible) {
             cumulative += outcome.probability();
-            if (normalizedRoll < cumulative) {
+            if (roll < cumulative) {
                 return outcome;
             }
         }
