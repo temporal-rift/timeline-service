@@ -45,6 +45,8 @@ final class GameEventIngestion {
             "HandDealt",
             "HandSelected",
             "ResolutionStarted",
+            "DeclarationWindowOpened",
+            "DeclarationOptionsOffered",
             "ActionRoundStarted",
             "CardPlayed",
             "ActionRoundPassed",
