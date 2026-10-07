@@ -138,10 +138,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     /** Opens (or starts) a pending link once THREAD's coordinate is known valid. */
     private boolean acceptThread(
             UUID gameId, int eraNumber, UUID playerId, WeaverChainSagaState saga, OutcomeCoordinate coordinate) {
-        UUID chainId = saga == null
-                ? entropy.identity(
-                        IdentityKind.WEAVER_CHAIN, EntropyCoordinate.none().player(playerId))
-                : saga.chainId();
+        UUID chainId = saga == null ? newChainId(gameId, playerId) : saga.chainId();
         if (saga == null) {
             chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
             sagas.save(
@@ -165,6 +162,14 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                         gameId, eraNumber, chainId, playerId, coordinate.eventId(), coordinate.outcomeId()),
                 clock));
         return true;
+    }
+
+    /** The weaver's next chain ordinal in this game, so a chain rebuilt after a break never reuses a stream. */
+    private UUID newChainId(UUID gameId, UUID playerId) {
+        var ordinal = sagas.findAllByGameAndPlayer(gameId, playerId).size();
+        return entropy.identity(
+                IdentityKind.WEAVER_CHAIN,
+                EntropyCoordinate.none().player(playerId).slot(ordinal));
     }
 
     private static String threadRejectionReason(WeaverChain chain, InvalidChainLinkException rejection) {
