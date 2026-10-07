@@ -57,7 +57,7 @@ import io.github.temporalrift.timeline.infrastructure.config.SimulationControlSe
     TestSecurityConfig.class,
     SimulationControlMapperImpl.class
 })
-class SimulationControlApiIT {
+class SimulationControlApiTest {
 
     private static final String EXECUTION_PATH = "/internal/simulation/v1/execution";
     private static final String CHECKPOINT_PATH = "/internal/simulation/v1/checkpoint";
