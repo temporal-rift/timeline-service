@@ -61,11 +61,11 @@ public final class InMemoryEventDelivery implements Consumer<Map<String, Object>
         if (subscribed.isEmpty()) {
             return;
         }
-        var message = toMessage(event);
+        // Queue for the key's lock before any other work, so the order callers arrive in is the order they dispatch in.
         var lock = keyLocks[Math.floorMod(key.hashCode(), keyLocks.length)];
         lock.lock();
         try {
-            dispatch(subscribed, topic, message);
+            dispatch(subscribed, topic, toMessage(event));
         } finally {
             lock.unlock();
         }

@@ -92,7 +92,10 @@ class InMemoryEventDeliveryTest {
                 Thread.onSpinWait();
             }
 
-            delivery.accept(event("game.events", "g2", "other"));
+            var second =
+                    CompletableFuture.runAsync(() -> delivery.accept(event("game.events", "g2", "other")), executor);
+            // Finishing while the first record's handler is still blocked proves the keys do not share a lock.
+            second.get(2, TimeUnit.SECONDS);
 
             assertThat(started).contains("b-group:other");
             releaseFirst.countDown();
