@@ -46,7 +46,8 @@ public interface EventStorePortContract extends TransactionalContract {
 
         var clash = storedEvent(aggregateId, 0);
 
-        assertThatThrownBy(() -> eventStore().append(clash)).isInstanceOf(DataIntegrityViolationException.class);
+        var store = eventStore();
+        assertThatThrownBy(() -> store.append(clash)).isInstanceOf(DataIntegrityViolationException.class);
 
         assertThat(eventStore().readStream(aggregateId)).containsExactly(original);
     }

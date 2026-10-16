@@ -54,8 +54,8 @@ public interface EraPlayersPortContract {
 
         var other = List.of(UUID.randomUUID());
 
-        assertThatThrownBy(() -> eraPlayers().save(gameId, 1, other))
-                .isInstanceOf(DataIntegrityViolationException.class);
+        var rosters = eraPlayers();
+        assertThatThrownBy(() -> rosters.save(gameId, 1, other)).isInstanceOf(DataIntegrityViolationException.class);
 
         assertThat(eraPlayers().find(gameId, 1)).contains(original);
     }
