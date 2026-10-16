@@ -111,12 +111,12 @@ class InMemoryOutboxRelay {
             }
         });
         var payload = objectMapper.writeValueAsBytes(objectMapper.readValue(row.payload(), Object.class));
-        var record = new LinkedHashMap<String, Object>();
-        record.put(TOPIC, row.topic());
-        record.put(KEY, row.messageKey());
-        record.put(HEADERS, Collections.unmodifiableMap(headers));
-        record.put(PAYLOAD, payload);
-        return record;
+        var event = new LinkedHashMap<String, Object>();
+        event.put(TOPIC, row.topic());
+        event.put(KEY, row.messageKey());
+        event.put(HEADERS, Collections.unmodifiableMap(headers));
+        event.put(PAYLOAD, payload);
+        return event;
     }
 
     @PreDestroy

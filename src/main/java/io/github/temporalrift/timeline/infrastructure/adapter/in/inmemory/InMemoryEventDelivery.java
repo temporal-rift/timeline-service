@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
@@ -39,28 +40,29 @@ public final class InMemoryEventDelivery implements Consumer<Map<String, Object>
 
     private static final String BASE_PACKAGE = "io.github.temporalrift.";
     private static final int PARTITION = 0;
+    private static final int LOCK_STRIPES = 64;
 
     private final ApplicationContext context;
-    private final ConcurrentMap<String, ReentrantLock> keyLocks = new ConcurrentHashMap<>();
+    private final ReentrantLock[] keyLocks = fairLocks();
     private final ConcurrentMap<Subscription, AtomicLong> handled = new ConcurrentHashMap<>();
-    private volatile List<Listener> listeners;
+    private final AtomicReference<List<Listener>> listeners = new AtomicReference<>();
 
     public InMemoryEventDelivery(ApplicationContext context) {
         this.context = context;
     }
 
     @Override
-    public void accept(Map<String, Object> record) {
-        var topic = required(record, "topic", String.class);
-        var key = required(record, "key", String.class);
+    public void accept(Map<String, Object> event) {
+        var topic = required(event, "topic", String.class);
+        var key = required(event, "key", String.class);
         var subscribed = listeners().stream()
                 .filter(listener -> listener.topics().contains(topic))
                 .toList();
         if (subscribed.isEmpty()) {
             return;
         }
-        var message = toMessage(record);
-        var lock = keyLocks.computeIfAbsent(key, ignored -> new ReentrantLock(true));
+        var message = toMessage(event);
+        var lock = keyLocks[Math.floorMod(key.hashCode(), keyLocks.length)];
         lock.lock();
         try {
             dispatch(subscribed, topic, message);
@@ -111,14 +113,14 @@ public final class InMemoryEventDelivery implements Consumer<Map<String, Object>
 
     /** What the Kafka container hands a raw {@code Message<Object>} listener: the headers and the value bytes. */
     @SuppressWarnings("unchecked")
-    private static Message<Object> toMessage(Map<String, Object> record) {
-        var payload = required(record, "payload", byte[].class);
-        var headers = (Map<String, String>) required(record, "headers", Map.class);
+    private static Message<Object> toMessage(Map<String, Object> event) {
+        var payload = required(event, "payload", byte[].class);
+        var headers = required(event, "headers", Map.class);
         return MessageBuilder.<Object>withPayload(payload).copyHeaders(headers).build();
     }
 
-    private static <T> T required(Map<String, Object> record, String name, Class<T> type) {
-        var value = record.get(name);
+    private static <T> T required(Map<String, Object> event, String name, Class<T> type) {
+        var value = event.get(name);
         if (!type.isInstance(value)) {
             throw new IllegalArgumentException(
                     "A delivered record needs '" + name + "' of type " + type.getSimpleName() + ", got " + value);
@@ -127,16 +129,26 @@ public final class InMemoryEventDelivery implements Consumer<Map<String, Object>
     }
 
     private List<Listener> listeners() {
-        var found = listeners;
+        var found = listeners.get();
         if (found == null) {
             synchronized (this) {
-                if (listeners == null) {
-                    listeners = discover();
+                found = listeners.get();
+                if (found == null) {
+                    found = discover();
+                    listeners.set(found);
                 }
-                found = listeners;
             }
         }
         return found;
+    }
+
+    /** Fair stripes keep records of one key strictly in arrival order while bounding the locks held per instance. */
+    private static ReentrantLock[] fairLocks() {
+        var locks = new ReentrantLock[LOCK_STRIPES];
+        for (var i = 0; i < locks.length; i++) {
+            locks[i] = new ReentrantLock(true);
+        }
+        return locks;
     }
 
     private List<Listener> discover() {

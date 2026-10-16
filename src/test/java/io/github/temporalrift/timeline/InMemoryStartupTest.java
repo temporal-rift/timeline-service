@@ -21,7 +21,7 @@ class InMemoryStartupTest {
     @Test
     @DisplayName("starts and serves REST on an ephemeral port with no DataSource and no Kafka client")
     void starts_withoutInfrastructure() throws Exception {
-        try (var host = InMemoryTimelineHost.start(record -> {})) {
+        try (var host = InMemoryTimelineHost.start(event -> {})) {
             var context = host.application();
 
             assertThat(context.getBeanNamesForType(DataSource.class)).isEmpty();
@@ -39,7 +39,7 @@ class InMemoryStartupTest {
     @Test
     @DisplayName("fails naming game.simulation.enabled when the simulation flag is off")
     void fails_whenSimulationFlagIsOff() {
-        try (var host = InMemoryTimelineHost.hostWith(record -> {})) {
+        try (var host = InMemoryTimelineHost.hostWith(event -> {})) {
             assertThatThrownBy(() ->
                             InMemoryTimelineHost.run(host, "--server.port=0", "--spring.cloud.config.enabled=false"))
                     .hasStackTraceContaining("game.simulation.enabled");
@@ -59,7 +59,7 @@ class InMemoryStartupTest {
     @Test
     @DisplayName("exposes the inbound delivery bean under its contract name")
     void exposesDeliveryBean() {
-        try (var host = InMemoryTimelineHost.start(record -> {})) {
+        try (var host = InMemoryTimelineHost.start(event -> {})) {
             Consumer<Map<String, Object>> delivery = host.delivery();
 
             assertThat(delivery).isNotNull();

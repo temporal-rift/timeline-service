@@ -19,7 +19,7 @@ public final class GameEventRecords {
     private GameEventRecords() {}
 
     public static Map<String, Object> eraStarted(UUID gameId, UUID eventId, int eraNumber, List<UUID> playerIds) {
-        return record(
+        return envelope(
                 gameId,
                 "EraStarted",
                 eventId,
@@ -86,11 +86,11 @@ public final class GameEventRecords {
         payload.put("targetEventId", targetEventId);
         payload.put("sourceOutcomeId", null);
         payload.put("targetOutcomeId", targetOutcomeId);
-        return record(gameId, "CardPlayed", eventId, payload);
+        return envelope(gameId, "CardPlayed", eventId, payload);
     }
 
     public static Map<String, Object> actionRoundClosed(UUID gameId, UUID eventId, int eraNumber, int roundNumber) {
-        return record(
+        return envelope(
                 gameId,
                 "ActionRoundClosed",
                 eventId,
@@ -109,7 +109,7 @@ public final class GameEventRecords {
 
     private static Map<String, Object> eventsDrawn(
             UUID gameId, UUID eventId, int eraNumber, UUID futureEventId, List<Map<String, Object>> outcomes) {
-        return record(
+        return envelope(
                 gameId,
                 "EventsDrawn",
                 eventId,
@@ -131,15 +131,15 @@ public final class GameEventRecords {
     }
 
     public static Map<String, Object> resolutionStarted(UUID gameId, UUID eventId, int eraNumber) {
-        return record(gameId, "ResolutionStarted", eventId, Map.of("gameId", gameId, "eraNumber", eraNumber));
+        return envelope(gameId, "ResolutionStarted", eventId, Map.of("gameId", gameId, "eraNumber", eraNumber));
     }
 
     public static Map<String, Object> factionAssigned(UUID gameId, UUID eventId, UUID playerId, String faction) {
-        return record(
+        return envelope(
                 gameId, "FactionAssigned", eventId, Map.of("gameId", gameId, "playerId", playerId, "faction", faction));
     }
 
-    public static Map<String, Object> record(UUID gameId, String eventType, UUID eventId, Object payload) {
+    public static Map<String, Object> envelope(UUID gameId, String eventType, UUID eventId, Object payload) {
         var headers = new LinkedHashMap<String, String>();
         headers.put("eventId", eventId.toString());
         headers.put("aggregateId", gameId.toString());
@@ -148,12 +148,12 @@ public final class GameEventRecords {
         headers.put("occurredAt", Instant.now().toString());
         headers.put("version", "1");
         headers.put("eventType", eventType);
-        var record = new LinkedHashMap<String, Object>();
-        record.put("topic", TOPIC);
-        record.put("key", gameId.toString());
-        record.put("headers", headers);
-        record.put("payload", JSON.writeValueAsBytes(payload));
-        return record;
+        var event = new LinkedHashMap<String, Object>();
+        event.put("topic", TOPIC);
+        event.put("key", gameId.toString());
+        event.put("headers", headers);
+        event.put("payload", JSON.writeValueAsBytes(payload));
+        return event;
     }
 
     private static Map<String, Object> outcome(UUID outcomeId, String description, int initialProbability) {

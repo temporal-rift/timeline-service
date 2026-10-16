@@ -3,14 +3,14 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.inmemory;
 import java.util.Optional;
 
 import org.springframework.context.annotation.Profile;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.github.temporalrift.timeline.domain.execution.Execution;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
 
 /** The single execution row, at the fixed id the relational table uses. */
-@Component
+@Repository
 @Profile("in-memory")
 class InMemoryExecutionRepository implements ExecutionRepository {
 

@@ -2,7 +2,9 @@ package io.github.temporalrift.timeline.infrastructure.adapter.in.inmemory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -44,7 +46,7 @@ class InMemoryEventDeliveryTest {
     @Test
     @DisplayName("runs every listener subscribed to the topic once, in group order, with the headers and raw bytes")
     void runsEachSubscribedGroupOnce() {
-        delivery.accept(record("game.events", "g1", "first"));
+        delivery.accept(event("game.events", "g1", "first"));
 
         assertThat(started).containsExactly("a-group:first", "b-group:first");
     }
@@ -52,7 +54,7 @@ class InMemoryEventDeliveryTest {
     @Test
     @DisplayName("ignores a record for a topic nobody consumes")
     void ignoresForeignTopic() {
-        delivery.accept(record("other.events", "g1", "first"));
+        delivery.accept(event("other.events", "g1", "first"));
 
         assertThat(started).isEmpty();
     }
@@ -62,15 +64,16 @@ class InMemoryEventDeliveryTest {
     void sameKey_waitsForTheEarlierRecord() throws Exception {
         try (var executor = Executors.newFixedThreadPool(2)) {
             var first =
-                    CompletableFuture.runAsync(() -> delivery.accept(record("game.events", "g1", "block")), executor);
+                    CompletableFuture.runAsync(() -> delivery.accept(event("game.events", "g1", "block")), executor);
             while (!started.contains("a-group:block")) {
                 Thread.onSpinWait();
             }
             var second =
-                    CompletableFuture.runAsync(() -> delivery.accept(record("game.events", "g1", "next")), executor);
+                    CompletableFuture.runAsync(() -> delivery.accept(event("game.events", "g1", "next")), executor);
 
-            Thread.sleep(300);
-            assertThat(started).doesNotContain("a-group:next");
+            await().during(Duration.ofMillis(300))
+                    .atMost(Duration.ofSeconds(5))
+                    .untilAsserted(() -> assertThat(started).doesNotContain("a-group:next"));
 
             releaseFirst.countDown();
             first.get(10, TimeUnit.SECONDS);
@@ -84,12 +87,12 @@ class InMemoryEventDeliveryTest {
     void differentKeys_runConcurrently() throws Exception {
         try (var executor = Executors.newFixedThreadPool(2)) {
             var first =
-                    CompletableFuture.runAsync(() -> delivery.accept(record("game.events", "g1", "block")), executor);
+                    CompletableFuture.runAsync(() -> delivery.accept(event("game.events", "g1", "block")), executor);
             while (!started.contains("a-group:block")) {
                 Thread.onSpinWait();
             }
 
-            delivery.accept(record("game.events", "g2", "other"));
+            delivery.accept(event("game.events", "g2", "other"));
 
             assertThat(started).contains("b-group:other");
             releaseFirst.countDown();
@@ -100,7 +103,7 @@ class InMemoryEventDeliveryTest {
     @Test
     @DisplayName("a failing group does not stop the others, and the failure reaches the caller")
     void failure_runsTheOtherGroupsAndPropagates() {
-        assertThatThrownBy(() -> delivery.accept(record("game.events", "g1", "fail")))
+        assertThatThrownBy(() -> delivery.accept(event("game.events", "g1", "fail")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("a-group failed");
 
@@ -127,7 +130,7 @@ class InMemoryEventDeliveryTest {
                         new SourceWatermark("b-group", "game.events", 0, 0));
     }
 
-    private static Map<String, Object> record(String topic, String key, String body) {
+    private static Map<String, Object> event(String topic, String key, String body) {
         return Map.of("topic", topic, "key", key, "headers", Map.of("eventType", "Any"), "payload", body.getBytes());
     }
 

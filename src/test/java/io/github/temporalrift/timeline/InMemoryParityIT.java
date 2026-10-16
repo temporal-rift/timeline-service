@@ -111,42 +111,42 @@ class InMemoryParityIT {
     }
 
     @SuppressWarnings("unchecked")
-    private void publishToKafka(Map<String, Object> record) {
+    private void publishToKafka(Map<String, Object> event) {
         // The Kafka message converter writes the payload as JSON itself, so it is handed the parsed body, as a producer
         // does.
-        var message = MessageBuilder.<Object>withPayload(JSON.readValue((byte[]) record.get("payload"), Object.class))
-                .copyHeaders((Map<String, Object>) record.get("headers"))
-                .setHeader(KafkaHeaders.TOPIC, record.get("topic"))
-                .setHeader(KafkaHeaders.KEY, record.get("key"))
+        var message = MessageBuilder.<Object>withPayload(JSON.readValue((byte[]) event.get("payload"), Object.class))
+                .copyHeaders((Map<String, Object>) event.get("headers"))
+                .setHeader(KafkaHeaders.TOPIC, event.get("topic"))
+                .setHeader(KafkaHeaders.KEY, event.get("key"))
                 .build();
         kafkaTemplate.send(message);
     }
 
     private List<Map<String, Object>> kafkaRecords(UUID gameId) {
         return collector.records.stream()
-                .filter(record -> gameId.toString().equals(headers(record).get("gameId")))
+                .filter(event -> gameId.toString().equals(headers(event).get("gameId")))
                 .toList();
     }
 
     private static boolean contains(List<Map<String, Object>> records, String eventType) {
         return records.stream()
-                .anyMatch(record -> eventType.equals(headers(record).get("eventType")));
+                .anyMatch(event -> eventType.equals(headers(event).get("eventType")));
     }
 
     /** Everything the consumer sees of a record except the envelope id generated afresh for each run
      * and the trace header the Kafka client adds. */
-    private static Map<String, Object> comparable(Map<String, Object> record) {
-        var headers = new LinkedHashMap<>(headers(record));
+    private static Map<String, Object> comparable(Map<String, Object> event) {
+        var headers = new LinkedHashMap<>(headers(event));
         headers.remove("eventId");
         headers.remove("traceparent"); // added by the Kafka client's tracing, not by the outbox row
         // A listener may be handed the value as bytes or already parsed; the sink always receives the bytes.
-        var payload = record.get("payload");
+        var payload = event.get("payload");
         JsonNode body = payload instanceof byte[] bytes ? JSON.readTree(bytes) : JSON.valueToTree(payload);
-        return Map.of("key", record.get("key"), "headers", headers, "payload", body);
+        return Map.of("key", event.get("key"), "headers", headers, "payload", body);
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, String> headers(Map<String, Object> record) {
-        return (Map<String, String>) record.get("headers");
+    private static Map<String, String> headers(Map<String, Object> event) {
+        return (Map<String, String>) event.get("headers");
     }
 }

@@ -2,6 +2,7 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.inmemory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -52,7 +53,7 @@ class InMemoryDatabaseTest {
                     rows.put("k", "v");
                     assertThat(rows.find("k")).contains("v");
                     written.countDown();
-                    await(commit);
+                    awaitLatch(commit);
                 }),
                 executor);
         assertThat(written.await(10, TimeUnit.SECONDS)).isTrue();
@@ -156,15 +157,16 @@ class InMemoryDatabaseTest {
                     rows.findForUpdate("k");
                     rows.put("k", "updated");
                     locked.countDown();
-                    await(commit);
+                    awaitLatch(commit);
                 }),
                 executor);
         assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
         var waiter = CompletableFuture.supplyAsync(
                 () -> transaction.execute(status -> rows.findForUpdate("k").orElseThrow()), executor);
 
-        Thread.sleep(300);
-        assertThat(waiter).isNotDone();
+        await().during(Duration.ofMillis(300))
+                .atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(waiter).isNotDone());
         commit.countDown();
 
         holder.get(10, TimeUnit.SECONDS);
@@ -180,15 +182,16 @@ class InMemoryDatabaseTest {
                 () -> transaction.executeWithoutResult(status -> {
                     rows.insert("k", "first");
                     inserted.countDown();
-                    await(commit);
+                    awaitLatch(commit);
                 }),
                 executor);
         assertThat(inserted.await(10, TimeUnit.SECONDS)).isTrue();
         var second = CompletableFuture.runAsync(
                 () -> transaction.executeWithoutResult(status -> rows.insert("k", "second")), executor);
 
-        Thread.sleep(300);
-        assertThat(second).isNotDone();
+        await().during(Duration.ofMillis(300))
+                .atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(second).isNotDone());
         commit.countDown();
 
         first.get(10, TimeUnit.SECONDS);
@@ -205,7 +208,7 @@ class InMemoryDatabaseTest {
                 () -> assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
                             rows.insert("k", "first");
                             inserted.countDown();
-                            await(rollback);
+                            awaitLatch(rollback);
                             throw new IllegalStateException("boom");
                         }))
                         .hasMessage("boom"),
@@ -214,8 +217,9 @@ class InMemoryDatabaseTest {
         var second = CompletableFuture.runAsync(
                 () -> transaction.executeWithoutResult(status -> rows.insert("k", "second")), executor);
 
-        Thread.sleep(300);
-        assertThat(second).isNotDone();
+        await().during(Duration.ofMillis(300))
+                .atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(second).isNotDone());
         rollback.countDown();
 
         first.get(10, TimeUnit.SECONDS);
@@ -235,7 +239,7 @@ class InMemoryDatabaseTest {
                 () -> shortTransaction.executeWithoutResult(status -> {
                     shortRows.lock("k");
                     locked.countDown();
-                    await(release);
+                    awaitLatch(release);
                 }),
                 executor);
         assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
@@ -290,7 +294,7 @@ class InMemoryDatabaseTest {
         assertThat(rows.find("k")).contains("mine");
     }
 
-    private static void await(CountDownLatch latch) {
+    private static void awaitLatch(CountDownLatch latch) {
         try {
             assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
         } catch (InterruptedException e) {

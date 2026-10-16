@@ -2,7 +2,9 @@ package io.github.temporalrift.timeline.contract;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -64,8 +66,9 @@ public interface SimulationRepositoriesContract extends TransactionalContract {
         var second = java.util.concurrent.CompletableFuture.supplyAsync(
                 () -> transactions().execute(status -> executions().findWithLock()));
 
-        Thread.sleep(300);
-        assertThat(second).isNotDone();
+        await().during(Duration.ofMillis(300))
+                .atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(second).isNotDone());
         assertThat(held.commit()).contains(configured);
         assertThat(second.get(30, java.util.concurrent.TimeUnit.SECONDS)).contains(configured);
     }

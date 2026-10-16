@@ -117,17 +117,16 @@ public final class InMemoryDatabase {
         // operation then belongs to a new transaction of its own, as with a connection returned to autocommit.
         var completed = unbind();
         var implicit = begin();
+        var committed = false;
         try {
-            T result;
-            try {
-                result = operation.apply(implicit);
-            } catch (RuntimeException | Error e) {
-                rollback(implicit);
-                throw e;
-            }
+            T result = operation.apply(implicit);
             commit(implicit);
+            committed = true;
             return result;
         } finally {
+            if (!committed) {
+                rollback(implicit);
+            }
             unbind();
             if (completed != null) {
                 bind(completed);
