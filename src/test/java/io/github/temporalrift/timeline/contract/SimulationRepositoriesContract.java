@@ -85,7 +85,8 @@ public interface SimulationRepositoriesContract extends TransactionalContract {
         clockOperations().save(operation);
 
         assertThat(clockOperations().find(operationId)).contains(operation);
-        assertThatThrownBy(() -> clockOperations().save(operation)).isInstanceOf(DataIntegrityViolationException.class);
+        var repository = clockOperations();
+        assertThatThrownBy(() -> repository.save(operation)).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test

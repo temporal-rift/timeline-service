@@ -103,7 +103,9 @@ class InMemoryEventDeliveryTest {
     @Test
     @DisplayName("a failing group does not stop the others, and the failure reaches the caller")
     void failure_runsTheOtherGroupsAndPropagates() {
-        assertThatThrownBy(() -> delivery.accept(event("game.events", "g1", "fail")))
+        var failing = event("game.events", "g1", "fail");
+
+        assertThatThrownBy(() -> delivery.accept(failing))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("a-group failed");
 
@@ -116,7 +118,9 @@ class InMemoryEventDeliveryTest {
     @Test
     @DisplayName("rejects a record missing its topic")
     void rejectsMalformedRecord() {
-        assertThatThrownBy(() -> delivery.accept(Map.of("key", "g1")))
+        var withoutTopic = Map.<String, Object>of("key", "g1");
+
+        assertThatThrownBy(() -> delivery.accept(withoutTopic))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("topic");
     }
