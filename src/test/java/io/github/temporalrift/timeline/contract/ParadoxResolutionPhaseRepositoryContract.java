@@ -1,7 +1,9 @@
 package io.github.temporalrift.timeline.contract;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -115,8 +117,9 @@ public interface ParadoxResolutionPhaseRepositoryContract extends TransactionalC
         var second = CompletableFuture.supplyAsync(
                 () -> transactions().execute(status -> phases().findBySagaIdWithLock(waiting.sagaId())));
 
-        Thread.sleep(300);
-        assertThat(second).isNotDone();
+        await().during(Duration.ofMillis(300))
+                .atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(second).isNotDone());
         assertThat(held.commit()).contains(waiting);
         assertThat(second.get(30, TimeUnit.SECONDS)).contains(waiting);
     }

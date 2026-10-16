@@ -12,7 +12,7 @@ import org.springframework.transaction.support.SmartTransactionObject;
  */
 public final class InMemoryTransactionManager extends AbstractPlatformTransactionManager {
 
-    private final InMemoryDatabase database;
+    private final transient InMemoryDatabase database;
 
     public InMemoryTransactionManager(InMemoryDatabase database) {
         this.database = database;

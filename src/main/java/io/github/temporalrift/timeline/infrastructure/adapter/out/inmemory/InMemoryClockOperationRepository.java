@@ -4,12 +4,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.context.annotation.Profile;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Repository;
 
 import io.github.temporalrift.timeline.domain.execution.ClockOperation;
 import io.github.temporalrift.timeline.domain.port.out.ClockOperationRepository;
 
-@Component
+@Repository
 @Profile("in-memory")
 class InMemoryClockOperationRepository implements ClockOperationRepository {
 

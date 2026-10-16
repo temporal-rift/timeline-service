@@ -3,11 +3,11 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.inmemory;
 import java.util.Optional;
 
 import org.springframework.context.annotation.Profile;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Repository;
 
 import io.github.temporalrift.timeline.domain.port.out.EntropyDecisionRepository;
 
-@Component
+@Repository
 @Profile("in-memory")
 class InMemoryEntropyDecisionRepository implements EntropyDecisionRepository {
 

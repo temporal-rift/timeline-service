@@ -123,13 +123,13 @@ class InMemoryRuntimeTest {
 
     private List<String> eventTypes(UUID gameId) {
         return published.stream()
-                .filter(record -> gameId.toString().equals(record.get("key")))
-                .map(record -> headers(record).get("eventType"))
+                .filter(event -> gameId.toString().equals(event.get("key")))
+                .map(event -> headers(event).get("eventType"))
                 .toList();
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, String> headers(Map<String, Object> record) {
-        return (Map<String, String>) record.get("headers");
+    private static Map<String, String> headers(Map<String, Object> event) {
+        return (Map<String, String>) event.get("headers");
     }
 }

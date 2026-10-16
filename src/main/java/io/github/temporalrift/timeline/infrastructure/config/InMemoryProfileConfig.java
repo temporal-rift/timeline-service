@@ -30,7 +30,7 @@ class InMemoryProfileConfig {
     @Bean
     static BeanFactoryPostProcessor inMemoryProfileGuard(Environment environment) {
         return beanFactory -> {
-            if (!environment.getProperty(SIMULATION_PROPERTY, Boolean.class, false)) {
+            if (!Boolean.parseBoolean(environment.getProperty(SIMULATION_PROPERTY))) {
                 throw new IllegalStateException("The in-memory profile requires " + SIMULATION_PROPERTY + "=true");
             }
             if (!beanFactory.containsBean(EVENT_SINK_BEAN)) {
