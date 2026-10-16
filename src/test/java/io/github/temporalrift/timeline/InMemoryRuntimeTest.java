@@ -103,6 +103,7 @@ class InMemoryRuntimeTest {
 
             assertThat(otherPublished).isEmpty();
             assertThat(second.bean(SourceWatermarks.class).current())
+                    .isNotEmpty()
                     .allSatisfy(w -> assertThat(w.nextOffset()).isZero());
             assertThat(first.bean(SourceWatermarks.class).current())
                     .anySatisfy(w -> assertThat(w.nextOffset()).isPositive());
