@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import tools.jackson.databind.ObjectMapper;
@@ -17,6 +18,7 @@ import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.Submis
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhaseStatus;
 
 @Repository
+@Profile("!in-memory")
 class JpaParadoxResolutionPhaseAdapter implements ParadoxResolutionPhaseRepository {
 
     private static final int SWEEP_BATCH_SIZE = 200;

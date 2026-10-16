@@ -3,12 +3,14 @@ package io.github.temporalrift.timeline.infrastructure.config;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 
 @Configuration
+@Profile("!in-memory")
 class KafkaErrorHandlingConfig {
 
     private static final long RETRY_INTERVAL_MS = 1_000L;

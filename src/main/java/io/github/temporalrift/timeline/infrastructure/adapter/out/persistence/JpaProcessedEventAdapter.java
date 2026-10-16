@@ -4,12 +4,14 @@ import java.util.UUID;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 @Repository
+@Profile("!in-memory")
 class JpaProcessedEventAdapter implements ProcessedEventPort {
 
     @PersistenceContext

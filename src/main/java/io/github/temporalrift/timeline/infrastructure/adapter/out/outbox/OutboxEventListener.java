@@ -1,11 +1,11 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.outbox;
 
 import java.time.Clock;
-import java.util.LinkedHashMap;
 import java.util.UUID;
 
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
+import org.springframework.context.annotation.Profile;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -27,10 +27,8 @@ import tools.jackson.databind.ObjectMapper;
  * topic, so it is hardcoded here rather than derived per-binding.
  */
 @Component
+@Profile("!in-memory")
 class OutboxEventListener {
-
-    private static final String SCS_DESTINATION_HEADER = "spring.cloud.stream.sendto.destination";
-    private static final String TIMELINE_EVENTS_TOPIC = "timeline.events";
 
     private final OutboxEventJpaRepository repository;
     private final ObjectMapper objectMapper;
@@ -50,8 +48,7 @@ class OutboxEventListener {
 
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     void onMessage(Message<?> message) {
-        var headers = message.getHeaders();
-        if (headers.get(SCS_DESTINATION_HEADER, String.class) == null) {
+        if (!OutboxMessages.isExternalized(message)) {
             return;
         }
         Observation.createNotStarted("timeline.outbox.event", observationRegistry)
@@ -60,11 +57,13 @@ class OutboxEventListener {
     }
 
     private void persist(Message<?> message) {
-        var headers = message.getHeaders();
-        var gameId = headers.get("gameId", String.class);
-        var headersJson = objectMapper.writeValueAsString(new LinkedHashMap<>(headers));
-        var payloadJson = objectMapper.writeValueAsString(message.getPayload());
+        var row = OutboxMessages.serialize(objectMapper, message);
         repository.save(OutboxEventEntity.pending(
-                UUID.randomUUID(), TIMELINE_EVENTS_TOPIC, gameId, headersJson, payloadJson, clock.instant()));
+                UUID.randomUUID(),
+                OutboxMessages.TIMELINE_EVENTS_TOPIC,
+                row.messageKey(),
+                row.headers(),
+                row.payload(),
+                clock.instant()));
     }
 }

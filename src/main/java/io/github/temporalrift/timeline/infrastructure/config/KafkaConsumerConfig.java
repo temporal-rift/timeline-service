@@ -2,6 +2,7 @@ package io.github.temporalrift.timeline.infrastructure.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.support.JsonKafkaHeaderMapper;
 import org.springframework.kafka.support.converter.ByteArrayJacksonJsonMessageConverter;
 import tools.jackson.databind.json.JsonMapper;
@@ -22,6 +23,7 @@ import tools.jackson.databind.json.JsonMapper;
  * in on its own, so the trusted-package configuration must be set directly on this converter.
  */
 @Configuration
+@Profile("!in-memory")
 class KafkaConsumerConfig {
 
     @Bean

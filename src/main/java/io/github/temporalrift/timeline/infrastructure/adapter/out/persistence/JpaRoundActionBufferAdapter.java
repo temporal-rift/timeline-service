@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -12,6 +13,7 @@ import tools.jackson.databind.ObjectMapper;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
 
 @Repository
+@Profile("!in-memory")
 class JpaRoundActionBufferAdapter implements RoundActionBufferPort {
 
     private final RoundActionBufferJpaRepository repository;
