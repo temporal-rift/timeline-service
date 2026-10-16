@@ -77,18 +77,27 @@ class InMemoryOutboxRelay {
     private void sweep() {
         sweepQueued.set(false);
         for (var row : store.pending()) {
-            if (store.transition(row.seq(), State.PENDING, State.SENDING)) {
-                if (send(row)) {
-                    store.transition(row.seq(), State.SENDING, State.SENT);
-                } else {
-                    store.transition(row.seq(), State.SENDING, State.PENDING);
-                    if (sweepQueued.compareAndSet(false, true)) {
-                        schedule(RETRY_DELAY_MILLIS);
-                    }
-                    return;
-                }
+            if (store.transition(row.seq(), State.PENDING, State.SENDING) && !relay(row)) {
+                return;
             }
         }
+    }
+
+    /**
+     * Delivers one claimed row. Whatever the sink throws, the row goes back to pending and a retry is queued, so a
+     * failure never strands it in the sending state; stopping the sweep keeps later rows from overtaking it.
+     */
+    private boolean relay(OutboxRow row) {
+        var sent = false;
+        try {
+            sent = send(row);
+        } finally {
+            store.transition(row.seq(), State.SENDING, sent ? State.SENT : State.PENDING);
+            if (!sent && sweepQueued.compareAndSet(false, true)) {
+                schedule(RETRY_DELAY_MILLIS);
+            }
+        }
+        return sent;
     }
 
     private boolean send(OutboxRow row) {
