@@ -3,11 +3,13 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 
 @Repository
+@Profile("!in-memory")
 class JpaFutureEventEraIndexAdapter implements FutureEventEraIndexPort {
 
     private final FutureEventEraIndexJpaRepository repository;

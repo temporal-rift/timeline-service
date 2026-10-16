@@ -123,6 +123,7 @@ class SimulationExecutionIT {
                         CONTEXT,
                         IdentityKind.ERA_RESOLUTION_PARADOX.name(),
                         "era=1;slot=0;subject=" + paradoxedEventId));
+        await().atMost(Duration.ofSeconds(30)).until(() -> count(gameId, OUTCOME_APPLIED) == 1);
         var winner = winnerOf(gameId, cleanEventId);
         assertThat(winner).isEqualTo(expectedWinner(cleanEventId, cleanOutcomes));
 

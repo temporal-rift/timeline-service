@@ -3,6 +3,7 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -11,6 +12,7 @@ import io.github.temporalrift.timeline.domain.membership.MemberFaction;
 import io.github.temporalrift.timeline.domain.port.out.GameMembershipPort;
 
 @Repository
+@Profile("!in-memory")
 class JpaGameMembershipAdapter implements GameMembershipPort {
 
     private final GameMembershipJpaRepository jpaRepository;

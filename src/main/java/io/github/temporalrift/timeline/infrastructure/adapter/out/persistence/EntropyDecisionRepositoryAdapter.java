@@ -3,6 +3,7 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.persistence;
 import java.util.Optional;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
@@ -10,6 +11,7 @@ import io.github.temporalrift.timeline.domain.port.out.EntropyDecisionRepository
 
 @Component
 @ConditionalOnProperty(name = "game.simulation.enabled", havingValue = "true")
+@Profile("!in-memory")
 class EntropyDecisionRepositoryAdapter implements EntropyDecisionRepository {
 
     private final JdbcClient jdbc;
