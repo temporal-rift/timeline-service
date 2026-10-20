@@ -240,6 +240,10 @@ class GameEventsTestPublisher {
         return eventId;
     }
 
+    void gameEnded(UUID gameId, String endReason) {
+        publish(gameId, "GameEnded", Map.of("gameId", gameId, "endReason", endReason, "finalScores", List.of()));
+    }
+
     void resolutionStarted(UUID gameId, int eraNumber, UUID eventId) {
         publish(gameId, "ResolutionStarted", Map.of("gameId", gameId, "eraNumber", eraNumber), eventId);
     }

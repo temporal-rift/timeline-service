@@ -29,4 +29,9 @@ class InMemoryClockOperationRepository implements ClockOperationRepository {
     public void save(ClockOperation operation) {
         operations.insert(operation.request().operationId(), operation);
     }
+
+    @Override
+    public void clear() {
+        operations.clear();
+    }
 }

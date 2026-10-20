@@ -1,10 +1,13 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation;
 
+import java.util.UUID;
+
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.github.temporalrift.timeline.application.port.in.AdvanceSimulationClockUseCase;
+import io.github.temporalrift.timeline.application.port.in.CloseSimulationExecutionUseCase;
 import io.github.temporalrift.timeline.application.port.in.ConfigureSimulationExecutionUseCase;
 import io.github.temporalrift.timeline.application.port.in.GetSimulationCheckpointUseCase;
 import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation.v1.SimulationExecutionApi;
@@ -18,16 +21,19 @@ import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation
 class SimulationControlController implements SimulationExecutionApi {
 
     private final ConfigureSimulationExecutionUseCase configureExecution;
+    private final CloseSimulationExecutionUseCase closeExecution;
     private final GetSimulationCheckpointUseCase getCheckpoint;
     private final AdvanceSimulationClockUseCase advanceClock;
     private final SimulationControlMapper mapper;
 
     SimulationControlController(
             ConfigureSimulationExecutionUseCase configureExecution,
+            CloseSimulationExecutionUseCase closeExecution,
             GetSimulationCheckpointUseCase getCheckpoint,
             AdvanceSimulationClockUseCase advanceClock,
             SimulationControlMapper mapper) {
         this.configureExecution = configureExecution;
+        this.closeExecution = closeExecution;
         this.getCheckpoint = getCheckpoint;
         this.advanceClock = advanceClock;
         this.mapper = mapper;
@@ -37,6 +43,12 @@ class SimulationControlController implements SimulationExecutionApi {
     public ResponseEntity<ExecutionCheckpoint> configureSimulationExecution(ExecutionContext executionContext) {
         var checkpoint = configureExecution.handle(mapper.toDomain(executionContext));
         return ResponseEntity.ok(mapper.toModel(checkpoint));
+    }
+
+    @Override
+    public ResponseEntity<Void> closeSimulationExecution(UUID caseKey) {
+        closeExecution.handle(caseKey);
+        return ResponseEntity.noContent().build();
     }
 
     @Override

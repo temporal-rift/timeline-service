@@ -12,7 +12,6 @@ import tools.jackson.databind.ObjectMapper;
 
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EraStartedPayload;
 import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
-import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 /**
  * Consumes {@code EraStarted} from {@code game.events}, creating the era before {@code EventsDrawn} arrives and
@@ -24,25 +23,19 @@ class EraStartedGameEventHandler {
     private static final String CONSUMER = "futureevent.era-started";
     private static final GameEventIngestion.Spec SPEC = new GameEventIngestion.Spec("EraStarted", CONSUMER, 1);
 
-    private final ProcessedEventPort processedEvents;
     private final EraPlayersPort eraPlayers;
     private final ObjectMapper objectMapper;
-    private final GameEventSkipMetrics skipMetrics;
+    private final GameEventIngestion ingestion;
 
-    EraStartedGameEventHandler(
-            ProcessedEventPort processedEvents,
-            EraPlayersPort eraPlayers,
-            ObjectMapper objectMapper,
-            GameEventSkipMetrics skipMetrics) {
-        this.processedEvents = processedEvents;
+    EraStartedGameEventHandler(EraPlayersPort eraPlayers, ObjectMapper objectMapper, GameEventIngestion ingestion) {
         this.eraPlayers = eraPlayers;
         this.objectMapper = objectMapper;
-        this.skipMetrics = skipMetrics;
+        this.ingestion = ingestion;
     }
 
     @Transactional(propagation = REQUIRES_NEW)
     public void handle(Message<Object> message) {
-        GameEventIngestion.accept(message, SPEC, processedEvents, skipMetrics).ifPresent(envelope -> {
+        ingestion.accept(message, SPEC).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), EraStartedPayload.class);
             var playerIds = payload.playerIds() == null ? List.<UUID>of() : payload.playerIds();
             eraPlayers.save(payload.gameId(), payload.eraNumber(), playerIds);

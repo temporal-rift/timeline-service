@@ -30,6 +30,7 @@ public class ExecutionCheckpointAssembler {
         return new ExecutionCheckpoint(
                 execution.context().caseKey(),
                 execution.context().manifestDigest(),
+                execution.context().rulesDigest(),
                 execution.revision(),
                 execution.logicalTime(),
                 observation.gameId(),

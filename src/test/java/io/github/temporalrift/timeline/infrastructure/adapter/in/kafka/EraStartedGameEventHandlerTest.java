@@ -10,10 +10,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -22,6 +22,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EraStartedPayload;
 import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
+import io.github.temporalrift.timeline.domain.port.out.GameScope;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,8 +43,19 @@ class EraStartedGameEventHandlerTest {
     @Spy
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
 
-    @InjectMocks
-    EraStartedGameEventHandler consumer;
+    @Mock
+    GameScope gameScope;
+
+    private EraStartedGameEventHandler consumer;
+
+    @BeforeEach
+    void setUp() {
+        org.mockito.Mockito.lenient()
+                .when(gameScope.admits(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(true);
+        consumer = new EraStartedGameEventHandler(
+                eraPlayers, objectMapper, new GameEventIngestion(processedEvents, skipMetrics, gameScope));
+    }
 
     @Test
     @DisplayName("matching event type — claims the eventId")

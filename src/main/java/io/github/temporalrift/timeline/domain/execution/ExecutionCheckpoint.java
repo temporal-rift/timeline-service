@@ -11,6 +11,7 @@ import java.util.UUID;
 public record ExecutionCheckpoint(
         UUID caseKey,
         String manifestDigest,
+        String rulesDigest,
         long revision,
         Instant logicalTime,
         UUID gameId,

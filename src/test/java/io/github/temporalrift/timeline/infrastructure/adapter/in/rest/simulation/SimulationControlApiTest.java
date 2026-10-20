@@ -6,6 +6,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -14,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
@@ -30,11 +32,13 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import io.github.temporalrift.timeline.TestSecurityConfig;
 import io.github.temporalrift.timeline.application.port.in.AdvanceSimulationClockUseCase;
+import io.github.temporalrift.timeline.application.port.in.CloseSimulationExecutionUseCase;
 import io.github.temporalrift.timeline.application.port.in.ConfigureSimulationExecutionUseCase;
 import io.github.temporalrift.timeline.application.port.in.GetSimulationCheckpointUseCase;
 import io.github.temporalrift.timeline.domain.execution.ClockAcknowledgement;
 import io.github.temporalrift.timeline.domain.execution.ClockAdvance;
 import io.github.temporalrift.timeline.domain.execution.ClockRegressionException;
+import io.github.temporalrift.timeline.domain.execution.EffectiveRules;
 import io.github.temporalrift.timeline.domain.execution.EntropyVersion;
 import io.github.temporalrift.timeline.domain.execution.ExecutionCheckpoint;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContext;
@@ -70,12 +74,20 @@ class SimulationControlApiTest {
     private static final UUID OPERATION = UUID.fromString("0a0a0a0a-0000-4000-8000-000000000001");
     private static final String DIGEST = "a".repeat(64);
     private static final Instant START = Instant.parse("2026-03-01T10:00:00Z");
+    private static final Map<String, Object> RULE_PROPERTIES = Map.of("game.rules.win-score-threshold", 20);
+    private static final EffectiveRules RULES = new EffectiveRules(RULE_PROPERTIES);
+    private static final String RULES_DIGEST = RULES.digest();
+    private static final String RULES_JSON =
+            "{\"schemaVersion\":1,\"properties\":{\"game.rules.win-score-threshold\":20}}";
 
     @Autowired
     MockMvc mockMvc;
 
     @MockitoBean
     ConfigureSimulationExecutionUseCase configureExecution;
+
+    @MockitoBean
+    CloseSimulationExecutionUseCase closeExecution;
 
     @MockitoBean
     GetSimulationCheckpointUseCase getCheckpoint;
@@ -96,11 +108,13 @@ class SimulationControlApiTest {
     private static String contextBody(String seed, String secondFaction) {
         return """
                 {"schemaVersion":1,"caseKey":"%s","seed":"%s","entropyVersion":"SHA256_V1","manifestDigest":"%s",
+                 "rules":%s,"rulesDigest":"%s",
                  "logicalTime":"2026-03-01T10:00:00Z",
                  "seats":[{"seatIndex":0,"playerId":"%s","faction":"ERASERS"},
                           {"seatIndex":1,"playerId":"%s","faction":"%s"},
                           {"seatIndex":2,"playerId":"%s","faction":"WEAVERS"}]}
-                """.formatted(CASE_KEY, seed, DIGEST, PLAYER_0, PLAYER_1, secondFaction, PLAYER_2);
+                """.formatted(
+                        CASE_KEY, seed, DIGEST, RULES_JSON, RULES_DIGEST, PLAYER_0, PLAYER_1, secondFaction, PLAYER_2);
     }
 
     private static String clockBody(long expectedRevision, String targetTime) {
@@ -112,6 +126,7 @@ class SimulationControlApiTest {
     private static ExecutionCheckpoint checkpoint() {
         return new ExecutionCheckpoint(
                 CASE_KEY,
+                DIGEST,
                 DIGEST,
                 0,
                 START,
@@ -157,8 +172,13 @@ class SimulationControlApiTest {
                         .content(clockBody(0, "2026-03-01T10:01:00Z")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SIMULATION_CONTROL_FORBIDDEN"));
+        mockMvc.perform(delete(EXECUTION_PATH)
+                        .param("caseKey", CASE_KEY.toString())
+                        .with(participantToken()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SIMULATION_CONTROL_FORBIDDEN"));
 
-        verifyNoInteractions(configureExecution, getCheckpoint, advanceClock);
+        verifyNoInteractions(configureExecution, closeExecution, getCheckpoint, advanceClock);
     }
 
     @Test
@@ -187,6 +207,8 @@ class SimulationControlApiTest {
                         new Seed("18446744073709551615"),
                         EntropyVersion.SHA256_V1,
                         DIGEST,
+                        RULES,
+                        RULES_DIGEST,
                         START,
                         List.of(
                                 new SimulationSeat(0, PLAYER_0, MemberFaction.ERASERS),
@@ -306,5 +328,38 @@ class SimulationControlApiTest {
                 .andExpect(jsonPath("$.code").value("INVALID_CLOCK_ADVANCE"));
 
         verifyNoInteractions(advanceClock);
+    }
+
+    @Test
+    @DisplayName("a control token closes the context and receives no content")
+    void close_withControlToken_returns204() throws Exception {
+        mockMvc.perform(delete(EXECUTION_PATH)
+                        .param("caseKey", CASE_KEY.toString())
+                        .with(controlToken()))
+                .andExpect(status().isNoContent());
+
+        verify(closeExecution).handle(CASE_KEY);
+    }
+
+    @Test
+    @DisplayName("close without an ever-configured or matching case uses the published conflicts")
+    void close_conflicts_useThePublishedCodes() throws Exception {
+        org.mockito.BDDMockito.willThrow(new ExecutionNotConfiguredException())
+                .given(closeExecution)
+                .handle(any());
+        mockMvc.perform(delete(EXECUTION_PATH)
+                        .param("caseKey", CASE_KEY.toString())
+                        .with(controlToken()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EXECUTION_NOT_CONFIGURED"));
+
+        org.mockito.BDDMockito.willThrow(new ExecutionContextConflictException("unrelated"))
+                .given(closeExecution)
+                .handle(any());
+        mockMvc.perform(delete(EXECUTION_PATH)
+                        .param("caseKey", CASE_KEY.toString())
+                        .with(controlToken()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EXECUTION_CONTEXT_CONFLICT"));
     }
 }

@@ -14,7 +14,6 @@ import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.Fa
 import io.github.temporalrift.timeline.domain.membership.GameMembership;
 import io.github.temporalrift.timeline.domain.membership.MemberFaction;
 import io.github.temporalrift.timeline.domain.port.out.GameMembershipPort;
-import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 /**
  * Consumes {@code FactionAssigned} from {@code game.events}. Persists each player's faction for its
@@ -28,26 +27,21 @@ class FactionAssignedKafkaConsumer {
     private static final GameEventIngestion.Spec SPEC =
             new GameEventIngestion.Spec("FactionAssigned", CONSUMER, 1, true);
 
-    private final ProcessedEventPort processedEvents;
     private final GameMembershipPort memberships;
     private final ObjectMapper objectMapper;
-    private final GameEventSkipMetrics skipMetrics;
+    private final GameEventIngestion ingestion;
 
     FactionAssignedKafkaConsumer(
-            ProcessedEventPort processedEvents,
-            GameMembershipPort memberships,
-            ObjectMapper objectMapper,
-            GameEventSkipMetrics skipMetrics) {
-        this.processedEvents = processedEvents;
+            GameMembershipPort memberships, ObjectMapper objectMapper, GameEventIngestion ingestion) {
         this.memberships = memberships;
         this.objectMapper = objectMapper;
-        this.skipMetrics = skipMetrics;
+        this.ingestion = ingestion;
     }
 
     @KafkaListener(topics = "game.events", groupId = "timeline-service." + CONSUMER)
     @Transactional(propagation = REQUIRES_NEW)
     public void handle(Message<Object> message) {
-        GameEventIngestion.accept(message, SPEC, processedEvents, skipMetrics).ifPresent(envelope -> {
+        ingestion.accept(message, SPEC).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), FactionAssignedPayload.class);
             Objects.requireNonNull(payload.gameId(), "gameId");
             Objects.requireNonNull(payload.playerId(), "playerId");

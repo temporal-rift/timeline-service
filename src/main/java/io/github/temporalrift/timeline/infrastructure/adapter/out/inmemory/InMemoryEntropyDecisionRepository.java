@@ -28,5 +28,10 @@ class InMemoryEntropyDecisionRepository implements EntropyDecisionRepository {
         decisions.insertIfAbsent(new Draw(purpose, coordinate, drawIndex), word);
     }
 
+    @Override
+    public void clear() {
+        decisions.clear();
+    }
+
     private record Draw(String purpose, String coordinate, int drawIndex) {}
 }

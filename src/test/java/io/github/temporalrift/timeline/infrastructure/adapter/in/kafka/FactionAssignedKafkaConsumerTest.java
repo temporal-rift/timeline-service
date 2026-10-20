@@ -8,11 +8,11 @@ import static org.mockito.Mockito.never;
 
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -24,6 +24,7 @@ import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.Fa
 import io.github.temporalrift.timeline.domain.membership.GameMembership;
 import io.github.temporalrift.timeline.domain.membership.MemberFaction;
 import io.github.temporalrift.timeline.domain.port.out.GameMembershipPort;
+import io.github.temporalrift.timeline.domain.port.out.GameScope;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 @ExtendWith(MockitoExtension.class)
@@ -44,8 +45,19 @@ class FactionAssignedKafkaConsumerTest {
     @Spy
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
 
-    @InjectMocks
-    FactionAssignedKafkaConsumer consumer;
+    @Mock
+    GameScope gameScope;
+
+    private FactionAssignedKafkaConsumer consumer;
+
+    @BeforeEach
+    void setUp() {
+        org.mockito.Mockito.lenient()
+                .when(gameScope.admits(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(true);
+        consumer = new FactionAssignedKafkaConsumer(
+                memberships, objectMapper, new GameEventIngestion(processedEvents, skipMetrics, gameScope));
+    }
 
     @Test
     @DisplayName("matching event type — claims the eventId")

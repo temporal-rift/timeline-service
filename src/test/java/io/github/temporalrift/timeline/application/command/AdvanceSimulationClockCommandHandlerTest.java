@@ -83,6 +83,11 @@ class AdvanceSimulationClockCommandHandlerTest {
             public void save(ClockOperation operation) {
                 recorded.put(operation.request().operationId(), operation);
             }
+
+            @Override
+            public void clear() {
+                recorded.clear();
+            }
         };
         handler = new AdvanceSimulationClockCommandHandler(executions, operations, clockControl, events, transaction);
     }

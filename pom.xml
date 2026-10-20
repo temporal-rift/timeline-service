@@ -58,7 +58,7 @@
         <session-event.version>7.0.0</session-event.version>
         <action-event.version>9.3.0</action-event.version>
         <chains-api.version>2.0.0</chains-api.version>
-        <simulation-control-api.version>1.1.1</simulation-control-api.version>
+        <simulation-control-api.version>2.0.0</simulation-control-api.version>
         <archunit-junit5.version>1.5.1</archunit-junit5.version>
     </properties>
 
@@ -294,6 +294,11 @@
                                     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)
                                 </additionalModelTypeAnnotations>
                             </configOptions>
+                            <!-- A rules value is a number, boolean, string or an array of those; the generator would
+                                 emit a deserialization-incapable marker interface for that union. -->
+                            <schemaMappings>
+                                <schemaMapping>EffectiveRules_properties_value=java.lang.Object</schemaMapping>
+                            </schemaMappings>
                         </configuration>
                     </execution>
                 </executions>

@@ -29,7 +29,7 @@ class ExecutionProbeAdapter implements ExecutionProbe {
 
     @Override
     public Observation observe(Instant now) {
-        var gameId = jdbc.sql("SELECT game_id FROM game_membership ORDER BY game_id LIMIT 1")
+        var gameId = jdbc.sql("SELECT game_id FROM simulation_execution WHERE id = 1")
                 .query(UUID.class)
                 .optional()
                 .orElse(null);
@@ -38,16 +38,23 @@ class ExecutionProbeAdapter implements ExecutionProbe {
                         .query(Integer.class)
                         .single()
                 > 0;
-        var dueTimers =
-                jdbc.sql("""
+        if (gameId == null) {
+            return new Observation(null, false, 0, null);
+        }
+        var dueTimers = jdbc.sql("""
                         SELECT count(*) FROM paradox_resolution_phase
-                        WHERE status = 'WAITING' AND timer_expires_at <= :now
-                        """).param("now", utc(now)).query(Integer.class).single();
+                        WHERE game_id = :gameId AND status = 'WAITING' AND timer_expires_at <= :now
+                        """)
+                .param("gameId", gameId)
+                .param("now", utc(now))
+                .query(Integer.class)
+                .single();
         var nextDeadline = jdbc.sql("""
                         SELECT timer_expires_at FROM paradox_resolution_phase
-                        WHERE status = 'WAITING' AND timer_expires_at > :now
+                        WHERE game_id = :gameId AND status = 'WAITING' AND timer_expires_at > :now
                         ORDER BY timer_expires_at LIMIT 1
                         """)
+                .param("gameId", gameId)
                 .param("now", utc(now))
                 .query(OffsetDateTime.class)
                 .optional()

@@ -149,6 +149,7 @@ class JpaPortContractTest
     @BeforeEach
     void emptyLane() {
         jdbcTemplate.execute("TRUNCATE TABLE simulation_seat, simulation_execution, simulation_clock_operation, "
+                + "simulation_closed_execution, simulation_closed_game, "
                 + "game_membership, processed_events, paradox_resolution_phase, outbox_events");
     }
 
@@ -183,8 +184,8 @@ class JpaPortContractTest
     }
 
     @Override
-    public GameMembershipPort probeMemberships() {
-        return memberships;
+    public ExecutionRepository probeExecutions() {
+        return executions;
     }
 
     @Override

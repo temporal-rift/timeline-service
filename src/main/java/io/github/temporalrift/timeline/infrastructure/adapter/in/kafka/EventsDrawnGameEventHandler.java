@@ -28,7 +28,6 @@ import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
-import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
@@ -46,7 +45,6 @@ class EventsDrawnGameEventHandler {
     private static final GameEventIngestion.Spec SPEC = new GameEventIngestion.Spec("EventsDrawn", CONSUMER, 1);
     private static final String FUTURE_EVENT_AGGREGATE_TYPE = "FutureEvent";
 
-    private final ProcessedEventPort processedEvents;
     private final FutureEventRepository futureEvents;
     private final FutureEventEraIndexPort eraIndex;
     private final CascadeCarryForwardPort cascadeCarryForward;
@@ -54,11 +52,10 @@ class EventsDrawnGameEventHandler {
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final ProbabilityRulesPort rules;
     private final ObjectMapper objectMapper;
-    private final GameEventSkipMetrics skipMetrics;
     private final Clock clock;
+    private final GameEventIngestion ingestion;
 
     EventsDrawnGameEventHandler(
-            ProcessedEventPort processedEvents,
             FutureEventRepository futureEvents,
             FutureEventEraIndexPort eraIndex,
             CascadeCarryForwardPort cascadeCarryForward,
@@ -66,9 +63,8 @@ class EventsDrawnGameEventHandler {
             WeaverChainSagaUseCase weaverChainSaga,
             ProbabilityRulesPort rules,
             ObjectMapper objectMapper,
-            GameEventSkipMetrics skipMetrics,
-            Clock clock) {
-        this.processedEvents = processedEvents;
+            Clock clock,
+            GameEventIngestion ingestion) {
         this.futureEvents = futureEvents;
         this.eraIndex = eraIndex;
         this.cascadeCarryForward = cascadeCarryForward;
@@ -76,13 +72,13 @@ class EventsDrawnGameEventHandler {
         this.weaverChainSaga = weaverChainSaga;
         this.rules = rules;
         this.objectMapper = objectMapper;
-        this.skipMetrics = skipMetrics;
         this.clock = clock;
+        this.ingestion = ingestion;
     }
 
     @Transactional(propagation = REQUIRES_NEW)
     public void handle(Message<Object> message) {
-        GameEventIngestion.accept(message, SPEC, processedEvents, skipMetrics).ifPresent(envelope -> {
+        ingestion.accept(message, SPEC).ifPresent(envelope -> {
             var payload = GameEventPayloads.read(objectMapper, message.getPayload(), EventsDrawnPayload.class);
             var alreadyIndexed = eraIndex.findByGameIdAndEraNumber(payload.gameId(), payload.eraNumber()).stream()
                     .map(IndexedEventId::eventId)

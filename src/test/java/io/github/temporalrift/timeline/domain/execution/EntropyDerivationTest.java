@@ -71,6 +71,8 @@ class EntropyDerivationTest {
                 new Seed("42"),
                 EntropyVersion.SHA256_V1,
                 ExecutionContextTestData.MANIFEST_DIGEST,
+                ExecutionContextTestData.RULES,
+                ExecutionContextTestData.RULES_DIGEST,
                 ExecutionContextTestData.START,
                 ExecutionContextTestData.threeSeats());
 

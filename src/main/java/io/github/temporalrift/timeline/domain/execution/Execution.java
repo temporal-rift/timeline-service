@@ -1,12 +1,16 @@
 package io.github.temporalrift.timeline.domain.execution;
 
 import java.time.Instant;
+import java.util.UUID;
 
-/** The configured execution of one isolated case: its pinned context, service-owned revision and logical time. */
-public record Execution(ExecutionContext context, long revision, Instant logicalTime) {
+/**
+ * The configured execution of one isolated case: its pinned context, service-owned revision, logical time and, once
+ * gameplay starts, the game the context hosts.
+ */
+public record Execution(ExecutionContext context, long revision, Instant logicalTime, UUID gameId) {
 
     public static Execution configure(ExecutionContext context) {
-        return new Execution(context, 0, context.logicalTime());
+        return new Execution(context, 0, context.logicalTime(), null);
     }
 
     /** Applies a clock advance, or returns the operation recorded earlier for the same identifier. */
@@ -23,7 +27,7 @@ public record Execution(ExecutionContext context, long revision, Instant logical
         if (request.targetTime().isBefore(logicalTime)) {
             throw new ClockRegressionException(request.targetTime(), logicalTime);
         }
-        var advanced = new Execution(context, revision + 1, request.targetTime());
+        var advanced = new Execution(context, revision + 1, request.targetTime(), gameId);
         var operation = new ClockOperation(
                 request, new ClockAcknowledgement(request.operationId(), advanced.revision, advanced.logicalTime));
         return new Advance(advanced, operation, true);

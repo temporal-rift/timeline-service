@@ -10,4 +10,7 @@ public interface ClockOperationRepository {
     Optional<ClockOperation> find(UUID operationId);
 
     void save(ClockOperation operation);
+
+    /** Forgets every recorded operation, so a new context starts its revision and idempotency history clean. */
+    void clear();
 }
