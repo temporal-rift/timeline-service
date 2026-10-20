@@ -28,7 +28,8 @@ import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
 class ExecutionRepositoryAdapter implements ExecutionRepository {
 
     private static final String SELECT = """
-            SELECT case_key, seed, entropy_version, manifest_digest, configured_logical_time, logical_time, revision
+            SELECT case_key, seed, entropy_version, manifest_digest, rules, rules_digest, configured_logical_time,
+                   logical_time, revision, game_id
             FROM simulation_execution WHERE id = 1
             """;
 
@@ -55,9 +56,9 @@ class ExecutionRepositoryAdapter implements ExecutionRepository {
         var context = execution.context();
         int inserted = jdbc.sql("""
                         INSERT INTO simulation_execution
-                            (id, case_key, seed, entropy_version, manifest_digest,
+                            (id, case_key, seed, entropy_version, manifest_digest, rules, rules_digest,
                              configured_logical_time, logical_time, revision)
-                        VALUES (1, :caseKey, :seed, :entropyVersion, :manifestDigest,
+                        VALUES (1, :caseKey, :seed, :entropyVersion, :manifestDigest, :rules, :rulesDigest,
                                 :configuredLogicalTime, :logicalTime, :revision)
                         ON CONFLICT (id) DO NOTHING
                         """)
@@ -65,6 +66,8 @@ class ExecutionRepositoryAdapter implements ExecutionRepository {
                 .param("seed", context.seed().decimal())
                 .param("entropyVersion", context.entropyVersion().name())
                 .param("manifestDigest", context.manifestDigest())
+                .param("rules", context.rules().canonicalJson())
+                .param("rulesDigest", context.rulesDigest())
                 .param("configuredLogicalTime", utc(context.logicalTime()))
                 .param("logicalTime", utc(execution.logicalTime()))
                 .param(REVISION, execution.revision())
@@ -92,15 +95,57 @@ class ExecutionRepositoryAdapter implements ExecutionRepository {
                 .update();
     }
 
+    @Override
+    public boolean bindGame(UUID caseKey, UUID gameId) {
+        return jdbc.sql("""
+                        UPDATE simulation_execution SET game_id = :gameId
+                        WHERE id = 1 AND case_key = :caseKey AND game_id IS NULL
+                        """).param("gameId", gameId).param("caseKey", caseKey).update() == 1;
+    }
+
+    @Override
+    public boolean isClosedGame(UUID gameId) {
+        return jdbc.sql("SELECT count(*) FROM simulation_closed_game WHERE game_id = :gameId")
+                        .param("gameId", gameId)
+                        .query(Integer.class)
+                        .single()
+                > 0;
+    }
+
+    @Override
+    public void close(UUID caseKey) {
+        jdbc.sql("""
+                        INSERT INTO simulation_closed_game (game_id, case_key)
+                        SELECT game_id, case_key FROM simulation_execution WHERE id = 1 AND game_id IS NOT NULL
+                        ON CONFLICT (game_id) DO NOTHING
+                        """).update();
+        jdbc.sql("DELETE FROM simulation_seat").update();
+        jdbc.sql("DELETE FROM simulation_execution WHERE id = 1").update();
+        jdbc.sql("""
+                        INSERT INTO simulation_closed_execution (id, case_key) VALUES (1, :caseKey)
+                        ON CONFLICT (id) DO UPDATE SET case_key = EXCLUDED.case_key
+                        """).param("caseKey", caseKey).update();
+    }
+
+    @Override
+    public Optional<UUID> lastClosedCaseKey() {
+        return jdbc.sql("SELECT case_key FROM simulation_closed_execution WHERE id = 1")
+                .query(UUID.class)
+                .optional();
+    }
+
     private Execution toExecution(ResultSet rs, int row) throws SQLException {
         var context = new ExecutionContext(
                 rs.getObject("case_key", UUID.class),
                 new Seed(rs.getString("seed")),
                 EntropyVersion.valueOf(rs.getString("entropy_version")),
                 rs.getString("manifest_digest"),
+                RulesJson.parse(rs.getString("rules")),
+                rs.getString("rules_digest"),
                 instant(rs, "configured_logical_time"),
                 seats());
-        return new Execution(context, rs.getLong(REVISION), instant(rs, "logical_time"));
+        return new Execution(
+                context, rs.getLong(REVISION), instant(rs, "logical_time"), rs.getObject("game_id", UUID.class));
     }
 
     private List<SimulationSeat> seats() {

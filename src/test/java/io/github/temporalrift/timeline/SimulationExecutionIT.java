@@ -61,6 +61,8 @@ class SimulationExecutionIT {
             new Seed(SEED),
             EntropyVersion.SHA256_V1,
             DIGEST,
+            io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData.RULES,
+            io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData.RULES_DIGEST,
             START,
             List.of(
                     new SimulationSeat(0, PLAYER_0, MemberFaction.ERASERS),
@@ -293,11 +295,20 @@ class SimulationExecutionIT {
     private static String contextBody() {
         return """
                 {"schemaVersion":1,"caseKey":"%s","seed":"%s","entropyVersion":"SHA256_V1","manifestDigest":"%s",
+                 "rules":{"schemaVersion":1,"properties":%s},"rulesDigest":"%s",
                  "logicalTime":"2026-03-01T10:00:00Z",
                  "seats":[{"seatIndex":0,"playerId":"%s","faction":"ERASERS"},
                           {"seatIndex":1,"playerId":"%s","faction":"PROPHETS"},
                           {"seatIndex":2,"playerId":"%s","faction":"WEAVERS"}]}
-                """.formatted(CASE_KEY, SEED, DIGEST, PLAYER_0, PLAYER_1, PLAYER_2);
+                """.formatted(
+                        CASE_KEY,
+                        SEED,
+                        DIGEST,
+                        io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData.RULES.canonicalJson(),
+                        io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData.RULES_DIGEST,
+                        PLAYER_0,
+                        PLAYER_1,
+                        PLAYER_2);
     }
 
     private static String clockBody(UUID operationId, long expectedRevision, String targetTime) {

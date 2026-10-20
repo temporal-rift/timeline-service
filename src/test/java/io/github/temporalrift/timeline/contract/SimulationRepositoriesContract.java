@@ -52,9 +52,9 @@ public interface SimulationRepositoriesContract extends TransactionalContract {
         executions().insertIfAbsent(configured);
         var later = configured.logicalTime().plusSeconds(30);
 
-        executions().update(new Execution(configured.context(), 3, later));
+        executions().update(new Execution(configured.context(), 3, later, null));
 
-        assertThat(executions().find()).contains(new Execution(configured.context(), 3, later));
+        assertThat(executions().find()).contains(new Execution(configured.context(), 3, later, null));
     }
 
     @Test
@@ -74,6 +74,32 @@ public interface SimulationRepositoriesContract extends TransactionalContract {
     }
 
     @Test
+    @DisplayName("executions: a game binds once, close records it, and the next case stays accepted")
+    default void executions_bindAndCloseRememberTheGameAndCase() {
+        var configured = Execution.configure(ExecutionContextTestData.context("42"));
+        var gameId = UUID.randomUUID();
+        executions().insertIfAbsent(configured);
+
+        assertThat(executions().bindGame(configured.context().caseKey(), gameId))
+                .isTrue();
+        assertThat(executions().find())
+                .contains(new Execution(configured.context(), 0, configured.logicalTime(), gameId));
+        assertThat(executions().bindGame(configured.context().caseKey(), UUID.randomUUID()))
+                .isFalse();
+        assertThat(executions().isClosedGame(gameId)).isFalse();
+        assertThat(executions().lastClosedCaseKey()).isEmpty();
+
+        executions().close(configured.context().caseKey());
+
+        assertThat(executions().find()).isEmpty();
+        assertThat(executions().isClosedGame(gameId)).isTrue();
+        assertThat(executions().lastClosedCaseKey())
+                .contains(configured.context().caseKey());
+        assertThat(executions().insertIfAbsent(Execution.configure(ExecutionContextTestData.context("43"))))
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("clock operations: a saved operation reads back and saving it again is refused")
     default void clockOperations_savedOperationReadsBack() {
         var operationId = UUID.randomUUID();
@@ -87,6 +113,10 @@ public interface SimulationRepositoriesContract extends TransactionalContract {
         assertThat(clockOperations().find(operationId)).contains(operation);
         var repository = clockOperations();
         assertThatThrownBy(() -> repository.save(operation)).isInstanceOf(DataIntegrityViolationException.class);
+
+        clockOperations().clear();
+
+        assertThat(clockOperations().find(operationId)).isEmpty();
     }
 
     @Test
@@ -102,5 +132,9 @@ public interface SimulationRepositoriesContract extends TransactionalContract {
         assertThat(entropyDecisions().find("CARD_DEAL", coordinate, 0)).contains(7L);
         assertThat(entropyDecisions().find("CARD_DEAL", coordinate, 1)).contains(11L);
         assertThat(entropyDecisions().find("OTHER", coordinate, 0)).isEmpty();
+
+        entropyDecisions().clear();
+
+        assertThat(entropyDecisions().find("CARD_DEAL", coordinate, 0)).isEmpty();
     }
 }

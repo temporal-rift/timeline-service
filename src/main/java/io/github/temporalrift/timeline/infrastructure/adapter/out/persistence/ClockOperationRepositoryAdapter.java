@@ -60,4 +60,9 @@ class ClockOperationRepositoryAdapter implements ClockOperationRepository {
                 .param("logicalTime", utc(operation.acknowledgement().logicalTime()))
                 .update();
     }
+
+    @Override
+    public void clear() {
+        jdbc.sql("DELETE FROM simulation_clock_operation").update();
+    }
 }

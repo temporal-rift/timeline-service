@@ -26,6 +26,15 @@
       <column name="manifest_digest" type="VARCHAR(64)">
         <constraints nullable="false"/>
       </column>
+      <!-- Canonical RFC 8785 JSON of the context's effective rules. -->
+      <column name="rules" type="TEXT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="rules_digest" type="VARCHAR(64)">
+        <constraints nullable="false"/>
+      </column>
+      <!-- The game this context hosts; bound by the first admitted inbound record. -->
+      <column name="game_id" type="UUID"/>
       <column name="configured_logical_time" type="TIMESTAMP WITH TIME ZONE">
         <constraints nullable="false"/>
       </column>
@@ -37,6 +46,27 @@
       </column>
     </createTable>
     <sql>ALTER TABLE simulation_execution ADD CONSTRAINT ck_simulation_execution_singleton CHECK (id = 1)</sql>
+
+    <!-- The case closed last, so repeating its close stays a no-op after the open row is gone. -->
+    <createTable tableName="simulation_closed_execution">
+      <column name="id" type="SMALLINT" defaultValueNumeric="1">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="case_key" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+    <sql>ALTER TABLE simulation_closed_execution ADD CONSTRAINT ck_simulation_closed_execution_singleton CHECK (id = 1)</sql>
+
+    <!-- Every game whose context was closed; late records of these games must never reach the next context. -->
+    <createTable tableName="simulation_closed_game">
+      <column name="game_id" type="UUID">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="case_key" type="UUID">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
 
     <createTable tableName="simulation_seat">
       <column name="seat_index" type="INT">

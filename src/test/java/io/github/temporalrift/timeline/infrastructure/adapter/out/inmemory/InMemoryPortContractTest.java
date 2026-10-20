@@ -134,8 +134,8 @@ class InMemoryPortContractTest
     }
 
     @Override
-    public GameMembershipPort probeMemberships() {
-        return memberships();
+    public ExecutionRepository probeExecutions() {
+        return executions();
     }
 
     @Override

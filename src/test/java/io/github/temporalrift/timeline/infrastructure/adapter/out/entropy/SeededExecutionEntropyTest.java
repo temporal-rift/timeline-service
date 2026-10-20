@@ -28,6 +28,7 @@ import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.port.out.EntropyDecisionRepository;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
+import io.github.temporalrift.timeline.infrastructure.adapter.out.context.PinnedExecutionContext;
 
 @ExtendWith(MockitoExtension.class)
 class SeededExecutionEntropyTest {
@@ -181,6 +182,26 @@ class SeededExecutionEntropyTest {
             public void update(Execution ignored) {
                 // read-only fixture
             }
+
+            @Override
+            public boolean bindGame(UUID caseKey, UUID gameId) {
+                return false;
+            }
+
+            @Override
+            public boolean isClosedGame(UUID gameId) {
+                return false;
+            }
+
+            @Override
+            public void close(UUID caseKey) {
+                // read-only fixture
+            }
+
+            @Override
+            public Optional<UUID> lastClosedCaseKey() {
+                return Optional.empty();
+            }
         };
     }
 
@@ -213,6 +234,11 @@ class SeededExecutionEntropyTest {
         @Override
         public void save(String purpose, String coordinate, int drawIndex, long word) {
             words.putIfAbsent(key(purpose, coordinate, drawIndex), word);
+        }
+
+        @Override
+        public void clear() {
+            words.clear();
         }
 
         int size() {

@@ -15,6 +15,8 @@ final class TableNames {
     static final String SCAN_ENTITLEMENT = "scan_entitlement";
     static final String WEAVER_CHAIN_SAGA = "weaver_chain_saga";
     static final String SIMULATION_EXECUTION = "simulation_execution";
+    static final String SIMULATION_CLOSED_EXECUTION = "simulation_closed_execution";
+    static final String SIMULATION_CLOSED_GAME = "simulation_closed_game";
     static final String SIMULATION_CLOCK_OPERATION = "simulation_clock_operation";
     static final String SIMULATION_ENTROPY_DECISION = "simulation_entropy_decision";
     static final String OUTBOX_EVENTS = "outbox_events";

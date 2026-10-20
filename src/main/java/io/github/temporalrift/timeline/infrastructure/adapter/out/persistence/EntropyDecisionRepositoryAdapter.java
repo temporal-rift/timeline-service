@@ -46,4 +46,9 @@ class EntropyDecisionRepositoryAdapter implements EntropyDecisionRepository {
                 .param("word", word)
                 .update();
     }
+
+    @Override
+    public void clear() {
+        jdbc.sql("DELETE FROM simulation_entropy_decision").update();
+    }
 }

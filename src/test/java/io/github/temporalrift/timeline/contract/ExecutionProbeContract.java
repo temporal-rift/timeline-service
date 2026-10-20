@@ -8,10 +8,10 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import io.github.temporalrift.timeline.domain.membership.GameMembership;
-import io.github.temporalrift.timeline.domain.membership.MemberFaction;
+import io.github.temporalrift.timeline.domain.execution.Execution;
+import io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionProbe;
-import io.github.temporalrift.timeline.domain.port.out.GameMembershipPort;
+import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionPhaseRepository;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase;
@@ -24,7 +24,7 @@ public interface ExecutionProbeContract extends TransactionalContract {
 
     ExecutionProbe probe();
 
-    GameMembershipPort probeMemberships();
+    ExecutionRepository probeExecutions();
 
     ProcessedEventPort probeProcessedEvents();
 
@@ -47,14 +47,15 @@ public interface ExecutionProbeContract extends TransactionalContract {
     }
 
     @Test
-    @DisplayName("probe: the hosted game is the one with the lowest id, and it ends when its cleanup claim exists")
+    @DisplayName(
+            "probe: the hosted game is the one bound to the open context, and it ends when its cleanup claim exists")
     default void probe_hostedGameAndItsEnd() {
-        var low = UUID.fromString("10000000-0000-4000-8000-000000000001");
-        var high = UUID.fromString("f0000000-0000-4000-8000-000000000001");
-        probeMemberships().save(new GameMembership(high, UUID.randomUUID(), MemberFaction.WEAVERS));
-        probeMemberships().save(new GameMembership(low, UUID.randomUUID(), MemberFaction.ERASERS));
+        var game = UUID.fromString("10000000-0000-4000-8000-000000000001");
+        var execution = Execution.configure(ExecutionContextTestData.context("42"));
+        probeExecutions().insertIfAbsent(execution);
+        probeExecutions().bindGame(execution.context().caseKey(), game);
 
-        assertThat(probe().observe(NOW).gameId()).isEqualTo(low);
+        assertThat(probe().observe(NOW).gameId()).isEqualTo(game);
         assertThat(probe().observe(NOW).gameEnded()).isFalse();
 
         probeProcessedEvents().claim(UUID.randomUUID(), "futureevent.game-ended");
@@ -65,16 +66,22 @@ public interface ExecutionProbeContract extends TransactionalContract {
     @Test
     @DisplayName("probe: waiting phases count as due by the clock and the next deadline is the earliest still ahead")
     default void probe_timersFollowTheLogicalClock() {
+        var game = UUID.fromString("10000000-0000-4000-8000-000000000001");
+        var execution = Execution.configure(ExecutionContextTestData.context("42"));
+        probeExecutions().insertIfAbsent(execution);
+        probeExecutions().bindGame(execution.context().caseKey(), game);
+
         probeCreate(ParadoxResolutionPhaseRepositoryContract.phase(
-                UUID.randomUUID(), 1, ParadoxResolutionPhaseStatus.WAITING, NOW.minusSeconds(5)));
+                game, 1, ParadoxResolutionPhaseStatus.WAITING, NOW.minusSeconds(5)));
+        probeCreate(ParadoxResolutionPhaseRepositoryContract.phase(game, 2, ParadoxResolutionPhaseStatus.WAITING, NOW));
         probeCreate(ParadoxResolutionPhaseRepositoryContract.phase(
-                UUID.randomUUID(), 1, ParadoxResolutionPhaseStatus.WAITING, NOW));
+                game, 3, ParadoxResolutionPhaseStatus.WAITING, NOW.plusSeconds(90)));
         probeCreate(ParadoxResolutionPhaseRepositoryContract.phase(
-                UUID.randomUUID(), 1, ParadoxResolutionPhaseStatus.WAITING, NOW.plusSeconds(90)));
+                game, 4, ParadoxResolutionPhaseStatus.WAITING, NOW.plusSeconds(30)));
         probeCreate(ParadoxResolutionPhaseRepositoryContract.phase(
-                UUID.randomUUID(), 1, ParadoxResolutionPhaseStatus.WAITING, NOW.plusSeconds(30)));
+                game, 5, ParadoxResolutionPhaseStatus.COMPLETED, NOW.minusSeconds(60)));
         probeCreate(ParadoxResolutionPhaseRepositoryContract.phase(
-                UUID.randomUUID(), 1, ParadoxResolutionPhaseStatus.COMPLETED, NOW.minusSeconds(60)));
+                UUID.randomUUID(), 1, ParadoxResolutionPhaseStatus.WAITING, NOW.minusSeconds(10)));
 
         var observation = probe().observe(NOW);
 

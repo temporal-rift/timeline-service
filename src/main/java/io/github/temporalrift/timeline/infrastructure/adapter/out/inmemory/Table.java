@@ -92,6 +92,19 @@ final class Table<K, V> {
         });
     }
 
+    /** Removes every visible row, staging the removals in the current transaction. */
+    void clear() {
+        database.run(transaction -> {
+            database.view(transaction, name).keySet().forEach(key -> {
+                @SuppressWarnings("unchecked")
+                var typedKey = (K) key;
+                database.lock(transaction, new RowKey(name, typedKey));
+                transaction.write(name, typedKey, Transaction.REMOVED);
+            });
+            return null;
+        });
+    }
+
     /**
      * Locks the row, waiting for any other transaction holding it, then returns its latest visible value — the
      * {@code SELECT ... FOR UPDATE} behaviour of re-reading after the wait.

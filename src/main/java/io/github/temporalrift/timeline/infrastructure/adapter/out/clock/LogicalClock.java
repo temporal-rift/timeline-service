@@ -46,6 +46,11 @@ class LogicalClock extends Clock implements LogicalClockControl {
     }
 
     @Override
+    public synchronized void reset() {
+        current = null;
+    }
+
+    @Override
     public boolean equals(Object other) {
         return this == other;
     }

@@ -43,9 +43,32 @@ class ExecutionContextTest {
         var lowercaseRequired = "A".repeat(64);
         var seats = threeSeats();
 
-        assertThatThrownBy(() ->
-                        new ExecutionContext(CASE_KEY, SEED, EntropyVersion.SHA256_V1, lowercaseRequired, START, seats))
+        assertThatThrownBy(() -> new ExecutionContext(
+                        CASE_KEY,
+                        SEED,
+                        EntropyVersion.SHA256_V1,
+                        lowercaseRequired,
+                        ExecutionContextTestData.RULES,
+                        ExecutionContextTestData.RULES_DIGEST,
+                        START,
+                        seats))
                 .isInstanceOf(InvalidExecutionContextException.class);
+    }
+
+    @Test
+    @DisplayName("a rules digest that does not match the rules is rejected")
+    void rulesDigest_mismatch_isRejected() {
+        assertThatThrownBy(() -> new ExecutionContext(
+                        CASE_KEY,
+                        SEED,
+                        EntropyVersion.SHA256_V1,
+                        MANIFEST_DIGEST,
+                        ExecutionContextTestData.RULES,
+                        "b".repeat(64),
+                        START,
+                        threeSeats()))
+                .isInstanceOf(InvalidExecutionContextException.class)
+                .hasMessageContaining("does not match");
     }
 
     @Test
@@ -97,6 +120,8 @@ class ExecutionContextTest {
                 new Seed("1"),
                 EntropyVersion.SHA256_V1,
                 MANIFEST_DIGEST,
+                ExecutionContextTestData.RULES,
+                ExecutionContextTestData.RULES_DIGEST,
                 Instant.parse("2026-03-01T10:00:00.123456789Z"),
                 threeSeats());
 
@@ -104,6 +129,14 @@ class ExecutionContextTest {
     }
 
     private static ExecutionContext context(List<SimulationSeat> seats) {
-        return new ExecutionContext(CASE_KEY, new Seed("1"), EntropyVersion.SHA256_V1, MANIFEST_DIGEST, START, seats);
+        return new ExecutionContext(
+                CASE_KEY,
+                new Seed("1"),
+                EntropyVersion.SHA256_V1,
+                MANIFEST_DIGEST,
+                ExecutionContextTestData.RULES,
+                ExecutionContextTestData.RULES_DIGEST,
+                START,
+                seats);
     }
 }

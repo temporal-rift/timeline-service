@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.inmemory;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -8,6 +9,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import org.springframework.dao.CannotAcquireLockException;
@@ -132,6 +134,33 @@ public final class InMemoryDatabase {
                 bind(completed);
             }
         }
+    }
+
+    /**
+     * Removes every row of every table whose name matches, staging the removals in the current transaction. Used by a
+     * simulation lane to discard the whole gameplay state of a closed execution context.
+     */
+    public void deleteAllRowsOf(Predicate<String> matches) {
+        run(transaction -> {
+            var names = new java.util.TreeSet<String>();
+            commitLock.readLock().lock();
+            try {
+                names.addAll(committed.keySet());
+            } finally {
+                commitLock.readLock().unlock();
+            }
+            names.addAll(transaction.overlay().keySet());
+            for (var name : names) {
+                if (!matches.test(name)) {
+                    continue;
+                }
+                for (var key : new ArrayList<>(view(transaction, name).keySet())) {
+                    lock(transaction, new RowKey(name, key));
+                    transaction.write(name, key, Transaction.REMOVED);
+                }
+            }
+            return null;
+        });
     }
 
     /** The visible rows of a table, in insertion order: committed rows overlaid with the transaction's own writes. */

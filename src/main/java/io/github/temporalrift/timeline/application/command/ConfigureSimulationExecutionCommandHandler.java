@@ -1,5 +1,6 @@
 package io.github.temporalrift.timeline.application.command;
 
+import java.util.List;
 import java.util.Objects;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -12,8 +13,10 @@ import io.github.temporalrift.timeline.domain.execution.Execution;
 import io.github.temporalrift.timeline.domain.execution.ExecutionCheckpoint;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContext;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContextConflictException;
-import io.github.temporalrift.timeline.domain.port.out.ExecutionProbe;
+import io.github.temporalrift.timeline.domain.execution.InvalidExecutionContextException;
+import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesException;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
+import io.github.temporalrift.timeline.domain.port.out.ExecutionRulesValidator;
 import io.github.temporalrift.timeline.domain.port.out.LogicalClockControl;
 
 @Service
@@ -21,19 +24,19 @@ import io.github.temporalrift.timeline.domain.port.out.LogicalClockControl;
 class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationExecutionUseCase {
 
     private final ExecutionRepository executions;
-    private final ExecutionProbe probe;
+    private final List<ExecutionRulesValidator> rulesValidators;
     private final LogicalClockControl clock;
     private final ExecutionCheckpointAssembler assembler;
     private final TransactionTemplate transaction;
 
     ConfigureSimulationExecutionCommandHandler(
             ExecutionRepository executions,
-            ExecutionProbe probe,
+            List<ExecutionRulesValidator> rulesValidators,
             LogicalClockControl clock,
             ExecutionCheckpointAssembler assembler,
             TransactionTemplate transaction) {
         this.executions = executions;
-        this.probe = probe;
+        this.rulesValidators = rulesValidators;
         this.clock = clock;
         this.assembler = assembler;
         this.transaction = transaction;
@@ -41,18 +44,25 @@ class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationE
 
     @Override
     public ExecutionCheckpoint handle(ExecutionContext context) {
+        requireUsableRules(context);
         var execution = Objects.requireNonNull(transaction.execute(status -> register(context)));
         clock.advanceTo(execution.logicalTime());
         return assembler.assemble(execution);
+    }
+
+    private void requireUsableRules(ExecutionContext context) {
+        try {
+            rulesValidators.forEach(
+                    validator -> validator.validate(context.rules().bindable()));
+        } catch (InvalidExecutionRulesException e) {
+            throw new InvalidExecutionContextException(e.getMessage());
+        }
     }
 
     private Execution register(ExecutionContext context) {
         var existing = executions.findWithLock();
         if (existing.isPresent()) {
             return requireSameContext(existing.get(), context);
-        }
-        if (probe.observe(context.logicalTime()).gameId() != null) {
-            throw new ExecutionContextConflictException("The lane already hosts gameplay");
         }
         var created = Execution.configure(context);
         if (executions.insertIfAbsent(created)) {

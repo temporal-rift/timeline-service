@@ -47,6 +47,7 @@ import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort.C
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
+import io.github.temporalrift.timeline.domain.port.out.GameScope;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
@@ -63,6 +64,9 @@ class EventsDrawnGameEventHandlerTest {
 
     @Mock
     GameEventSkipMetrics skipMetrics;
+
+    @Mock
+    GameScope gameScope;
 
     @Mock
     FutureEventRepository futureEvents;
@@ -93,8 +97,8 @@ class EventsDrawnGameEventHandlerTest {
     void setUp() {
         lenient().when(rules.probabilityFloor()).thenReturn(0);
         lenient().when(rules.probabilityCeiling()).thenReturn(90);
+        lenient().when(gameScope.admits(any())).thenReturn(true);
         consumer = new EventsDrawnGameEventHandler(
-                processedEvents,
                 futureEvents,
                 eraIndex,
                 cascadeCarryForward,
@@ -102,8 +106,8 @@ class EventsDrawnGameEventHandlerTest {
                 weaverChainSaga,
                 rules,
                 objectMapper,
-                skipMetrics,
-                clock);
+                clock,
+                new GameEventIngestion(processedEvents, skipMetrics, gameScope));
     }
 
     @Test

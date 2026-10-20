@@ -19,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.support.MessageBuilder;
 
+import io.github.temporalrift.timeline.domain.port.out.GameScope;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 @ExtendWith(MockitoExtension.class)
@@ -27,13 +28,21 @@ class GameEventIngestionTest {
     @Mock
     ProcessedEventPort processedEvents;
 
+    @Mock
+    GameScope gameScope;
+
     private SimpleMeterRegistry meterRegistry;
     private GameEventSkipMetrics skipMetrics;
+    private GameEventIngestion ingestion;
 
     @BeforeEach
     void setUp() {
         meterRegistry = new SimpleMeterRegistry();
         skipMetrics = new GameEventSkipMetrics(meterRegistry);
+        org.mockito.Mockito.lenient()
+                .when(gameScope.admits(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(true);
+        ingestion = new GameEventIngestion(processedEvents, skipMetrics, gameScope);
     }
 
     @Test
@@ -41,11 +50,8 @@ class GameEventIngestionTest {
         var eventId = UUID.randomUUID();
         var spec = new GameEventIngestion.Spec("FactionAssigned", "membership.faction-assigned", 1, true);
 
-        var accepted = GameEventIngestion.accept(
-                KafkaTestMessages.withHeaders(new Object(), eventId, "FutureEventAdded", 1),
-                spec,
-                processedEvents,
-                skipMetrics);
+        var accepted =
+                ingestion.accept(KafkaTestMessages.withHeaders(new Object(), eventId, "FutureEventAdded", 1), spec);
 
         assertThat(accepted).isEmpty();
         assertThat(counter("unknown_type")).isEqualTo(1.0);
@@ -58,16 +64,14 @@ class GameEventIngestionTest {
         var skippedMessage = KafkaTestMessages.withHeaders(new Object(), eventId, "FutureEventAdded", 1);
         var unsupportedSpec = new GameEventIngestion.Spec("FactionAssigned", "membership.faction-assigned", 1, true);
 
-        assertThat(GameEventIngestion.accept(skippedMessage, unsupportedSpec, processedEvents, skipMetrics))
-                .isEmpty();
+        assertThat(ingestion.accept(skippedMessage, unsupportedSpec)).isEmpty();
         verify(processedEvents, never()).claim(any(), any());
 
         var processed = new AtomicInteger();
         var supportedSpec = new GameEventIngestion.Spec("FutureEventAdded", "futureevent.added", 1);
         when(processedEvents.claim(eventId, "futureevent.added")).thenReturn(true);
 
-        GameEventIngestion.accept(skippedMessage, supportedSpec, processedEvents, skipMetrics)
-                .ifPresent(ignored -> processed.incrementAndGet());
+        ingestion.accept(skippedMessage, supportedSpec).ifPresent(ignored -> processed.incrementAndGet());
 
         assertThat(processed).hasValue(1);
         verify(processedEvents).claim(eventId, "futureevent.added");
@@ -78,11 +82,7 @@ class GameEventIngestionTest {
     void knownButUnhandledType_isNotCountedAsUnknown(String eventType) {
         var spec = new GameEventIngestion.Spec("FactionAssigned", "membership.faction-assigned", 1, true);
 
-        GameEventIngestion.accept(
-                KafkaTestMessages.withHeaders(new Object(), UUID.randomUUID(), eventType, 1),
-                spec,
-                processedEvents,
-                skipMetrics);
+        ingestion.accept(KafkaTestMessages.withHeaders(new Object(), UUID.randomUUID(), eventType, 1), spec);
 
         assertThat(meterRegistry.find(GameEventSkipMetrics.METRIC_NAME).counter())
                 .isNull();
@@ -93,8 +93,7 @@ class GameEventIngestionTest {
     void missingEventType_isNotCountedOrClaimed() {
         var spec = new GameEventIngestion.Spec("FactionAssigned", "membership.faction-assigned", 1, true);
 
-        var accepted = GameEventIngestion.accept(
-                MessageBuilder.withPayload(new Object()).build(), spec, processedEvents, skipMetrics);
+        var accepted = ingestion.accept(MessageBuilder.withPayload(new Object()).build(), spec);
 
         assertThat(accepted).isEmpty();
         assertThat(meterRegistry.find(GameEventSkipMetrics.METRIC_NAME).counter())
@@ -107,11 +106,7 @@ class GameEventIngestionTest {
         var eventId = UUID.randomUUID();
         var spec = new GameEventIngestion.Spec("EraStarted", "futureevent.era-started", 1);
 
-        var accepted = GameEventIngestion.accept(
-                KafkaTestMessages.withHeaders(new Object(), eventId, "EraStarted", 2),
-                spec,
-                processedEvents,
-                skipMetrics);
+        var accepted = ingestion.accept(KafkaTestMessages.withHeaders(new Object(), eventId, "EraStarted", 2), spec);
 
         assertThat(accepted).isEmpty();
         assertThat(counter("unsupported_version")).isEqualTo(1.0);
@@ -124,11 +119,7 @@ class GameEventIngestionTest {
         var spec = new GameEventIngestion.Spec("EraStarted", "futureevent.era-started", 1);
         when(processedEvents.claim(eventId, "futureevent.era-started")).thenReturn(false);
 
-        var accepted = GameEventIngestion.accept(
-                KafkaTestMessages.withHeaders(new Object(), eventId, "EraStarted", 1),
-                spec,
-                processedEvents,
-                skipMetrics);
+        var accepted = ingestion.accept(KafkaTestMessages.withHeaders(new Object(), eventId, "EraStarted", 1), spec);
 
         assertThat(accepted).isEmpty();
         verify(processedEvents).claim(eventId, "futureevent.era-started");
@@ -140,5 +131,17 @@ class GameEventIngestionTest {
                 .tag("reason", reason)
                 .counter()
                 .count();
+    }
+
+    @Test
+    void gameOutsideTheScope_isConsumedWithoutClaiming() {
+        var eventId = UUID.randomUUID();
+        when(gameScope.admits(any())).thenReturn(false);
+        var spec = new GameEventIngestion.Spec("EraStarted", "futureevent.era-started", 1);
+
+        var accepted = ingestion.accept(KafkaTestMessages.withHeaders(new Object(), eventId, "EraStarted", 1), spec);
+
+        assertThat(accepted).isEmpty();
+        verify(processedEvents, never()).claim(any(), any());
     }
 }

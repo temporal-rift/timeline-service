@@ -52,7 +52,7 @@ public record TimelineRulesProperties(
                 .toList();
         if (!missing.isEmpty()) {
             throw new IllegalArgumentException(
-                    "game.rules.probability." + property + " is missing entries for: " + missing);
+                    "game.rules.probability." + property + "." + missing.getFirst() + " is missing");
         }
     }
 
@@ -74,16 +74,21 @@ public record TimelineRulesProperties(
 
     private static void requireSign(
             Map<CardGrade, Integer> values, String property, IntPredicate accepted, String sign) {
-        if (values.values().stream().mapToInt(Integer::intValue).anyMatch(accepted.negate())) {
-            throw new IllegalArgumentException("game.rules.probability." + property + " values must be " + sign);
-        }
+        values.forEach((grade, value) -> {
+            if (accepted.negate().test(value)) {
+                throw new IllegalArgumentException(
+                        "game.rules.probability." + property + "." + grade + " values must be " + sign);
+            }
+        });
     }
 
     private static void requireAmplifyMultiplier(Map<CardGrade, Double> amplifyMultiplier) {
-        if (amplifyMultiplier.values().stream().anyMatch(v -> !Double.isFinite(v) || v <= 1.0)) {
-            throw new IllegalArgumentException(
-                    "game.rules.probability.amplify-multiplier values must be finite numbers greater than 1.0");
-        }
+        amplifyMultiplier.forEach((grade, value) -> {
+            if (!Double.isFinite(value) || value <= 1.0) {
+                throw new IllegalArgumentException("game.rules.probability.amplify-multiplier." + grade
+                        + " values must be finite numbers greater than 1.0");
+            }
+        });
     }
 
     private static void requireBandThresholds(int bandLowMax, int bandMediumMax) {

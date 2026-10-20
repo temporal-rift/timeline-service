@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 import io.github.temporalrift.timeline.application.port.in.AdvanceSimulationClockUseCase;
+import io.github.temporalrift.timeline.application.port.in.CloseSimulationExecutionUseCase;
 import io.github.temporalrift.timeline.application.port.in.ConfigureSimulationExecutionUseCase;
 import io.github.temporalrift.timeline.application.port.in.GetSimulationCheckpointUseCase;
 import io.github.temporalrift.timeline.domain.execution.ClockAcknowledgement;
@@ -33,6 +35,7 @@ import io.github.temporalrift.timeline.domain.execution.InvalidExecutionContextE
 import io.github.temporalrift.timeline.domain.execution.SourceWatermark;
 import io.github.temporalrift.timeline.domain.execution.StaleExecutionRevisionException;
 import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation.v1.model.ClockAdvance;
+import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation.v1.model.EffectiveRules;
 import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation.v1.model.ExecutionContext;
 import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation.v1.model.Faction;
 import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation.v1.model.SimulationSeat;
@@ -44,9 +47,15 @@ class SimulationControlRestAdapterTest {
     private static final UUID OPERATION = UUID.fromString("0a0a0a0a-0000-4000-8000-000000000001");
     private static final String DIGEST = "a".repeat(64);
     private static final Instant START = Instant.parse("2026-03-01T10:00:00Z");
+    private static final Map<String, Object> RULE_PROPERTIES = Map.of("game.rules.win-score-threshold", 20);
+    private static final String RULES_DIGEST =
+            new io.github.temporalrift.timeline.domain.execution.EffectiveRules(RULE_PROPERTIES).digest();
 
     @Mock
     ConfigureSimulationExecutionUseCase configureExecution;
+
+    @Mock
+    CloseSimulationExecutionUseCase closeExecution;
 
     @Mock
     GetSimulationCheckpointUseCase getCheckpoint;
@@ -61,6 +70,7 @@ class SimulationControlRestAdapterTest {
     private static ExecutionCheckpoint checkpoint(Instant nextDeadline) {
         return new ExecutionCheckpoint(
                 CASE_KEY,
+                DIGEST,
                 DIGEST,
                 3,
                 START,
@@ -81,6 +91,10 @@ class SimulationControlRestAdapterTest {
                 "42",
                 ExecutionContext.EntropyVersionEnum.SHA256_V1,
                 DIGEST,
+                new EffectiveRules()
+                        .schemaVersion(EffectiveRules.SchemaVersionEnum.NUMBER_1)
+                        .properties(RULE_PROPERTIES),
+                RULES_DIGEST,
                 OffsetDateTime.ofInstant(START, ZoneOffset.UTC),
                 List.of(
                         new SimulationSeat(0, UUID.randomUUID(), Faction.ERASERS),
@@ -132,7 +146,8 @@ class SimulationControlRestAdapterTest {
     @Test
     @DisplayName("the controller delegates each operation to its use case")
     void controller_delegatesToUseCases() {
-        var controller = new SimulationControlController(configureExecution, getCheckpoint, advanceClock, mapper);
+        var controller = new SimulationControlController(
+                configureExecution, closeExecution, getCheckpoint, advanceClock, mapper);
         given(configureExecution.handle(any())).willReturn(checkpoint(null));
         given(getCheckpoint.handle()).willReturn(checkpoint(null));
         given(advanceClock.handle(any())).willReturn(new ClockAcknowledgement(OPERATION, 1, START));
@@ -146,6 +161,9 @@ class SimulationControlRestAdapterTest {
                         .getBody()
                         .getAppliedRevision())
                 .isEqualTo(1);
+
+        assertThat(controller.closeSimulationExecution(CASE_KEY).getStatusCode().value())
+                .isEqualTo(204);
     }
 
     @Test

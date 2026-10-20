@@ -17,13 +17,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -49,6 +49,7 @@ import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUse
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
+import io.github.temporalrift.timeline.domain.port.out.GameScope;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort.ActionKind;
@@ -113,8 +114,28 @@ class RoundResolutionGameEventHandlerTest {
     @Spy
     ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
 
-    @InjectMocks
-    RoundResolutionGameEventHandler consumer;
+    @Mock
+    GameScope gameScope;
+
+    private RoundResolutionGameEventHandler consumer;
+
+    @BeforeEach
+    void setUp() {
+        org.mockito.Mockito.lenient()
+                .when(gameScope.admits(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(true);
+        consumer = new RoundResolutionGameEventHandler(
+                buffer,
+                replayRoundActions,
+                resolveEra,
+                playParadoxResolutionCard,
+                passParadoxResolution,
+                weaverChainSaga,
+                scanEntitlements,
+                cascadeCarryForward,
+                objectMapper,
+                new GameEventIngestion(processedEvents, skipMetrics, gameScope));
+    }
 
     @Test
     @DisplayName("PUSH — buffered with its source/target outcomes, not applied directly")
