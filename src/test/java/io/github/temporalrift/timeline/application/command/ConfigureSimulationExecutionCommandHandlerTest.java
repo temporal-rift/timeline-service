@@ -84,7 +84,13 @@ class ConfigureSimulationExecutionCommandHandlerTest {
         lenient().when(assembler.assemble(any())).thenReturn(checkpoint);
         lenient().when(gameplay.isClean()).thenReturn(true);
         handler = new ConfigureSimulationExecutionCommandHandler(
-                executions, gameplay, List.of(rulesValidator), clock, assembler, transaction);
+                executions,
+                gameplay,
+                List.of(rulesValidator),
+                clock,
+                assembler,
+                new SimulationControlLock(),
+                transaction);
     }
 
     @Test

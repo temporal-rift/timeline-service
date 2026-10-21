@@ -29,6 +29,7 @@ class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationE
     private final List<ExecutionRulesValidator> rulesValidators;
     private final LogicalClockControl clock;
     private final ExecutionCheckpointAssembler assembler;
+    private final SimulationControlLock controlLock;
     private final TransactionTemplate transaction;
 
     ConfigureSimulationExecutionCommandHandler(
@@ -37,21 +38,28 @@ class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationE
             List<ExecutionRulesValidator> rulesValidators,
             LogicalClockControl clock,
             ExecutionCheckpointAssembler assembler,
+            SimulationControlLock controlLock,
             TransactionTemplate transaction) {
         this.executions = executions;
         this.gameplay = gameplay;
         this.rulesValidators = rulesValidators;
         this.clock = clock;
         this.assembler = assembler;
+        this.controlLock = controlLock;
         this.transaction = transaction;
     }
 
     @Override
     public ExecutionCheckpoint handle(ExecutionContext context) {
-        requireUsableRules(context);
-        var execution = Objects.requireNonNull(transaction.execute(status -> register(context)));
-        clock.advanceTo(execution.logicalTime());
-        return assembler.assemble(execution);
+        controlLock.lock();
+        try {
+            requireUsableRules(context);
+            var execution = Objects.requireNonNull(transaction.execute(status -> register(context)));
+            clock.advanceTo(execution.logicalTime());
+            return assembler.assemble(execution);
+        } finally {
+            controlLock.unlock();
+        }
     }
 
     private void requireUsableRules(ExecutionContext context) {

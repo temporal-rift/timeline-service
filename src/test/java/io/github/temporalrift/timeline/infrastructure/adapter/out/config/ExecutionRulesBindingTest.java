@@ -40,7 +40,7 @@ class ExecutionRulesBindingTest {
 
         active.rules = null;
         assertThat(port.pushShift(CardGrade.II)).isEqualTo(20);
-        assertThat(port.equals(port)).isTrue();
+        assertThat(port).isEqualTo(port);
         assertThat(port.hashCode()).isEqualTo(System.identityHashCode(port));
         assertThat(port.toString()).contains("ProbabilityRulesPort");
     }
