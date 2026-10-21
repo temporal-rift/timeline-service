@@ -66,6 +66,51 @@ class EffectiveRulesTest {
     }
 
     @Test
+    @DisplayName("ECMAScript number spelling and JSON string escapes are canonical")
+    void canonicalJson_usesEcmaNumbersAndEscapesStrings() {
+        var text = "\"" + "\\" + "\n" + "\t";
+        var rules = new EffectiveRules(Map.of(
+                "game.rules.a",
+                1.5,
+                "game.rules.b",
+                1e-7,
+                "game.rules.c",
+                1e21,
+                "game.rules.d",
+                -2.5,
+                "game.rules.e",
+                true,
+                "game.rules.f",
+                text,
+                "game.rules.g",
+                List.of("a", 2, false)));
+        var canonical = rules.canonicalJson();
+
+        assertThat(canonical)
+                .contains("\"game.rules.a\":1.5")
+                .contains("\"game.rules.b\":1e-7")
+                .contains("\"game.rules.c\":1e+21")
+                .contains("\"game.rules.d\":-2.5")
+                .contains("\"game.rules.e\":true")
+                .contains("\"game.rules.g\":[\"a\",2,false]")
+                .contains("\\\"")
+                .contains("\\\\")
+                .contains("\\" + "n")
+                .contains("\\" + "t");
+        assertThat(rules.bindable()).containsEntry("game.rules.f", text);
+    }
+
+    @Test
+    @DisplayName("a non-finite number is rejected")
+    void nonFiniteNumber_isRejected() {
+        Map<String, Object> properties = Map.of("game.rules.nan", Double.NaN);
+
+        assertThatThrownBy(() -> new EffectiveRules(properties))
+                .isInstanceOf(InvalidExecutionContextException.class)
+                .hasMessageContaining("game.rules.nan");
+    }
+
+    @Test
     @DisplayName("a null properties map is an execution-context error, not a null pointer")
     void nullProperties_isAnInvalidContext() {
         assertThatThrownBy(() -> new EffectiveRules(null))

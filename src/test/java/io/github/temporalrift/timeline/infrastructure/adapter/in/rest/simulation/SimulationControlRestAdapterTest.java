@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
@@ -113,6 +114,37 @@ class SimulationControlRestAdapterTest {
         assertThat(domain.logicalTime()).isEqualTo(START);
         assertThat(domain.seats()).hasSize(3);
         assertThat(domain.seats().get(1).faction().name()).isEqualTo("PROPHETS");
+    }
+
+    @Test
+    @DisplayName("the mapper rejects a body or required fields that are absent")
+    void toDomain_missingRequiredFields_isRejected() {
+        assertThatThrownBy(() -> mapper.toDomain((ExecutionContext) null))
+                .isInstanceOf(InvalidExecutionContextException.class);
+
+        var withoutRules = context();
+        withoutRules.setRules(null);
+        assertThatThrownBy(() -> mapper.toDomain(withoutRules)).isInstanceOf(InvalidExecutionContextException.class);
+
+        var withoutTime = context();
+        withoutTime.setLogicalTime(null);
+        assertThatThrownBy(() -> mapper.toDomain(withoutTime)).isInstanceOf(InvalidExecutionContextException.class);
+
+        var withoutSeats = context();
+        withoutSeats.setSeats(null);
+        assertThatThrownBy(() -> mapper.toDomain(withoutSeats)).isInstanceOf(InvalidExecutionContextException.class);
+
+        var withoutCase = context();
+        withoutCase.setCaseKey(null);
+        assertThatThrownBy(() -> mapper.toDomain(withoutCase)).isInstanceOf(InvalidExecutionContextException.class);
+
+        var withoutSeed = context();
+        withoutSeed.setSeed(null);
+        assertThatThrownBy(() -> mapper.toDomain(withoutSeed)).isInstanceOf(InvalidExecutionContextException.class);
+
+        var withoutVersion = context();
+        withoutVersion.setEntropyVersion(null);
+        assertThatThrownBy(() -> mapper.toDomain(withoutVersion)).isInstanceOf(InvalidExecutionContextException.class);
     }
 
     @Test

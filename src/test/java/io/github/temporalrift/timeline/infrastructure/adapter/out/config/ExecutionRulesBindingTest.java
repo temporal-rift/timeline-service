@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesException;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
+import io.github.temporalrift.timeline.domain.port.out.ExecutionRules;
+import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 
 class ExecutionRulesBindingTest {
 
@@ -21,6 +23,37 @@ class ExecutionRulesBindingTest {
 
     private final ExecutionRulesBinding<TimelineRulesProperties> probability =
             new ExecutionRulesBinding<>(TimelineRulesProperties.class, "game.rules.probability", VALIDATOR);
+
+    @Test
+    @DisplayName("a served port rebinds when the open context's digest changes and falls back when it closes")
+    void servedFrom_rebindsPerDigest() {
+        var active = new ActiveRules();
+        var deployment = probability.bind(flatRules());
+        var port = ExecutionRulesBinding.servedFrom(ProbabilityRulesPort.class, active, probability, deployment);
+
+        assertThat(port.pushShift(CardGrade.II)).isEqualTo(20);
+
+        var modified = flatRules();
+        modified.put("game.rules.probability.push-shift.II", "25");
+        active.rules = new ExecutionRules.Rules("a".repeat(64), modified);
+        assertThat(port.pushShift(CardGrade.II)).isEqualTo(25);
+
+        active.rules = null;
+        assertThat(port.pushShift(CardGrade.II)).isEqualTo(20);
+        assertThat(port.equals(port)).isTrue();
+        assertThat(port.hashCode()).isEqualTo(System.identityHashCode(port));
+        assertThat(port.toString()).contains("ProbabilityRulesPort");
+    }
+
+    private static final class ActiveRules implements ExecutionRules {
+
+        private volatile Rules rules;
+
+        @Override
+        public java.util.Optional<Rules> current() {
+            return java.util.Optional.ofNullable(rules);
+        }
+    }
 
     @Test
     @DisplayName("a complete context binds exactly as configuration does")
