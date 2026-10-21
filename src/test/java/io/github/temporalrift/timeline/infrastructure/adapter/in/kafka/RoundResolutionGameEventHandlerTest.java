@@ -49,6 +49,7 @@ import io.github.temporalrift.timeline.application.port.in.ReplayRoundActionsUse
 import io.github.temporalrift.timeline.application.port.in.ResolveEraUseCase;
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
+import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.GameScope;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
@@ -117,6 +118,9 @@ class RoundResolutionGameEventHandlerTest {
     @Mock
     GameScope gameScope;
 
+    @Mock
+    EventFence eventFence;
+
     private RoundResolutionGameEventHandler consumer;
 
     @BeforeEach
@@ -134,7 +138,7 @@ class RoundResolutionGameEventHandlerTest {
                 scanEntitlements,
                 cascadeCarryForward,
                 objectMapper,
-                new GameEventIngestion(processedEvents, skipMetrics, gameScope));
+                new GameEventIngestion(processedEvents, skipMetrics, eventFence, gameScope));
     }
 
     @Test

@@ -5,9 +5,11 @@ import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
 
+import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.GameScope;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
@@ -71,11 +73,17 @@ class GameEventIngestion {
 
     private final ProcessedEventPort processedEvents;
     private final GameEventSkipMetrics skipMetrics;
+    private final EventFence eventFence;
     private final GameScope gameScope;
 
-    GameEventIngestion(ProcessedEventPort processedEvents, GameEventSkipMetrics skipMetrics, GameScope gameScope) {
+    GameEventIngestion(
+            ProcessedEventPort processedEvents,
+            GameEventSkipMetrics skipMetrics,
+            EventFence eventFence,
+            GameScope gameScope) {
         this.processedEvents = processedEvents;
         this.skipMetrics = skipMetrics;
+        this.eventFence = eventFence;
         this.gameScope = gameScope;
     }
 
@@ -88,6 +96,10 @@ class GameEventIngestion {
         var envelope = GameEventEnvelope.from(message);
         if (!matches(envelope, spec)) {
             recordUnknownType(envelope, spec);
+            return Optional.empty();
+        }
+        if (isFenced(message)) {
+            log.debug("Ignoring {} event {} from before the last close", spec.eventName(), envelope.eventId());
             return Optional.empty();
         }
         if (!gameScope.admits(envelope.gameId())) {
@@ -116,6 +128,15 @@ class GameEventIngestion {
             return Optional.empty();
         }
         return Optional.of(envelope);
+    }
+
+    /** A record still in the source when a context closed belongs to that context, whatever its game id. */
+    private boolean isFenced(Message<Object> message) {
+        var headers = message.getHeaders();
+        var topic = headers.get(KafkaHeaders.RECEIVED_TOPIC, String.class);
+        var partition = headers.get(KafkaHeaders.RECEIVED_PARTITION, Integer.class);
+        var offset = headers.get(KafkaHeaders.OFFSET, Long.class);
+        return topic != null && partition != null && offset != null && eventFence.isFenced(topic, partition, offset);
     }
 
     private static boolean matches(GameEventEnvelope envelope, Spec spec) {

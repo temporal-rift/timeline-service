@@ -24,8 +24,11 @@ import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 @ConditionalOnProperty(name = "game.simulation.enabled", havingValue = "true")
 class TimelineExecutionRulesConfiguration {
 
-    private static final List<String> GRADES = List.of("I", "II", "III");
-    private static final List<String> REQUIRED_RULE_KEYS = requiredRuleKeys();
+    private static final List<String> REQUIRED_RULE_KEYS = Stream.concat(
+                    ExecutionRulesBinding.requiredKeys(TimelineRulesProperties.class, "game.rules.probability")
+                            .stream(),
+                    ExecutionRulesBinding.requiredKeys(ParadoxResolutionRulesProperties.class, "game.rules").stream())
+            .toList();
 
     @Bean
     ExecutionRulesValidator executionRequiredRulesValidator() {
@@ -77,29 +80,5 @@ class TimelineExecutionRulesConfiguration {
 
     private static ExecutionRulesBinding<ParadoxResolutionRulesProperties> paradoxBinding(Validator validator) {
         return new ExecutionRulesBinding<>(ParadoxResolutionRulesProperties.class, "game.rules", validator);
-    }
-
-    /**
-     * The keys the service reads. Primitive binding cannot tell a missing scalar from its default, so presence is
-     * checked explicitly before the binding's own range validation.
-     */
-    private static List<String> requiredRuleKeys() {
-        return Stream.concat(
-                        GRADES.stream()
-                                .flatMap(grade -> Stream.of(
-                                        "game.rules.probability.push-shift." + grade,
-                                        "game.rules.probability.suppress-shift." + grade,
-                                        "game.rules.probability.swing-shift." + grade,
-                                        "game.rules.probability.amplify-multiplier." + grade)),
-                        Stream.of(
-                                "game.rules.probability.floor",
-                                "game.rules.probability.ceiling",
-                                "game.rules.probability.momentum-bonus",
-                                "game.rules.probability.rally-multiplier",
-                                "game.rules.probability.thread-shift",
-                                "game.rules.probability.band-low-max",
-                                "game.rules.probability.band-medium-max",
-                                "game.rules.paradox-resolution-timer-seconds"))
-                .toList();
     }
 }

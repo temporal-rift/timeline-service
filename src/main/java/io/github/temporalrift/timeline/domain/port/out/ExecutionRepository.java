@@ -18,6 +18,14 @@ public interface ExecutionRepository {
     void update(Execution execution);
 
     /**
+     * Reads the open context's case and bound game, holding the execution row for the caller's transaction so a close
+     * cannot commit between this check and the handler's writes. Use {@link #findBounds()} for a plain read.
+     */
+    Optional<Bounds> findBoundsForScope();
+
+    Optional<Bounds> findBounds();
+
+    /**
      * Binds {@code gameId} to the open context if it has no game yet.
      *
      * @return whether this call bound it; {@code false} when the context is gone or already bound
@@ -32,4 +40,7 @@ public interface ExecutionRepository {
 
     /** The case of the context closed last, which stays known while later contexts come and go. */
     Optional<UUID> lastClosedCaseKey();
+
+    /** The lightweight identity a game-event gate needs: the open case and its bound game, if any. */
+    record Bounds(UUID caseKey, UUID gameId) {}
 }

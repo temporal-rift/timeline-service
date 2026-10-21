@@ -31,6 +31,7 @@ import io.github.temporalrift.timeline.domain.execution.InvalidExecutionContextE
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesException;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRulesValidator;
+import io.github.temporalrift.timeline.domain.port.out.GameplayDiscard;
 import io.github.temporalrift.timeline.domain.port.out.LogicalClockControl;
 
 @ExtendWith(MockitoExtension.class)
@@ -44,6 +45,9 @@ class ConfigureSimulationExecutionCommandHandlerTest {
 
     @Mock
     ExecutionRulesValidator rulesValidator;
+
+    @Mock
+    GameplayDiscard gameplay;
 
     @Mock
     LogicalClockControl clock;
@@ -78,8 +82,9 @@ class ConfigureSimulationExecutionCommandHandlerTest {
                 .thenAnswer(
                         invocation -> ((TransactionCallback<Object>) invocation.getArgument(0)).doInTransaction(null));
         lenient().when(assembler.assemble(any())).thenReturn(checkpoint);
+        lenient().when(gameplay.isClean()).thenReturn(true);
         handler = new ConfigureSimulationExecutionCommandHandler(
-                executions, List.of(rulesValidator), clock, assembler, transaction);
+                executions, gameplay, List.of(rulesValidator), clock, assembler, transaction);
     }
 
     @Test
@@ -125,6 +130,17 @@ class ConfigureSimulationExecutionCommandHandlerTest {
         assertThatThrownBy(() -> handler.handle(CONTEXT))
                 .isInstanceOf(InvalidExecutionContextException.class)
                 .hasMessageContaining("game.rules.probability.suppress-shift.I");
+
+        then(executions).should(never()).insertIfAbsent(any());
+    }
+
+    @Test
+    @DisplayName("a lane that already hosts gameplay rejects a first configuration")
+    void handle_laneWithGame_isConflict() {
+        given(executions.findWithLock()).willReturn(Optional.empty());
+        given(gameplay.isClean()).willReturn(false);
+
+        assertThatThrownBy(() -> handler.handle(CONTEXT)).isInstanceOf(ExecutionContextConflictException.class);
 
         then(executions).should(never()).insertIfAbsent(any());
     }

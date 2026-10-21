@@ -10,7 +10,6 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.TreeMap;
 
 /**
@@ -23,7 +22,9 @@ public record EffectiveRules(Map<String, Object> properties) {
     private static final BigDecimal ES6_PLAIN_LIMIT = new BigDecimal("1e21");
 
     public EffectiveRules {
-        Objects.requireNonNull(properties, "properties");
+        if (properties == null) {
+            throw new InvalidExecutionContextException("rules.properties are required");
+        }
         var sorted = new TreeMap<String, Object>();
         properties.forEach((key, value) -> {
             if (key == null || !key.startsWith(KEY_PREFIX)) {
@@ -88,22 +89,17 @@ public record EffectiveRules(Map<String, Object> properties) {
         if (value instanceof Boolean || value instanceof String) {
             return value;
         }
-        if (value instanceof BigDecimal number) {
-            return number.stripTrailingZeros();
-        }
         if (value instanceof Number number) {
-            return finite(key, number.toString()).stripTrailingZeros();
+            // RFC 8785 numbers are IEEE-754 doubles. Normalise here, not only when serialising, so a context read
+            // back from canonical storage equals the one that was posted even for an integer above 2^53.
+            var rounded = number.doubleValue();
+            if (!Double.isFinite(rounded)) {
+                throw new InvalidExecutionContextException("rules property '" + key + "' is not a finite number");
+            }
+            return BigDecimal.valueOf(rounded).stripTrailingZeros();
         }
         throw new InvalidExecutionContextException(
                 "rules property '" + key + "' must be a number, boolean, string or a list of those");
-    }
-
-    private static BigDecimal finite(String key, String number) {
-        try {
-            return new BigDecimal(number);
-        } catch (NumberFormatException e) {
-            throw new InvalidExecutionContextException("rules property '" + key + "' is not a finite number");
-        }
     }
 
     private static String text(Object value) {

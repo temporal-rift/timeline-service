@@ -57,6 +57,17 @@ class ExecutionRulesBindingTest {
     }
 
     @Test
+    @DisplayName("the required keys are derived from the properties records rather than repeated by hand")
+    void requiredKeys_followTheRecordComponents() {
+        assertThat(ExecutionRulesBinding.requiredKeys(TimelineRulesProperties.class, "game.rules.probability"))
+                .containsExactlyInAnyOrderElementsOf(flatRules().keySet().stream()
+                        .filter(key -> key.startsWith("game.rules.probability."))
+                        .toList());
+        assertThat(ExecutionRulesBinding.requiredKeys(ParadoxResolutionRulesProperties.class, "game.rules"))
+                .containsExactly("game.rules.paradox-resolution-timer-seconds");
+    }
+
+    @Test
     @DisplayName("a missing scalar key is reported even though primitive binding would default it")
     void requiredKeys_missingScalar_namesTheKey() {
         var properties = flatRules();

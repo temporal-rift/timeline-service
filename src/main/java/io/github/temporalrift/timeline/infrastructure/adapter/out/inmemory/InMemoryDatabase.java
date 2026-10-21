@@ -136,6 +136,23 @@ public final class InMemoryDatabase {
         }
     }
 
+    /** Whether any table whose name matches holds at least one visible row. */
+    public boolean hasRowsOf(Predicate<String> matches) {
+        return run(transaction -> {
+            var names = new java.util.TreeSet<String>();
+            commitLock.readLock().lock();
+            try {
+                names.addAll(committed.keySet());
+            } finally {
+                commitLock.readLock().unlock();
+            }
+            names.addAll(transaction.overlay().keySet());
+            return names.stream()
+                    .anyMatch(name ->
+                            matches.test(name) && !view(transaction, name).isEmpty());
+        });
+    }
+
     /**
      * Removes every row of every table whose name matches, staging the removals in the current transaction. Used by a
      * simulation lane to discard the whole gameplay state of a closed execution context.

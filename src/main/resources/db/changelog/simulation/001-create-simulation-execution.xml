@@ -68,6 +68,22 @@
       </column>
     </createTable>
 
+    <!-- The end offset of every game.events partition when a context was last closed: records below it belong to an
+         earlier context and are consumed without acting. -->
+    <createTable tableName="simulation_event_fence">
+      <column name="topic" type="VARCHAR(200)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="partition_number" type="INT">
+        <constraints nullable="false"/>
+      </column>
+      <column name="next_offset" type="BIGINT">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+    <addPrimaryKey tableName="simulation_event_fence" columnNames="topic, partition_number"
+        constraintName="pk_simulation_event_fence"/>
+
     <createTable tableName="simulation_seat">
       <column name="seat_index" type="INT">
         <constraints primaryKey="true" nullable="false"/>
