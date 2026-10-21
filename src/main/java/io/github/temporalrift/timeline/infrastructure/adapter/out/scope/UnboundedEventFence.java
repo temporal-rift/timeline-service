@@ -16,7 +16,7 @@ class UnboundedEventFence implements EventFence {
     }
 
     @Override
-    public void record() {
+    public void capture() {
         // Nothing is ever fenced.
     }
 }

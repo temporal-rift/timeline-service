@@ -21,7 +21,7 @@ class InMemoryEventFence implements EventFence {
     }
 
     @Override
-    public void record() {
+    public void capture() {
         // No broker offsets exist in this runtime.
     }
 }

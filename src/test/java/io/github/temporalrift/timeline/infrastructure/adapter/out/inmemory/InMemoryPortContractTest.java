@@ -16,6 +16,7 @@ import io.github.temporalrift.timeline.contract.EventStorePortContract;
 import io.github.temporalrift.timeline.contract.ExecutionProbeContract;
 import io.github.temporalrift.timeline.contract.FutureEventEraIndexPortContract;
 import io.github.temporalrift.timeline.contract.GameMembershipPortContract;
+import io.github.temporalrift.timeline.contract.GameplayDiscardContract;
 import io.github.temporalrift.timeline.contract.ParadoxResolutionPhaseRepositoryContract;
 import io.github.temporalrift.timeline.contract.ProcessedEventPortContract;
 import io.github.temporalrift.timeline.contract.RoundActionBufferPortContract;
@@ -32,6 +33,7 @@ import io.github.temporalrift.timeline.domain.port.out.ExecutionProbe;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.GameMembershipPort;
+import io.github.temporalrift.timeline.domain.port.out.GameplayDiscard;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionPhaseRepository;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
@@ -50,6 +52,7 @@ class InMemoryPortContractTest
                 ExecutionProbeContract,
                 FutureEventEraIndexPortContract,
                 GameMembershipPortContract,
+                GameplayDiscardContract,
                 ParadoxResolutionPhaseRepositoryContract,
                 ProcessedEventPortContract,
                 RoundActionBufferPortContract,
@@ -89,6 +92,7 @@ class InMemoryPortContractTest
                 InMemoryExecutionRepository.class,
                 InMemoryFutureEventEraIndexAdapter.class,
                 InMemoryGameMembershipAdapter.class,
+                InMemoryGameplayDiscard.class,
                 InMemoryOutboxStore.class,
                 InMemoryParadoxResolutionPhaseAdapter.class,
                 InMemoryProcessedEventAdapter.class,
@@ -141,6 +145,21 @@ class InMemoryPortContractTest
     @Override
     public ProcessedEventPort probeProcessedEvents() {
         return processedEvents();
+    }
+
+    @Override
+    public GameplayDiscard gameplayDiscard() {
+        return context.getBean(GameplayDiscard.class);
+    }
+
+    @Override
+    public GameMembershipPort gameplayMemberships() {
+        return memberships();
+    }
+
+    @Override
+    public ExecutionRepository gameplayExecutions() {
+        return executions();
     }
 
     @Override

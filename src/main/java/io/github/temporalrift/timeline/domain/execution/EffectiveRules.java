@@ -122,12 +122,10 @@ public record EffectiveRules(Map<String, Object> properties) {
     }
 
     private static void scalar(StringBuilder json, Object value) {
-        if (value instanceof String text) {
-            string(json, text);
-        } else if (value instanceof BigDecimal number) {
-            json.append(number(number));
-        } else {
-            json.append(value);
+        switch (value) {
+            case String text -> string(json, text);
+            case BigDecimal number -> json.append(number(number));
+            case null, default -> json.append(value);
         }
     }
 

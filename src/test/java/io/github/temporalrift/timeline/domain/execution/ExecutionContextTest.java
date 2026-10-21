@@ -58,13 +58,15 @@ class ExecutionContextTest {
     @Test
     @DisplayName("a rules digest that does not match the rules is rejected")
     void rulesDigest_mismatch_isRejected() {
+        var mismatchedDigest = "b".repeat(64);
+
         assertThatThrownBy(() -> new ExecutionContext(
                         CASE_KEY,
                         SEED,
                         EntropyVersion.SHA256_V1,
                         MANIFEST_DIGEST,
                         ExecutionContextTestData.RULES,
-                        "b".repeat(64),
+                        mismatchedDigest,
                         START,
                         threeSeats()))
                 .isInstanceOf(InvalidExecutionContextException.class)

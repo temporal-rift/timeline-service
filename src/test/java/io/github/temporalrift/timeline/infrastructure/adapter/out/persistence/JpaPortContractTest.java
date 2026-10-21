@@ -25,6 +25,7 @@ import io.github.temporalrift.timeline.contract.EventStorePortContract;
 import io.github.temporalrift.timeline.contract.ExecutionProbeContract;
 import io.github.temporalrift.timeline.contract.FutureEventEraIndexPortContract;
 import io.github.temporalrift.timeline.contract.GameMembershipPortContract;
+import io.github.temporalrift.timeline.contract.GameplayDiscardContract;
 import io.github.temporalrift.timeline.contract.ParadoxResolutionPhaseRepositoryContract;
 import io.github.temporalrift.timeline.contract.ProcessedEventPortContract;
 import io.github.temporalrift.timeline.contract.RoundActionBufferPortContract;
@@ -41,6 +42,7 @@ import io.github.temporalrift.timeline.domain.port.out.ExecutionProbe;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.GameMembershipPort;
+import io.github.temporalrift.timeline.domain.port.out.GameplayDiscard;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionPhaseRepository;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 import io.github.temporalrift.timeline.domain.port.out.RoundActionBufferPort;
@@ -68,7 +70,8 @@ import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository
     ClockOperationRepositoryAdapter.class,
     EntropyDecisionRepositoryAdapter.class,
     ExecutionProbeAdapter.class,
-    ExecutionRepositoryAdapter.class
+    ExecutionRepositoryAdapter.class,
+    GameplayDiscardAdapter.class
 })
 // The contracts commit, roll back and lock across threads, so no test-managed transaction may wrap them.
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -80,6 +83,7 @@ class JpaPortContractTest
                 ExecutionProbeContract,
                 FutureEventEraIndexPortContract,
                 GameMembershipPortContract,
+                GameplayDiscardContract,
                 ParadoxResolutionPhaseRepositoryContract,
                 ProcessedEventPortContract,
                 RoundActionBufferPortContract,
@@ -122,6 +126,9 @@ class JpaPortContractTest
     ProcessedEventPort processedEvents;
 
     @Autowired
+    GameplayDiscard gameplayDiscard;
+
+    @Autowired
     RoundActionBufferPort actionBuffer;
 
     @Autowired
@@ -149,7 +156,7 @@ class JpaPortContractTest
     @BeforeEach
     void emptyLane() {
         jdbcTemplate.execute("TRUNCATE TABLE simulation_seat, simulation_execution, simulation_clock_operation, "
-                + "simulation_closed_execution, simulation_closed_game, "
+                + "simulation_closed_execution, simulation_closed_game, simulation_event_fence, "
                 + "game_membership, processed_events, paradox_resolution_phase, outbox_events");
     }
 
@@ -191,6 +198,21 @@ class JpaPortContractTest
     @Override
     public ProcessedEventPort probeProcessedEvents() {
         return processedEvents;
+    }
+
+    @Override
+    public GameplayDiscard gameplayDiscard() {
+        return gameplayDiscard;
+    }
+
+    @Override
+    public GameMembershipPort gameplayMemberships() {
+        return memberships;
+    }
+
+    @Override
+    public ExecutionRepository gameplayExecutions() {
+        return executions;
     }
 
     @Override

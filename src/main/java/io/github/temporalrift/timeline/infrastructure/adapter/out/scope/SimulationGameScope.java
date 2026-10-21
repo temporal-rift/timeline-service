@@ -32,24 +32,17 @@ class SimulationGameScope implements GameScope {
         if (gameId == null) {
             return false;
         }
+        var seen = executions.findBounds().orElse(null);
+        if (seen == null) {
+            return false;
+        }
+        if (seen.gameId() == null && !executions.isClosedGame(gameId)) {
+            // Take the UPDATE's row lock before any share lock, so concurrent binders queue on one row instead of
+            // each holding a share lock the other binder needs to upgrade.
+            executions.bindGame(seen.caseKey(), gameId);
+        }
+        // Held until the handler commits, so a close waits for this record or makes it see no context.
         var bounds = executions.findBoundsForScope().orElse(null);
-        if (bounds == null) {
-            return false;
-        }
-        if (bounds.gameId() != null) {
-            return bounds.gameId().equals(gameId);
-        }
-        if (executions.isClosedGame(gameId)) {
-            return false;
-        }
-        if (executions.bindGame(bounds.caseKey(), gameId)) {
-            return true;
-        }
-        // Another consumer group bound a game first; only that game is in scope.
-        return executions
-                .findBounds()
-                .map(ExecutionRepository.Bounds::gameId)
-                .filter(gameId::equals)
-                .isPresent();
+        return bounds != null && gameId.equals(bounds.gameId());
     }
 }
