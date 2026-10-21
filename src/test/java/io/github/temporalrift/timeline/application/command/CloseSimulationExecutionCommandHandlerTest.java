@@ -73,7 +73,15 @@ class CloseSimulationExecutionCommandHandlerTest {
                 .thenAnswer(
                         invocation -> ((TransactionCallback<Object>) invocation.getArgument(0)).doInTransaction(null));
         handler = new CloseSimulationExecutionCommandHandler(
-                executions, operations, decisions, gameplay, eventFence, clock, events, transaction);
+                executions,
+                operations,
+                decisions,
+                gameplay,
+                eventFence,
+                clock,
+                events,
+                new SimulationControlLock(),
+                transaction);
     }
 
     @Test

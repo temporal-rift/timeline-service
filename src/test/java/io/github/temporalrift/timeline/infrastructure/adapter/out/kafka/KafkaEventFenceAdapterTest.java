@@ -39,7 +39,7 @@ class KafkaEventFenceAdapterTest {
 
     @Test
     @DisplayName("a capture records the broker end offset and fences records below it")
-    void capture_recordsTheEndOffset() throws Exception {
+    void capture_recordsTheEndOffset() {
         givenEndOffsets(5L);
         givenStoredFence(5L);
 
@@ -83,7 +83,7 @@ class KafkaEventFenceAdapterTest {
                 .thenReturn((List) List.of(Map.entry(PARTITION, nextOffset)));
     }
 
-    private void givenEndOffsets(long endOffset) throws Exception {
+    private void givenEndOffsets(long endOffset) {
         var partitionInfo = mock(TopicPartitionInfo.class);
         when(partitionInfo.partition()).thenReturn(0);
         var description = mock(TopicDescription.class);

@@ -78,8 +78,8 @@ class PinnedExecutionContextTest {
     @DisplayName("requiring a context without one reports it is not configured")
     void require_withoutContext_isNotConfigured() {
         given(executions.find()).willReturn(Optional.empty());
+        var pinned = new PinnedExecutionContext(executions);
 
-        assertThatThrownBy(() -> new PinnedExecutionContext(executions).require())
-                .isInstanceOf(ExecutionNotConfiguredException.class);
+        assertThatThrownBy(pinned::require).isInstanceOf(ExecutionNotConfiguredException.class);
     }
 }

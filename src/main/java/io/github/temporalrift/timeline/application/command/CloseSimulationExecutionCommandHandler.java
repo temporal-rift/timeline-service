@@ -30,6 +30,7 @@ class CloseSimulationExecutionCommandHandler implements CloseSimulationExecution
     private final EventFence eventFence;
     private final LogicalClockControl clock;
     private final ApplicationEventPublisher events;
+    private final SimulationControlLock controlLock;
     private final TransactionTemplate transaction;
 
     CloseSimulationExecutionCommandHandler(
@@ -40,6 +41,7 @@ class CloseSimulationExecutionCommandHandler implements CloseSimulationExecution
             EventFence eventFence,
             LogicalClockControl clock,
             ApplicationEventPublisher events,
+            SimulationControlLock controlLock,
             TransactionTemplate transaction) {
         this.executions = executions;
         this.operations = operations;
@@ -48,6 +50,7 @@ class CloseSimulationExecutionCommandHandler implements CloseSimulationExecution
         this.eventFence = eventFence;
         this.clock = clock;
         this.events = events;
+        this.controlLock = controlLock;
         this.transaction = transaction;
     }
 
@@ -57,17 +60,20 @@ class CloseSimulationExecutionCommandHandler implements CloseSimulationExecution
      */
     @Override
     public void handle(UUID caseKey) {
-        var outcome = transaction.execute(status -> close(caseKey));
-        if (outcome == Outcome.CLOSED) {
-            // Drop the in-process views before a broker call that can fail, so a committed close always frees them.
-            clock.reset();
-            events.publishEvent(new ExecutionClosed(caseKey));
-        }
-        if (outcome == Outcome.CLOSED || outcome == Outcome.LAST_CLOSED) {
-            // Recorded after the close commits, so a failed close never fences records of a context that stays open.
-            // Every record already in the source when this returns belongs to a closed context, even one that never
-            // bound a game.
-            eventFence.capture();
+        controlLock.lock();
+        try {
+            var outcome = transaction.execute(status -> close(caseKey));
+            if (outcome == Outcome.CLOSED) {
+                // Drop the in-process views before a broker call that can fail, so a committed close always frees them.
+                clock.reset();
+                events.publishEvent(new ExecutionClosed(caseKey));
+            }
+            if (outcome == Outcome.CLOSED || outcome == Outcome.LAST_CLOSED) {
+                // Recorded before the lock is released: the next context cannot open while the fence is captured.
+                eventFence.capture();
+            }
+        } finally {
+            controlLock.unlock();
         }
     }
 

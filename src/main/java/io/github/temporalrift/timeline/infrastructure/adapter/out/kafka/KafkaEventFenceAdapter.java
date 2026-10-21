@@ -62,8 +62,8 @@ class KafkaEventFenceAdapter implements EventFence {
     public boolean isFenced(String topic, int partition, long offset) {
         var current = fence.get();
         if (current == null) {
-            current = load();
-            fence.set(current);
+            fence.compareAndSet(null, load());
+            current = fence.get();
         }
         var nextOffset = current.get(new TopicPartition(topic, partition));
         return nextOffset != null && offset < nextOffset;
