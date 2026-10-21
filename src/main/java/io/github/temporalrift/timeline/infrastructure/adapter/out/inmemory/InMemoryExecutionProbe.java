@@ -35,12 +35,12 @@ class InMemoryExecutionProbe implements ExecutionProbe {
     @Override
     public Observation observe(Instant now) {
         var gameId = executions.find().map(Execution::gameId).orElse(null);
-        var gameEnded = claims.entries(claimed -> true).stream()
-                .map(Map.Entry::getKey)
-                .anyMatch(claim -> claim.consumer().equals(GAME_ENDED_CONSUMER));
         if (gameId == null) {
             return new Observation(null, false, 0, null);
         }
+        var gameEnded = claims.entries(claimed -> true).stream()
+                .map(Map.Entry::getKey)
+                .anyMatch(claim -> claim.consumer().equals(GAME_ENDED_CONSUMER));
         var dueTimers = phases.list(phase -> phase.gameId().equals(gameId)
                         && InMemoryParadoxResolutionPhaseAdapter.isWaitingDueBy(phase, now))
                 .size();

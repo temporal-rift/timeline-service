@@ -100,6 +100,35 @@ public interface SimulationRepositoriesContract extends TransactionalContract {
     }
 
     @Test
+    @DisplayName("executions: a handler's scope lock makes a close wait for its commit")
+    default void executions_scopeLockMakesCloseWait() throws Exception {
+        var configured = Execution.configure(ExecutionContextTestData.context("42"));
+        executions().insertIfAbsent(configured);
+        var held = holdTransaction(() -> executions().findBoundsForScope());
+        var close = java.util.concurrent.CompletableFuture.supplyAsync(
+                () -> transactions().execute(status -> executions().findWithLock()));
+
+        await().during(Duration.ofMillis(300))
+                .atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(close).isNotDone());
+        assertThat(held.commit()).isPresent();
+        assertThat(close.get(30, java.util.concurrent.TimeUnit.SECONDS)).isPresent();
+    }
+
+    @Test
+    @DisplayName("executions: a context whose rules exceed the double range still round-trips")
+    default void executions_largeRulesRoundTrip() {
+        var properties = ExecutionContextTestData.baselineProperties();
+        properties.put("game.rules.large-integer", 9007199254740993L);
+        properties.put("game.rules.fraction", 0.30000000000000004441);
+        var context = ExecutionContextTestData.context("42", ExecutionContextTestData.rules(properties));
+        var configured = Execution.configure(context);
+        executions().insertIfAbsent(configured);
+
+        assertThat(executions().find()).contains(configured);
+    }
+
+    @Test
     @DisplayName("clock operations: a saved operation reads back and saving it again is refused")
     default void clockOperations_savedOperationReadsBack() {
         var operationId = UUID.randomUUID();

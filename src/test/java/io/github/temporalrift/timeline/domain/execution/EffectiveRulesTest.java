@@ -56,6 +56,24 @@ class EffectiveRulesTest {
     }
 
     @Test
+    @DisplayName("numbers normalise to their IEEE-754 double value, so canonical storage round-trips")
+    void numbers_normaliseToTheirDoubleValue() {
+        var posted = new EffectiveRules(Map.of("game.rules.large", 9007199254740993L));
+        var reloaded = new EffectiveRules(Map.of("game.rules.large", 9007199254740992L));
+
+        assertThat(posted).isEqualTo(reloaded);
+        assertThat(posted.canonicalJson()).isEqualTo(reloaded.canonicalJson());
+    }
+
+    @Test
+    @DisplayName("a null properties map is an execution-context error, not a null pointer")
+    void nullProperties_isAnInvalidContext() {
+        assertThatThrownBy(() -> new EffectiveRules(null))
+                .isInstanceOf(InvalidExecutionContextException.class)
+                .hasMessageContaining("rules.properties");
+    }
+
+    @Test
     @DisplayName("a property outside the game.rules namespace is rejected")
     void propertyOutsideTheNamespace_isRejected() {
         assertThatThrownBy(() -> new EffectiveRules(Map.of("game.timers.interval", 1)))

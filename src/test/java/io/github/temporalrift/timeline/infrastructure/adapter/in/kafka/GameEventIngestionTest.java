@@ -17,8 +17,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.support.MessageBuilder;
 
+import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.GameScope;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
@@ -31,6 +33,9 @@ class GameEventIngestionTest {
     @Mock
     GameScope gameScope;
 
+    @Mock
+    EventFence eventFence;
+
     private SimpleMeterRegistry meterRegistry;
     private GameEventSkipMetrics skipMetrics;
     private GameEventIngestion ingestion;
@@ -42,7 +47,7 @@ class GameEventIngestionTest {
         org.mockito.Mockito.lenient()
                 .when(gameScope.admits(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(true);
-        ingestion = new GameEventIngestion(processedEvents, skipMetrics, gameScope);
+        ingestion = new GameEventIngestion(processedEvents, skipMetrics, eventFence, gameScope);
     }
 
     @Test
@@ -131,6 +136,25 @@ class GameEventIngestionTest {
                 .tag("reason", reason)
                 .counter()
                 .count();
+    }
+
+    @Test
+    void fencedRecord_isConsumedWithoutClaimingOrBinding() {
+        var eventId = UUID.randomUUID();
+        when(eventFence.isFenced("game.events", 0, 7L)).thenReturn(true);
+        var message = MessageBuilder.withPayload(new Object())
+                .copyHeaders(KafkaTestMessages.withHeaders(new Object(), eventId, "EraStarted", 1)
+                        .getHeaders())
+                .setHeader(KafkaHeaders.RECEIVED_TOPIC, "game.events")
+                .setHeader(KafkaHeaders.RECEIVED_PARTITION, 0)
+                .setHeader(KafkaHeaders.OFFSET, 7L)
+                .build();
+        var spec = new GameEventIngestion.Spec("EraStarted", "futureevent.era-started", 1);
+
+        assertThat(ingestion.accept(message, spec)).isEmpty();
+
+        verify(processedEvents, never()).claim(any(), any());
+        verify(gameScope, never()).admits(any());
     }
 
     @Test

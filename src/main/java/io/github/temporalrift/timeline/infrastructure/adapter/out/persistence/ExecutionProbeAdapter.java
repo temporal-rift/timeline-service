@@ -33,14 +33,14 @@ class ExecutionProbeAdapter implements ExecutionProbe {
                 .query(UUID.class)
                 .optional()
                 .orElse(null);
+        if (gameId == null) {
+            return new Observation(null, false, 0, null);
+        }
         var gameEnded = jdbc.sql("SELECT count(*) FROM processed_events WHERE consumer = :consumer")
                         .param("consumer", GAME_ENDED_CONSUMER)
                         .query(Integer.class)
                         .single()
                 > 0;
-        if (gameId == null) {
-            return new Observation(null, false, 0, null);
-        }
         var dueTimers = jdbc.sql("""
                         SELECT count(*) FROM paradox_resolution_phase
                         WHERE game_id = :gameId AND status = 'WAITING' AND timer_expires_at <= :now

@@ -16,6 +16,11 @@ class InMemoryGameplayDiscard implements GameplayDiscard {
     }
 
     @Override
+    public boolean isClean() {
+        return !database.hasRowsOf(table -> !table.startsWith("simulation_"));
+    }
+
+    @Override
     public void discardAll() {
         database.deleteAllRowsOf(table -> !table.startsWith("simulation_"));
     }

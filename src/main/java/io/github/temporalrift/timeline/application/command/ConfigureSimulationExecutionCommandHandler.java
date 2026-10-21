@@ -17,6 +17,7 @@ import io.github.temporalrift.timeline.domain.execution.InvalidExecutionContextE
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesException;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRulesValidator;
+import io.github.temporalrift.timeline.domain.port.out.GameplayDiscard;
 import io.github.temporalrift.timeline.domain.port.out.LogicalClockControl;
 
 @Service
@@ -24,6 +25,7 @@ import io.github.temporalrift.timeline.domain.port.out.LogicalClockControl;
 class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationExecutionUseCase {
 
     private final ExecutionRepository executions;
+    private final GameplayDiscard gameplay;
     private final List<ExecutionRulesValidator> rulesValidators;
     private final LogicalClockControl clock;
     private final ExecutionCheckpointAssembler assembler;
@@ -31,11 +33,13 @@ class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationE
 
     ConfigureSimulationExecutionCommandHandler(
             ExecutionRepository executions,
+            GameplayDiscard gameplay,
             List<ExecutionRulesValidator> rulesValidators,
             LogicalClockControl clock,
             ExecutionCheckpointAssembler assembler,
             TransactionTemplate transaction) {
         this.executions = executions;
+        this.gameplay = gameplay;
         this.rulesValidators = rulesValidators;
         this.clock = clock;
         this.assembler = assembler;
@@ -63,6 +67,9 @@ class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationE
         var existing = executions.findWithLock();
         if (existing.isPresent()) {
             return requireSameContext(existing.get(), context);
+        }
+        if (!gameplay.isClean()) {
+            throw new ExecutionContextConflictException("The lane already hosts gameplay");
         }
         var created = Execution.configure(context);
         if (executions.insertIfAbsent(created)) {

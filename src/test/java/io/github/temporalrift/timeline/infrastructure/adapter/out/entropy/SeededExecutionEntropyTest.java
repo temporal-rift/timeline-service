@@ -184,6 +184,16 @@ class SeededExecutionEntropyTest {
             }
 
             @Override
+            public Optional<Bounds> findBoundsForScope() {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<Bounds> findBounds() {
+                return Optional.empty();
+            }
+
+            @Override
             public boolean bindGame(UUID caseKey, UUID gameId) {
                 return false;
             }

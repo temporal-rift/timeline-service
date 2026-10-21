@@ -20,7 +20,6 @@ class ExecutionContextRules implements ExecutionRules {
 
     @Override
     public Optional<Rules> current() {
-        return pinned.current()
-                .map(context -> new Rules(context.rulesDigest(), context.rules().bindable()));
+        return pinned.currentRules();
     }
 }

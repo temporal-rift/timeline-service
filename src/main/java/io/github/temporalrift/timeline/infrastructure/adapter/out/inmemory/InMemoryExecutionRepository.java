@@ -57,6 +57,17 @@ class InMemoryExecutionRepository implements ExecutionRepository {
 
     @Override
     @Transactional
+    public Optional<Bounds> findBoundsForScope() {
+        return executions.findForUpdate(ID).map(InMemoryExecutionRepository::boundsOf);
+    }
+
+    @Override
+    public Optional<Bounds> findBounds() {
+        return executions.find(ID).map(InMemoryExecutionRepository::boundsOf);
+    }
+
+    @Override
+    @Transactional
     public boolean bindGame(UUID caseKey, UUID gameId) {
         executions.lock(ID);
         return executions
@@ -91,6 +102,10 @@ class InMemoryExecutionRepository implements ExecutionRepository {
     @Override
     public Optional<UUID> lastClosedCaseKey() {
         return closed.find(ID).map(ClosedExecution::caseKey);
+    }
+
+    private static Bounds boundsOf(Execution execution) {
+        return new Bounds(execution.context().caseKey(), execution.gameId());
     }
 
     private record ClosedExecution(UUID caseKey) {}

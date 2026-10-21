@@ -2,7 +2,10 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.config;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
@@ -51,6 +54,31 @@ public final class ExecutionRulesBinding<T> {
 
     public ExecutionRulesValidator validator() {
         return this::bind;
+    }
+
+    /**
+     * Every property key {@code type} reads, derived from its record components. A map component expands to one key per
+     * enum constant, so a scalar added to a properties record cannot be forgotten here.
+     */
+    public static List<String> requiredKeys(Class<?> type, String prefix) {
+        var keys = new ArrayList<String>();
+        for (var component : type.getRecordComponents()) {
+            var key = prefix + "." + kebab(component.getName());
+            if (!Map.class.isAssignableFrom(component.getType())) {
+                keys.add(key);
+                continue;
+            }
+            if (!(component.getGenericType() instanceof ParameterizedType parameterized)
+                    || !(parameterized.getActualTypeArguments()[0] instanceof Class<?> valueType)
+                    || !valueType.isEnum()) {
+                throw new IllegalArgumentException(
+                        "A map rule component must be keyed by an enum: " + component.getName());
+            }
+            for (var constant : valueType.getEnumConstants()) {
+                keys.add(key + "." + constant);
+            }
+        }
+        return List.copyOf(keys);
     }
 
     /**
@@ -114,7 +142,7 @@ public final class ExecutionRulesBinding<T> {
     }
 
     /** {@code actionRoundTimerSeconds[3]} to {@code action-round-timer-seconds.3}; map keys keep their spelling. */
-    private static String kebab(String field) {
+    static String kebab(String field) {
         var kebab = new StringBuilder();
         var inKey = false;
         for (var character : field.toCharArray()) {

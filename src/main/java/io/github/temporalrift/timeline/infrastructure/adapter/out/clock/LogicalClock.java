@@ -25,15 +25,11 @@ class LogicalClock extends Clock implements LogicalClockControl {
     }
 
     @Override
-    public Instant instant() {
-        var now = current;
-        if (now == null) {
-            // Before configuration no gameplay exists, so nothing may look due.
-            now = executions.find().map(Execution::logicalTime).orElse(null);
-            if (now == null) {
-                return Instant.EPOCH;
-            }
-            advanceTo(now);
+    public synchronized Instant instant() {
+        if (current == null) {
+            // Before configuration no gameplay exists, so nothing may look due. Loading under the same monitor that
+            // reset() takes means a close cannot be followed by a thread re-pinning the closed context's time.
+            current = executions.find().map(Execution::logicalTime).orElse(Instant.EPOCH);
         }
         return current;
     }

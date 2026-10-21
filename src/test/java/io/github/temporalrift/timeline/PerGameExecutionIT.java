@@ -24,6 +24,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -36,7 +37,11 @@ import io.github.temporalrift.timeline.domain.execution.ExecutionContext;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData;
 import io.github.temporalrift.timeline.domain.execution.Seed;
 import io.github.temporalrift.timeline.domain.execution.SourceWatermark;
+import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
+import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
+import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
+import io.github.temporalrift.timeline.infrastructure.adapter.out.context.PinnedExecutionContext;
 
 /**
  * One running instance opens, plays and closes several execution contexts, each with its own rules, and never lets
@@ -77,6 +82,18 @@ class PerGameExecutionIT {
 
     @Autowired
     ExecutionRepository executions;
+
+    @Autowired
+    EventFence eventFence;
+
+    @Autowired
+    KafkaListenerEndpointRegistry listeners;
+
+    @Autowired
+    ProbabilityRulesPort probabilityRules;
+
+    @Autowired
+    PinnedExecutionContext pinned;
 
     @BeforeEach
     void closeAnyOpenContext() {
@@ -130,8 +147,15 @@ class PerGameExecutionIT {
         open(first);
         assertThat(pushedWeight()).isEqualTo(65);
         close(first.caseKey());
+        assertThat(pinned.current()).isEmpty();
 
+        assertThat(first.rulesDigest()).isNotEqualTo(second.rulesDigest());
         open(second);
+        assertThat(pinned.current()).isPresent();
+        assertThat(pinned.current().orElseThrow().caseKey()).isEqualTo(second.caseKey());
+        assertThat(pinned.current().orElseThrow().rulesDigest()).isEqualTo(second.rulesDigest());
+        assertThat(pinned.currentRules().orElseThrow().digest()).isEqualTo(second.rulesDigest());
+        assertThat(probabilityRules.pushShift(CardGrade.II)).isEqualTo(20);
         assertThat(pushedWeight()).isEqualTo(60);
         close(second.caseKey());
     }
@@ -207,6 +231,52 @@ class PerGameExecutionIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dueTimersPending").value(0))
                 .andExpect(jsonPath("$.nextDeadline").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    @DisplayName("a record already in the source before an unbound context closes never binds the next one")
+    void closeFence_excludesAnUnboundContextsBacklog() throws Exception {
+        var first = context(UUID.randomUUID(), ExecutionContextTestData.RULES, START);
+        var second = context(UUID.randomUUID(), ExecutionContextTestData.RULES, START);
+        var lateGame = UUID.randomUUID();
+
+        open(first);
+        listeners.stop();
+        try {
+            gameEvents.eraStarted(lateGame, 1, seats());
+            close(first.caseKey());
+            open(second);
+            var watermarkBefore = sumWatermarks();
+
+            listeners.start();
+            await().atMost(Duration.ofSeconds(30)).until(() -> sumWatermarks() > watermarkBefore);
+        } finally {
+            listeners.start();
+        }
+
+        assertThat(executions.find()).isPresent();
+        assertThat(executions.find().orElseThrow().gameId()).isNull();
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT count(*) FROM era_players WHERE game_id = ?", Integer.class, lateGame))
+                .isZero();
+        close(second.caseKey());
+    }
+
+    @Test
+    @DisplayName("a close records the source fence for its already-present records")
+    void close_recordsTheSourceFence() throws Exception {
+        var first = context(UUID.randomUUID(), ExecutionContextTestData.RULES, START);
+        var game = UUID.randomUUID();
+        open(first);
+        gameEvents.eraStarted(game, 1, seats());
+        await().atMost(Duration.ofSeconds(30))
+                .until(() -> game.equals(
+                        executions.find().map(execution -> execution.gameId()).orElse(null)));
+
+        close(first.caseKey());
+
+        assertThat(eventFence.isFenced("game.events", 0, 0L)).isTrue();
+        assertThat(eventFence.isFenced("game.events", 0, Long.MAX_VALUE)).isFalse();
     }
 
     @Test

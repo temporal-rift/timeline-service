@@ -96,6 +96,22 @@ class ExecutionRepositoryAdapter implements ExecutionRepository {
     }
 
     @Override
+    public Optional<Bounds> findBoundsForScope() {
+        return jdbc.sql("SELECT case_key, game_id FROM simulation_execution WHERE id = 1 FOR SHARE")
+                .query((rs, row) ->
+                        new Bounds(rs.getObject("case_key", UUID.class), rs.getObject("game_id", UUID.class)))
+                .optional();
+    }
+
+    @Override
+    public Optional<Bounds> findBounds() {
+        return jdbc.sql("SELECT case_key, game_id FROM simulation_execution WHERE id = 1")
+                .query((rs, row) ->
+                        new Bounds(rs.getObject("case_key", UUID.class), rs.getObject("game_id", UUID.class)))
+                .optional();
+    }
+
+    @Override
     public boolean bindGame(UUID caseKey, UUID gameId) {
         return jdbc.sql("""
                         UPDATE simulation_execution SET game_id = :gameId

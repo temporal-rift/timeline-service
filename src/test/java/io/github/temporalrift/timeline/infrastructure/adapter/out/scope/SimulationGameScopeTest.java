@@ -2,6 +2,8 @@ package io.github.temporalrift.timeline.infrastructure.adapter.out.scope;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -12,15 +14,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import io.github.temporalrift.timeline.domain.execution.Execution;
-import io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
+import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository.Bounds;
 
 @ExtendWith(MockitoExtension.class)
 class SimulationGameScopeTest {
 
     private static final UUID GAME = UUID.fromString("11111111-1111-4111-8111-111111111111");
     private static final UUID OTHER = UUID.fromString("22222222-2222-4222-8222-222222222222");
+    private static final UUID CASE = UUID.fromString("c0ffee00-0000-4000-8000-000000000001");
 
     @Mock
     ExecutionRepository executions;
@@ -32,7 +34,7 @@ class SimulationGameScopeTest {
     @Test
     @DisplayName("with no context open every game is refused")
     void admits_noContext_isRefused() {
-        given(executions.find()).willReturn(Optional.empty());
+        given(executions.findBoundsForScope()).willReturn(Optional.empty());
 
         assertThat(scope().admits(GAME)).isFalse();
     }
@@ -40,9 +42,8 @@ class SimulationGameScopeTest {
     @Test
     @DisplayName("the first admitted game binds the open context and is the only one admitted afterwards")
     void admits_firstGameBindsTheContext() {
-        var open = Execution.configure(ExecutionContextTestData.context("42"));
-        given(executions.find()).willReturn(Optional.of(open));
-        given(executions.bindGame(open.context().caseKey(), GAME)).willReturn(true);
+        given(executions.findBoundsForScope()).willReturn(Optional.of(new Bounds(CASE, null)));
+        given(executions.bindGame(CASE, GAME)).willReturn(true);
 
         assertThat(scope().admits(GAME)).isTrue();
     }
@@ -50,25 +51,30 @@ class SimulationGameScopeTest {
     @Test
     @DisplayName("a game that did not win the binding race is refused")
     void admits_lostBindingRace_isRefused() {
-        var open = Execution.configure(ExecutionContextTestData.context("42"));
-        var bound = new Execution(open.context(), 0, open.logicalTime(), OTHER);
-        given(executions.find()).willReturn(Optional.of(open)).willReturn(Optional.of(bound));
-        given(executions.bindGame(open.context().caseKey(), GAME)).willReturn(false);
+        given(executions.findBoundsForScope()).willReturn(Optional.of(new Bounds(CASE, null)));
+        given(executions.bindGame(CASE, GAME)).willReturn(false);
+        given(executions.findBounds()).willReturn(Optional.of(new Bounds(CASE, OTHER)));
 
         assertThat(scope().admits(GAME)).isFalse();
     }
 
     @Test
-    @DisplayName("only the bound game is admitted, and a closed game is never admitted")
+    @DisplayName("only the bound game is admitted")
     void admits_boundGameOnly() {
-        var bound = new Execution(ExecutionContextTestData.context("42"), 0, ExecutionContextTestData.START, GAME);
-        given(executions.find()).willReturn(Optional.of(bound));
+        given(executions.findBoundsForScope()).willReturn(Optional.of(new Bounds(CASE, GAME)));
 
         assertThat(scope().admits(GAME)).isTrue();
         assertThat(scope().admits(OTHER)).isFalse();
+    }
 
-        given(executions.isClosedGame(OTHER)).willReturn(true);
-        assertThat(scope().admits(OTHER)).isFalse();
+    @Test
+    @DisplayName("an unbound context never adopts a game that a closed context already owned")
+    void admits_closedGame_isNotBound() {
+        given(executions.findBoundsForScope()).willReturn(Optional.of(new Bounds(CASE, null)));
+        given(executions.isClosedGame(GAME)).willReturn(true);
+
+        assertThat(scope().admits(GAME)).isFalse();
+        verify(executions, never()).bindGame(CASE, GAME);
     }
 
     @Test

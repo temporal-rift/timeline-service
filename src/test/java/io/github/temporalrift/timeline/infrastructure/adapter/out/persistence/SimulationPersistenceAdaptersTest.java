@@ -63,6 +63,23 @@ class SimulationPersistenceAdaptersTest {
     }
 
     @Test
+    @DisplayName("the gameplay check looks at every non-control table")
+    void gameplay_isCleanChecksGameplayTables() {
+        org.mockito.BDDMockito.given(jdbc.sql(org.mockito.ArgumentMatchers.contains("pg_tables"))
+                        .query(String.class)
+                        .list())
+                .willReturn(java.util.List.of("game_membership", "event_store"));
+        org.mockito.BDDMockito.given(jdbc.sql(org.mockito.ArgumentMatchers.contains("SELECT EXISTS"))
+                        .query(Boolean.class)
+                        .single())
+                .willReturn(false);
+
+        assertThat(new GameplayDiscardAdapter(jdbc).isClean()).isTrue();
+
+        verify(jdbc).sql(org.mockito.ArgumentMatchers.contains("game_membership"));
+    }
+
+    @Test
     @DisplayName("the execution probe counts unrelayed outbox records")
     void outbox_countsIncompletePublications() {
         org.mockito.BDDMockito.given(jdbc.sql(org.mockito.ArgumentMatchers.anyString())
