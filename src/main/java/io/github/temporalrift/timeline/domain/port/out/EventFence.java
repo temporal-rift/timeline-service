@@ -10,5 +10,5 @@ public interface EventFence {
     boolean isFenced(String topic, int partition, long offset);
 
     /** Captures the source's end offsets, so every record already present is fenced. */
-    void record();
+    void capture();
 }

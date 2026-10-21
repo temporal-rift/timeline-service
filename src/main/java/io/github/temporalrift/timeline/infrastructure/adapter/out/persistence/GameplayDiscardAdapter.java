@@ -21,6 +21,8 @@ class GameplayDiscardAdapter implements GameplayDiscard {
         this.jdbc = jdbc;
     }
 
+    // Table names come from pg_tables and are quoted identifiers, never caller input.
+    @SuppressWarnings("java:S2077")
     @Override
     public boolean isClean() {
         var tables = gameplayTables();
@@ -34,6 +36,7 @@ class GameplayDiscardAdapter implements GameplayDiscard {
     }
 
     /** Every table of the schema except the control state and the migration history holds gameplay state. */
+    @SuppressWarnings("java:S2077")
     @Override
     public void discardAll() {
         var tables = gameplayTables();

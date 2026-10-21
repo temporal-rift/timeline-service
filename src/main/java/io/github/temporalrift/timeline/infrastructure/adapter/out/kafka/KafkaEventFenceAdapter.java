@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import jakarta.annotation.PreDestroy;
@@ -35,11 +36,17 @@ class KafkaEventFenceAdapter implements EventFence {
 
     private static final String TOPIC = "game.events";
     private static final Duration BROKER_TIMEOUT = Duration.ofSeconds(10);
+    private static final String UPSERT_FENCE = """
+            INSERT INTO simulation_event_fence (topic, partition_number, next_offset)
+            VALUES (:topic, :partition, :nextOffset)
+            ON CONFLICT (topic, partition_number) DO UPDATE
+            SET next_offset = GREATEST(simulation_event_fence.next_offset, EXCLUDED.next_offset)
+            """;
 
     private final JdbcClient jdbc;
     private final Supplier<Admin> adminFactory;
     private Admin admin;
-    private volatile Map<TopicPartition, Long> fence;
+    private final AtomicReference<Map<TopicPartition, Long>> fence = new AtomicReference<>();
 
     @Autowired
     KafkaEventFenceAdapter(JdbcClient jdbc, KafkaAdmin kafkaAdmin) {
@@ -53,17 +60,17 @@ class KafkaEventFenceAdapter implements EventFence {
 
     @Override
     public boolean isFenced(String topic, int partition, long offset) {
-        var current = fence;
+        var current = fence.get();
         if (current == null) {
             current = load();
-            fence = current;
+            fence.set(current);
         }
         var nextOffset = current.get(new TopicPartition(topic, partition));
         return nextOffset != null && offset < nextOffset;
     }
 
     @Override
-    public void record() {
+    public void capture() {
         try {
             var client = client();
             Map<TopicPartition, OffsetSpec> request = new HashMap<>();
@@ -76,27 +83,22 @@ class KafkaEventFenceAdapter implements EventFence {
                     .forEach(partition ->
                             request.put(new TopicPartition(TOPIC, partition.partition()), OffsetSpec.latest()));
             if (request.isEmpty()) {
-                fence = Map.of();
+                fence.set(Map.of());
                 return;
             }
             var endOffsets = client.listOffsets(request).all().get(BROKER_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-            endOffsets.forEach((partition, info) -> jdbc.sql("""
-                            INSERT INTO simulation_event_fence (topic, partition_number, next_offset)
-                            VALUES (:topic, :partition, :nextOffset)
-                            ON CONFLICT (topic, partition_number) DO UPDATE
-                            SET next_offset = GREATEST(simulation_event_fence.next_offset, EXCLUDED.next_offset)
-                            """)
+            endOffsets.forEach((partition, info) -> jdbc.sql(UPSERT_FENCE)
                     .param("topic", partition.topic())
                     .param("partition", partition.partition())
                     .param("nextOffset", info.offset())
                     .update());
-            fence = load();
+            fence.set(load());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted while recording the event close fence", e);
         } catch (ExecutionException e) {
             if (e.getCause() instanceof UnknownTopicOrPartitionException) {
-                fence = Map.of();
+                fence.set(Map.of());
                 return;
             }
             throw new IllegalStateException("Could not record the event close fence", e);

@@ -58,15 +58,16 @@ class CloseSimulationExecutionCommandHandler implements CloseSimulationExecution
     @Override
     public void handle(UUID caseKey) {
         var outcome = transaction.execute(status -> close(caseKey));
+        if (outcome == Outcome.CLOSED) {
+            // Drop the in-process views before a broker call that can fail, so a committed close always frees them.
+            clock.reset();
+            events.publishEvent(new ExecutionClosed(caseKey));
+        }
         if (outcome == Outcome.CLOSED || outcome == Outcome.LAST_CLOSED) {
             // Recorded after the close commits, so a failed close never fences records of a context that stays open.
             // Every record already in the source when this returns belongs to a closed context, even one that never
             // bound a game.
-            eventFence.record();
-        }
-        if (outcome == Outcome.CLOSED) {
-            clock.reset();
-            events.publishEvent(new ExecutionClosed(caseKey));
+            eventFence.capture();
         }
     }
 

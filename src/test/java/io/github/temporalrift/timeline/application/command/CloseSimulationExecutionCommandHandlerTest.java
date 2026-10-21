@@ -83,7 +83,7 @@ class CloseSimulationExecutionCommandHandlerTest {
 
         handler.handle(CASE_KEY);
 
-        then(eventFence).should().record();
+        then(eventFence).should().capture();
         then(gameplay).should().discardAll();
         then(operations).should().clear();
         then(decisions).should().clear();

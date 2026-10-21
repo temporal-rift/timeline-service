@@ -34,7 +34,7 @@ class SimulationGameScopeTest {
     @Test
     @DisplayName("with no context open every game is refused")
     void admits_noContext_isRefused() {
-        given(executions.findBoundsForScope()).willReturn(Optional.empty());
+        given(executions.findBounds()).willReturn(Optional.empty());
 
         assertThat(scope().admits(GAME)).isFalse();
     }
@@ -42,8 +42,9 @@ class SimulationGameScopeTest {
     @Test
     @DisplayName("the first admitted game binds the open context and is the only one admitted afterwards")
     void admits_firstGameBindsTheContext() {
-        given(executions.findBoundsForScope()).willReturn(Optional.of(new Bounds(CASE, null)));
+        given(executions.findBounds()).willReturn(Optional.of(new Bounds(CASE, null)));
         given(executions.bindGame(CASE, GAME)).willReturn(true);
+        given(executions.findBoundsForScope()).willReturn(Optional.of(new Bounds(CASE, GAME)));
 
         assertThat(scope().admits(GAME)).isTrue();
     }
@@ -51,9 +52,9 @@ class SimulationGameScopeTest {
     @Test
     @DisplayName("a game that did not win the binding race is refused")
     void admits_lostBindingRace_isRefused() {
-        given(executions.findBoundsForScope()).willReturn(Optional.of(new Bounds(CASE, null)));
+        given(executions.findBounds()).willReturn(Optional.of(new Bounds(CASE, null)));
         given(executions.bindGame(CASE, GAME)).willReturn(false);
-        given(executions.findBounds()).willReturn(Optional.of(new Bounds(CASE, OTHER)));
+        given(executions.findBoundsForScope()).willReturn(Optional.of(new Bounds(CASE, OTHER)));
 
         assertThat(scope().admits(GAME)).isFalse();
     }
@@ -61,6 +62,7 @@ class SimulationGameScopeTest {
     @Test
     @DisplayName("only the bound game is admitted")
     void admits_boundGameOnly() {
+        given(executions.findBounds()).willReturn(Optional.of(new Bounds(CASE, GAME)));
         given(executions.findBoundsForScope()).willReturn(Optional.of(new Bounds(CASE, GAME)));
 
         assertThat(scope().admits(GAME)).isTrue();
@@ -70,8 +72,9 @@ class SimulationGameScopeTest {
     @Test
     @DisplayName("an unbound context never adopts a game that a closed context already owned")
     void admits_closedGame_isNotBound() {
-        given(executions.findBoundsForScope()).willReturn(Optional.of(new Bounds(CASE, null)));
+        given(executions.findBounds()).willReturn(Optional.of(new Bounds(CASE, null)));
         given(executions.isClosedGame(GAME)).willReturn(true);
+        given(executions.findBoundsForScope()).willReturn(Optional.of(new Bounds(CASE, null)));
 
         assertThat(scope().admits(GAME)).isFalse();
         verify(executions, never()).bindGame(CASE, GAME);

@@ -38,7 +38,9 @@ public record ExecutionContext(
         if (manifestDigest == null || !SHA256_HEX.matcher(manifestDigest).matches()) {
             throw new InvalidExecutionContextException("manifestDigest must be a lowercase SHA-256 hex digest");
         }
-        rules = Objects.requireNonNull(rules, "rules");
+        if (rules == null) {
+            throw new InvalidExecutionContextException("rules are required");
+        }
         if (rulesDigest == null || !SHA256_HEX.matcher(rulesDigest).matches()) {
             throw new InvalidExecutionContextException("rulesDigest must be a lowercase SHA-256 hex digest");
         }

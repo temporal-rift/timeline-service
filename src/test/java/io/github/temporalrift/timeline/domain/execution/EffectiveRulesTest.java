@@ -76,7 +76,9 @@ class EffectiveRulesTest {
     @Test
     @DisplayName("a property outside the game.rules namespace is rejected")
     void propertyOutsideTheNamespace_isRejected() {
-        assertThatThrownBy(() -> new EffectiveRules(Map.of("game.timers.interval", 1)))
+        Map<String, Object> properties = Map.of("game.timers.interval", 1);
+
+        assertThatThrownBy(() -> new EffectiveRules(properties))
                 .isInstanceOf(InvalidExecutionContextException.class)
                 .hasMessageContaining("game.timers.interval");
     }
@@ -84,7 +86,9 @@ class EffectiveRulesTest {
     @Test
     @DisplayName("a value outside the rule value grammar is rejected")
     void unsupportedValue_isRejected() {
-        assertThatThrownBy(() -> new EffectiveRules(Map.of("game.rules.nested", Map.of("a", 1))))
+        Map<String, Object> properties = Map.of("game.rules.nested", Map.of("a", 1));
+
+        assertThatThrownBy(() -> new EffectiveRules(properties))
                 .isInstanceOf(InvalidExecutionContextException.class)
                 .hasMessageContaining("game.rules.nested");
     }

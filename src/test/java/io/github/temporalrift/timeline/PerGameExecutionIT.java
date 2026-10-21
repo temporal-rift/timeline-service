@@ -33,6 +33,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import io.github.temporalrift.timeline.application.port.in.CloseSimulationExecutionUseCase;
 import io.github.temporalrift.timeline.application.port.in.GetSimulationCheckpointUseCase;
 import io.github.temporalrift.timeline.domain.execution.EffectiveRules;
+import io.github.temporalrift.timeline.domain.execution.Execution;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContext;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData;
 import io.github.temporalrift.timeline.domain.execution.Seed;
@@ -270,8 +271,8 @@ class PerGameExecutionIT {
         open(first);
         gameEvents.eraStarted(game, 1, seats());
         await().atMost(Duration.ofSeconds(30))
-                .until(() -> game.equals(
-                        executions.find().map(execution -> execution.gameId()).orElse(null)));
+                .until(() ->
+                        game.equals(executions.find().map(Execution::gameId).orElse(null)));
 
         close(first.caseKey());
 
@@ -291,7 +292,7 @@ class PerGameExecutionIT {
         gameEvents.eraStarted(closedGame, 1, seats());
         await().atMost(Duration.ofSeconds(30))
                 .until(() -> closedGame.equals(
-                        executions.find().map(execution -> execution.gameId()).orElse(null)));
+                        executions.find().map(Execution::gameId).orElse(null)));
         close(first.caseKey());
         open(second);
         var watermarkBefore = sumWatermarks();
@@ -341,7 +342,7 @@ class PerGameExecutionIT {
         }
     }
 
-    private int pushedWeight() throws Exception {
+    private int pushedWeight() {
         var gameId = UUID.randomUUID();
         var futureEventId = UUID.randomUUID();
         var target = UUID.randomUUID();
