@@ -59,6 +59,7 @@ class ExecutionContextTest {
     @DisplayName("a rules digest that does not match the rules is rejected")
     void rulesDigest_mismatch_isRejected() {
         var mismatchedDigest = "b".repeat(64);
+        var seats = threeSeats();
 
         assertThatThrownBy(() -> new ExecutionContext(
                         CASE_KEY,
@@ -68,7 +69,7 @@ class ExecutionContextTest {
                         ExecutionContextTestData.RULES,
                         mismatchedDigest,
                         START,
-                        threeSeats()))
+                        seats))
                 .isInstanceOf(InvalidExecutionContextException.class)
                 .hasMessageContaining("does not match");
     }
