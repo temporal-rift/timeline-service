@@ -58,7 +58,7 @@
         <session-event.version>7.0.0</session-event.version>
         <action-event.version>9.3.0</action-event.version>
         <chains-api.version>2.0.0</chains-api.version>
-        <simulation-control-api.version>2.0.0</simulation-control-api.version>
+        <simulation-control-api.version>2.0.1</simulation-control-api.version>
         <archunit-junit5.version>1.5.1</archunit-junit5.version>
     </properties>
 
