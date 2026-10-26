@@ -1,5 +1,6 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.inmemory;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -84,6 +85,14 @@ class InMemoryExecutionRepository implements ExecutionRepository {
     @Override
     public boolean isClosedGame(UUID gameId) {
         return closedGames.find(gameId).isPresent();
+    }
+
+    @Override
+    @Transactional
+    public void forgetClosedGames(UUID caseKey) {
+        closedGames.entries(closedGame -> closedGame.caseKey().equals(caseKey)).stream()
+                .map(Map.Entry::getKey)
+                .forEach(closedGames::remove);
     }
 
     @Override

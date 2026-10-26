@@ -107,6 +107,17 @@ class ConfigureSimulationExecutionCommandHandlerTest {
     }
 
     @Test
+    @DisplayName("opening a context makes the closed game of the same case admissible again")
+    void handle_emptyLane_forgetsTheCasesClosedGames() {
+        given(executions.findWithLock()).willReturn(Optional.empty());
+        given(executions.insertIfAbsent(any())).willReturn(true);
+
+        handler.handle(CONTEXT);
+
+        then(executions).should().forgetClosedGames(CONTEXT.caseKey());
+    }
+
+    @Test
     @DisplayName("an identical repeat is a no-op")
     void handle_identicalContext_isNoOp() {
         given(executions.findWithLock()).willReturn(Optional.of(CONFIGURED));

@@ -81,6 +81,8 @@ class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationE
         }
         var created = Execution.configure(context);
         if (executions.insertIfAbsent(created)) {
+            // A replay derives the game of the case's earlier play; the close fence, not the game id, separates them.
+            executions.forgetClosedGames(context.caseKey());
             return created;
         }
         return requireSameContext(executions.findWithLock().orElseThrow(), context);

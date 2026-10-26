@@ -135,6 +135,13 @@ class ExecutionRepositoryAdapter implements ExecutionRepository {
     }
 
     @Override
+    public void forgetClosedGames(UUID caseKey) {
+        jdbc.sql("DELETE FROM simulation_closed_game WHERE case_key = :caseKey")
+                .param(CASE_KEY_PARAM, caseKey)
+                .update();
+    }
+
+    @Override
     public void close(UUID caseKey) {
         jdbc.sql("""
                         INSERT INTO simulation_closed_game (game_id, case_key)
