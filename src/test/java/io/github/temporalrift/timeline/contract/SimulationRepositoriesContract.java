@@ -16,6 +16,7 @@ import io.github.temporalrift.timeline.domain.execution.ClockAcknowledgement;
 import io.github.temporalrift.timeline.domain.execution.ClockAdvance;
 import io.github.temporalrift.timeline.domain.execution.ClockOperation;
 import io.github.temporalrift.timeline.domain.execution.Execution;
+import io.github.temporalrift.timeline.domain.execution.ExecutionContext;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData;
 import io.github.temporalrift.timeline.domain.port.out.ClockOperationRepository;
 import io.github.temporalrift.timeline.domain.port.out.EntropyDecisionRepository;
@@ -97,6 +98,35 @@ public interface SimulationRepositoriesContract extends TransactionalContract {
                 .contains(configured.context().caseKey());
         assertThat(executions().insertIfAbsent(Execution.configure(ExecutionContextTestData.context("43"))))
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("executions: reopening a case admits its closed game again while another case's stays closed")
+    default void executions_reopenedCaseForgetsOnlyItsClosedGame() {
+        var first = Execution.configure(ExecutionContextTestData.context("42"));
+        var firstGame = UUID.randomUUID();
+        executions().insertIfAbsent(first);
+        executions().bindGame(first.context().caseKey(), firstGame);
+        executions().close(first.context().caseKey());
+        var base = ExecutionContextTestData.context("43");
+        var second = Execution.configure(new ExecutionContext(
+                UUID.randomUUID(),
+                base.seed(),
+                base.entropyVersion(),
+                base.manifestDigest(),
+                base.rules(),
+                base.rulesDigest(),
+                base.logicalTime(),
+                base.seats()));
+        var secondGame = UUID.randomUUID();
+        executions().insertIfAbsent(second);
+        executions().bindGame(second.context().caseKey(), secondGame);
+        executions().close(second.context().caseKey());
+
+        executions().forgetClosedGames(first.context().caseKey());
+
+        assertThat(executions().isClosedGame(firstGame)).isFalse();
+        assertThat(executions().isClosedGame(secondGame)).isTrue();
     }
 
     @Test

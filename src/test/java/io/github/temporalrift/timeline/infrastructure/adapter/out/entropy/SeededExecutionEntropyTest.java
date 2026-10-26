@@ -204,6 +204,11 @@ class SeededExecutionEntropyTest {
             }
 
             @Override
+            public void forgetClosedGames(UUID caseKey) {
+                // read-only fixture
+            }
+
+            @Override
             public void close(UUID caseKey) {
                 // read-only fixture
             }

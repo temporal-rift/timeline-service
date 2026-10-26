@@ -35,6 +35,9 @@ public interface ExecutionRepository {
     /** Whether a game belonged to a context that is already closed. */
     boolean isClosedGame(UUID gameId);
 
+    /** Admits the game of {@code caseKey} again once its context is reopened; other closed games stay excluded. */
+    void forgetClosedGames(UUID caseKey);
+
     /** Removes the execution and its seats, and remembers its case and game as closed. */
     void close(UUID caseKey);
 
