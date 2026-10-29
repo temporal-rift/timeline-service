@@ -13,6 +13,7 @@ import io.github.temporalrift.timeline.domain.execution.Execution;
 import io.github.temporalrift.timeline.domain.execution.ExecutionCheckpoint;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContext;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContextConflictException;
+import io.github.temporalrift.timeline.domain.execution.ExecutionStateNotCleanException;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionContextException;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesException;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
@@ -77,7 +78,7 @@ class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationE
             return requireSameContext(existing.get(), context);
         }
         if (!gameplay.isClean()) {
-            throw new ExecutionContextConflictException("The lane already hosts gameplay");
+            throw new ExecutionStateNotCleanException();
         }
         var created = Execution.configure(context);
         if (executions.insertIfAbsent(created)) {

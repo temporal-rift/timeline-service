@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import io.github.temporalrift.timeline.domain.execution.ClockRegressionException;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContextConflictException;
 import io.github.temporalrift.timeline.domain.execution.ExecutionNotConfiguredException;
+import io.github.temporalrift.timeline.domain.execution.ExecutionStateNotCleanException;
 import io.github.temporalrift.timeline.domain.execution.IdempotencyConflictException;
 import io.github.temporalrift.timeline.domain.execution.InvalidClockAdvanceException;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionContextException;
@@ -54,6 +55,11 @@ class SimulationControlExceptionHandler {
     @ExceptionHandler(ExecutionContextConflictException.class)
     ProblemDetail handleContextConflict(ExecutionContextConflictException ex) {
         return ProblemDetails.of(HttpStatus.CONFLICT, ex.getMessage(), "EXECUTION_CONTEXT_CONFLICT");
+    }
+
+    @ExceptionHandler(ExecutionStateNotCleanException.class)
+    ProblemDetail handleStateNotClean(ExecutionStateNotCleanException ex) {
+        return ProblemDetails.of(HttpStatus.CONFLICT, ex.getMessage(), "EXECUTION_STATE_NOT_CLEAN");
     }
 
     @ExceptionHandler(IdempotencyConflictException.class)
