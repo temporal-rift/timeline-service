@@ -195,6 +195,50 @@ class PerGameExecutionIT {
     }
 
     @Test
+    @DisplayName("leftover gameplay of an earlier context is refused as not clean and opens nothing")
+    void configure_leftoverGameplay_isNotClean() throws Exception {
+        var leftoverEvent = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO future_event_era_index (event_id, game_id, era_number, reveal_index) VALUES (?, ?, 1, 0)",
+                leftoverEvent,
+                UUID.randomUUID());
+        try {
+            mockMvc.perform(put(EXECUTION_PATH)
+                            .with(controlToken())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(contextBody(context(UUID.randomUUID(), ExecutionContextTestData.RULES, START))))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("EXECUTION_STATE_NOT_CLEAN"));
+            mockMvc.perform(get(CHECKPOINT_PATH).with(controlToken()))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("EXECUTION_NOT_CONFIGURED"));
+            assertThat(jdbcTemplate.queryForObject(
+                            "SELECT count(*) FROM future_event_era_index WHERE event_id = ?",
+                            Integer.class,
+                            leftoverEvent))
+                    .isOne();
+        } finally {
+            jdbcTemplate.update("DELETE FROM future_event_era_index WHERE event_id = ?", leftoverEvent);
+        }
+    }
+
+    @Test
+    @DisplayName("another context while one is open is still a context conflict")
+    void configure_whileAnotherIsOpen_isContextConflict() throws Exception {
+        var first = context(UUID.randomUUID(), ExecutionContextTestData.RULES, START);
+        var second = context(UUID.randomUUID(), ExecutionContextTestData.RULES, START);
+        open(first);
+
+        mockMvc.perform(put(EXECUTION_PATH)
+                        .with(controlToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(contextBody(second)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EXECUTION_CONTEXT_CONFLICT"));
+        close(first.caseKey());
+    }
+
+    @Test
     @DisplayName("a closed context's due timer never fires under the next context")
     void close_discardsThePendingTimer() throws Exception {
         var first = context(UUID.randomUUID(), ExecutionContextTestData.RULES, START);

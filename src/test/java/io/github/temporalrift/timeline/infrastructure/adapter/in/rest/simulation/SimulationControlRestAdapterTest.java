@@ -30,6 +30,7 @@ import io.github.temporalrift.timeline.domain.execution.ExecutionCheckpoint;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContextConflictException;
 import io.github.temporalrift.timeline.domain.execution.ExecutionNotConfiguredException;
 import io.github.temporalrift.timeline.domain.execution.ExecutionState;
+import io.github.temporalrift.timeline.domain.execution.ExecutionStateNotCleanException;
 import io.github.temporalrift.timeline.domain.execution.IdempotencyConflictException;
 import io.github.temporalrift.timeline.domain.execution.InvalidClockAdvanceException;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionContextException;
@@ -213,6 +214,10 @@ class SimulationControlRestAdapterTest {
                 handler.handleContextConflict(new ExecutionContextConflictException("x")),
                 HttpStatus.CONFLICT,
                 "EXECUTION_CONTEXT_CONFLICT");
+        assertProblem(
+                handler.handleStateNotClean(new ExecutionStateNotCleanException()),
+                HttpStatus.CONFLICT,
+                "EXECUTION_STATE_NOT_CLEAN");
         assertProblem(
                 handler.handleIdempotencyConflict(new IdempotencyConflictException(OPERATION)),
                 HttpStatus.CONFLICT,

@@ -27,6 +27,7 @@ import io.github.temporalrift.timeline.domain.execution.ExecutionContext;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContextConflictException;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData;
 import io.github.temporalrift.timeline.domain.execution.ExecutionState;
+import io.github.temporalrift.timeline.domain.execution.ExecutionStateNotCleanException;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionContextException;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesException;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
@@ -152,12 +153,12 @@ class ConfigureSimulationExecutionCommandHandlerTest {
     }
 
     @Test
-    @DisplayName("a lane that already hosts gameplay rejects a first configuration")
-    void handle_laneWithGame_isConflict() {
+    @DisplayName("leftover gameplay of an earlier context refuses a first configuration as not clean")
+    void handle_leftoverGameplay_isNotClean() {
         given(executions.findWithLock()).willReturn(Optional.empty());
         given(gameplay.isClean()).willReturn(false);
 
-        assertThatThrownBy(() -> handler.handle(CONTEXT)).isInstanceOf(ExecutionContextConflictException.class);
+        assertThatThrownBy(() -> handler.handle(CONTEXT)).isInstanceOf(ExecutionStateNotCleanException.class);
 
         then(executions).should(never()).insertIfAbsent(any());
     }

@@ -45,6 +45,7 @@ import io.github.temporalrift.timeline.domain.execution.ExecutionContext;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContextConflictException;
 import io.github.temporalrift.timeline.domain.execution.ExecutionNotConfiguredException;
 import io.github.temporalrift.timeline.domain.execution.ExecutionState;
+import io.github.temporalrift.timeline.domain.execution.ExecutionStateNotCleanException;
 import io.github.temporalrift.timeline.domain.execution.IdempotencyConflictException;
 import io.github.temporalrift.timeline.domain.execution.Seed;
 import io.github.temporalrift.timeline.domain.execution.SimulationSeat;
@@ -242,7 +243,7 @@ class SimulationControlApiTest {
     }
 
     @Test
-    @DisplayName("a different context or an active lane is a 409 conflict")
+    @DisplayName("a different context while one is open is a 409 conflict")
     void configure_conflictingContext_returns409() throws Exception {
         given(configureExecution.handle(any())).willThrow(new ExecutionContextConflictException("different"));
 
@@ -252,6 +253,19 @@ class SimulationControlApiTest {
                         .content(contextBody("42", "PROPHETS")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("EXECUTION_CONTEXT_CONFLICT"));
+    }
+
+    @Test
+    @DisplayName("leftover gameplay of an earlier context is a 409 not clean")
+    void configure_leftoverGameplay_returns409NotClean() throws Exception {
+        given(configureExecution.handle(any())).willThrow(new ExecutionStateNotCleanException());
+
+        mockMvc.perform(put(EXECUTION_PATH)
+                        .with(controlToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(contextBody("42", "PROPHETS")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EXECUTION_STATE_NOT_CLEAN"));
     }
 
     @Test
