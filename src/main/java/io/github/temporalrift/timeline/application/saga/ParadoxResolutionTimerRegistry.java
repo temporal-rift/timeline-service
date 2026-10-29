@@ -5,7 +5,10 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+
+import io.github.temporalrift.timeline.domain.event.ExecutionClosed;
 
 /**
  * Tracks in-memory {@link ScheduledFuture}s keyed by {@code sagaId}, mirroring {@code game-service}'s
@@ -35,5 +38,23 @@ class ParadoxResolutionTimerRegistry {
      */
     void removeIfCurrent(UUID sagaId, ScheduledFuture<?> expectedFuture) {
         scheduledTimers.remove(sagaId, expectedFuture);
+    }
+
+    /**
+     * Every timer held belongs to the closed context: the close is published under the control lock, before the next
+     * context can open. With logical time the timers are unarmed and never clean themselves up, so the close is the
+     * only point that drops them.
+     */
+    @EventListener
+    void onExecutionClosed(ExecutionClosed closed) {
+        scheduledTimers.forEach((sagaId, future) -> {
+            if (scheduledTimers.remove(sagaId, future)) {
+                future.cancel(false);
+            }
+        });
+    }
+
+    int size() {
+        return scheduledTimers.size();
     }
 }
