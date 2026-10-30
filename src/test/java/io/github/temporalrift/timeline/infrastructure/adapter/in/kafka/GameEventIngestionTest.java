@@ -2,6 +2,7 @@ package io.github.temporalrift.timeline.infrastructure.adapter.in.kafka;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -160,7 +161,7 @@ class GameEventIngestionTest {
     @SuppressWarnings("unchecked")
     void deploymentWithoutAScope_admitsEveryGame() {
         var eventId = UUID.randomUUID();
-        ObjectProvider<GameScope> noScope = org.mockito.Mockito.mock(ObjectProvider.class);
+        ObjectProvider<GameScope> noScope = mock(ObjectProvider.class);
         when(noScope.getIfAvailable(any()))
                 .thenAnswer(invocation -> ((Supplier<GameScope>) invocation.getArgument(0)).get());
         when(processedEvents.claim(eventId, "futureevent.era-started")).thenReturn(true);
@@ -170,6 +171,20 @@ class GameEventIngestionTest {
         var accepted = unscoped.accept(KafkaTestMessages.withHeaders(new Object(), eventId, "EraStarted", 1), spec);
 
         assertThat(accepted).isPresent();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void recordTheConsumerWouldDiscard_neverReachesTheScope(boolean missingEventId) {
+        var message = missingEventId
+                ? KafkaTestMessages.withHeaders(new Object(), null, "EraStarted", 1)
+                : KafkaTestMessages.withHeaders(new Object(), UUID.randomUUID(), "EraStarted", 2);
+        var spec = new GameEventIngestion.Spec("EraStarted", "futureevent.era-started", 1);
+
+        assertThat(ingestion.accept(message, spec)).isEmpty();
+
+        verify(gameScope, never()).admits(any());
+        verify(processedEvents, never()).claim(any(), any());
     }
 
     @Test
