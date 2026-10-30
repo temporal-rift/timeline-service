@@ -17,8 +17,8 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 /**
  * Shared envelope-validation prologue for the {@code game.events} consumers: filter by the stable
- * {@code eventType} header, reject a record outside the hosted game or from before its context opened, discard a
- * missing {@code eventId}, skip an unsupported version, then claim the {@code eventId}.
+ * {@code eventType} header, discard a missing {@code eventId}, skip an unsupported version, reject a record outside the
+ * hosted game or from before its context opened, then claim the {@code eventId}.
  * A rejected record is consumed normally — no handler runs and no claim is recorded — so its consumer group's offset
  * still advances and a late record of another game can never act. A deployment that defines no {@link GameScope}, as an
  * ordinary one, hosts any number of games and admits every record.
@@ -102,14 +102,6 @@ class GameEventIngestion {
             recordUnknownType(envelope, spec);
             return Optional.empty();
         }
-        if (!gameScope.admits(inboundRecordOf(message, envelope))) {
-            log.debug(
-                    "Ignoring {} event {} of game {} outside the hosted execution or from before it opened",
-                    spec.eventName(),
-                    envelope.eventId(),
-                    envelope.gameId());
-            return Optional.empty();
-        }
         if (envelope.eventId() == null) {
             log.warn("Malformed {} envelope (missing eventId) — discarding", spec.eventName());
             return Optional.empty();
@@ -121,6 +113,15 @@ class GameEventIngestion {
                     spec.eventName(),
                     envelope.version(),
                     envelope.eventId());
+            return Optional.empty();
+        }
+        // Only a record this consumer would handle may bind the open context's game.
+        if (!gameScope.admits(inboundRecordOf(message, envelope))) {
+            log.debug(
+                    "Ignoring {} event {} of game {} outside the hosted execution or from before it opened",
+                    spec.eventName(),
+                    envelope.eventId(),
+                    envelope.gameId());
             return Optional.empty();
         }
         if (!processedEvents.claim(envelope.eventId(), spec.consumer())) {
