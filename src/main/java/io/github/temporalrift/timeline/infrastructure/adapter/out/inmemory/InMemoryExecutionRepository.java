@@ -56,9 +56,16 @@ class InMemoryExecutionRepository implements ExecutionRepository {
                                 stored.context(), execution.revision(), execution.logicalTime(), stored.gameId())));
     }
 
+    /** The in-memory row lock is exclusive only, which still makes a close wait for the handler. */
     @Override
     @Transactional
-    public Optional<Bounds> findBoundsForScope() {
+    public Optional<Bounds> findBoundsForHandling() {
+        return executions.findForUpdate(ID).map(InMemoryExecutionRepository::boundsOf);
+    }
+
+    @Override
+    @Transactional
+    public Optional<Bounds> findBoundsForBinding() {
         return executions.findForUpdate(ID).map(InMemoryExecutionRepository::boundsOf);
     }
 

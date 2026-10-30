@@ -22,7 +22,6 @@ import tools.jackson.databind.json.JsonMapper;
 
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.EraStartedPayload;
 import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
-import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.GameScope;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
@@ -47,9 +46,6 @@ class EraStartedGameEventHandlerTest {
     @Mock
     GameScope gameScope;
 
-    @Mock
-    EventFence eventFence;
-
     private EraStartedGameEventHandler consumer;
 
     @BeforeEach
@@ -58,7 +54,7 @@ class EraStartedGameEventHandlerTest {
                 .when(gameScope.admits(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(true);
         consumer = new EraStartedGameEventHandler(
-                eraPlayers, objectMapper, new GameEventIngestion(processedEvents, skipMetrics, eventFence, gameScope));
+                eraPlayers, objectMapper, new GameEventIngestion(processedEvents, skipMetrics, gameScope));
     }
 
     @Test

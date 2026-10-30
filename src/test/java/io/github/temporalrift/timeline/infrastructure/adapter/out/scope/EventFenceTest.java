@@ -7,6 +7,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import io.github.temporalrift.timeline.domain.port.out.GameScope.InboundRecord;
+
 class EventFenceTest {
 
     @Test
@@ -15,8 +17,9 @@ class EventFenceTest {
         var scope = new AllGamesScope();
         var fence = new UnboundedEventFence();
 
-        assertThat(scope.admits(UUID.randomUUID())).isTrue();
-        assertThat(scope.admits(null)).isTrue();
+        assertThat(scope.admits(new InboundRecord("game.events", 0, 1L, UUID.randomUUID())))
+                .isTrue();
+        assertThat(scope.admits(new InboundRecord(null, null, null, null))).isTrue();
         assertThat(fence.isFenced("game.events", 0, 1L)).isFalse();
         fence.capture();
     }

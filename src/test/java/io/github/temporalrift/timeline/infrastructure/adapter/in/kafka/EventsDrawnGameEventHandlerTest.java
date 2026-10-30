@@ -44,7 +44,6 @@ import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort.CascadeCarryForward;
-import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -68,9 +67,6 @@ class EventsDrawnGameEventHandlerTest {
 
     @Mock
     GameScope gameScope;
-
-    @Mock
-    EventFence eventFence;
 
     @Mock
     FutureEventRepository futureEvents;
@@ -111,7 +107,7 @@ class EventsDrawnGameEventHandlerTest {
                 rules,
                 objectMapper,
                 clock,
-                new GameEventIngestion(processedEvents, skipMetrics, eventFence, gameScope));
+                new GameEventIngestion(processedEvents, skipMetrics, gameScope));
     }
 
     @Test

@@ -134,7 +134,7 @@ public interface SimulationRepositoriesContract extends TransactionalContract {
     default void executions_scopeLockMakesCloseWait() throws Exception {
         var configured = Execution.configure(ExecutionContextTestData.context("42"));
         executions().insertIfAbsent(configured);
-        var held = holdTransaction(() -> executions().findBoundsForScope());
+        var held = holdTransaction(() -> executions().findBoundsForHandling());
         var close = java.util.concurrent.CompletableFuture.supplyAsync(
                 () -> transactions().execute(status -> executions().findWithLock()));
 

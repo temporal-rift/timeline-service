@@ -33,6 +33,7 @@ class ExecutionRepositoryAdapter implements ExecutionRepository {
             FROM simulation_execution WHERE id = 1
             """;
 
+    private static final String SELECT_BOUNDS = "SELECT case_key, game_id FROM simulation_execution WHERE id = 1";
     private static final String REVISION = "revision";
     private static final String CASE_KEY = "case_key";
     private static final String GAME_ID = "game_id";
@@ -100,15 +101,22 @@ class ExecutionRepositoryAdapter implements ExecutionRepository {
     }
 
     @Override
-    public Optional<Bounds> findBoundsForScope() {
-        return jdbc.sql("SELECT case_key, game_id FROM simulation_execution WHERE id = 1 FOR SHARE")
-                .query((rs, row) -> new Bounds(rs.getObject(CASE_KEY, UUID.class), rs.getObject(GAME_ID, UUID.class)))
-                .optional();
+    public Optional<Bounds> findBoundsForHandling() {
+        return bounds(SELECT_BOUNDS + " FOR SHARE");
+    }
+
+    @Override
+    public Optional<Bounds> findBoundsForBinding() {
+        return bounds(SELECT_BOUNDS + " FOR UPDATE");
     }
 
     @Override
     public Optional<Bounds> findBounds() {
-        return jdbc.sql("SELECT case_key, game_id FROM simulation_execution WHERE id = 1")
+        return bounds(SELECT_BOUNDS);
+    }
+
+    private Optional<Bounds> bounds(String sql) {
+        return jdbc.sql(sql)
                 .query((rs, row) -> new Bounds(rs.getObject(CASE_KEY, UUID.class), rs.getObject(GAME_ID, UUID.class)))
                 .optional();
     }

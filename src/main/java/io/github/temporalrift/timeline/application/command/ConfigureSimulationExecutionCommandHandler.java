@@ -16,6 +16,7 @@ import io.github.temporalrift.timeline.domain.execution.ExecutionContextConflict
 import io.github.temporalrift.timeline.domain.execution.ExecutionStateNotCleanException;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionContextException;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesException;
+import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRulesValidator;
 import io.github.temporalrift.timeline.domain.port.out.GameplayDiscard;
@@ -28,6 +29,7 @@ class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationE
     private final ExecutionRepository executions;
     private final GameplayDiscard gameplay;
     private final List<ExecutionRulesValidator> rulesValidators;
+    private final EventFence eventFence;
     private final LogicalClockControl clock;
     private final ExecutionCheckpointAssembler assembler;
     private final SimulationControlLock controlLock;
@@ -37,6 +39,7 @@ class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationE
             ExecutionRepository executions,
             GameplayDiscard gameplay,
             List<ExecutionRulesValidator> rulesValidators,
+            EventFence eventFence,
             LogicalClockControl clock,
             ExecutionCheckpointAssembler assembler,
             SimulationControlLock controlLock,
@@ -44,17 +47,27 @@ class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationE
         this.executions = executions;
         this.gameplay = gameplay;
         this.rulesValidators = rulesValidators;
+        this.eventFence = eventFence;
         this.clock = clock;
         this.assembler = assembler;
         this.controlLock = controlLock;
         this.transaction = transaction;
     }
 
+    /**
+     * A context opens before its game plays, so every record already in the source when it opens belongs to an earlier
+     * context or to none: the fence is captured first, and a failed capture opens nothing. This covers a replay of a
+     * closed case, whose records carry the same game, and a backlog left before a deployment's first context. An
+     * identical repeat captures nothing, or it would fence the open game's own records.
+     */
     @Override
     public ExecutionCheckpoint handle(ExecutionContext context) {
         controlLock.lock();
         try {
             requireUsableRules(context);
+            if (executions.find().isEmpty()) {
+                eventFence.capture();
+            }
             var execution = Objects.requireNonNull(transaction.execute(status -> register(context)));
             clock.advanceTo(execution.logicalTime());
             return assembler.assemble(execution);
@@ -82,7 +95,7 @@ class ConfigureSimulationExecutionCommandHandler implements ConfigureSimulationE
         }
         var created = Execution.configure(context);
         if (executions.insertIfAbsent(created)) {
-            // A replay derives the game of the case's earlier play; the close fence, not the game id, separates them.
+            // A replay hosts the game of the case's earlier play again; the fence keeps that play's records out.
             executions.forgetClosedGames(context.caseKey());
             return created;
         }

@@ -9,14 +9,14 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
 
-import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.GameScope;
+import io.github.temporalrift.timeline.domain.port.out.GameScope.InboundRecord;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
 
 /**
  * Shared envelope-validation prologue for the {@code game.events} consumers: filter by the stable
- * {@code eventType} header, reject a record outside the hosted game, discard a missing {@code eventId}, skip an
- * unsupported version, then claim the {@code eventId}.
+ * {@code eventType} header, reject a record outside the hosted game or from before its context opened, discard a
+ * missing {@code eventId}, skip an unsupported version, then claim the {@code eventId}.
  * A rejected record is consumed normally — no handler runs and no claim is recorded — so its consumer group's offset
  * still advances and a late record of another game can never act.
  */
@@ -73,17 +73,11 @@ class GameEventIngestion {
 
     private final ProcessedEventPort processedEvents;
     private final GameEventSkipMetrics skipMetrics;
-    private final EventFence eventFence;
     private final GameScope gameScope;
 
-    GameEventIngestion(
-            ProcessedEventPort processedEvents,
-            GameEventSkipMetrics skipMetrics,
-            EventFence eventFence,
-            GameScope gameScope) {
+    GameEventIngestion(ProcessedEventPort processedEvents, GameEventSkipMetrics skipMetrics, GameScope gameScope) {
         this.processedEvents = processedEvents;
         this.skipMetrics = skipMetrics;
-        this.eventFence = eventFence;
         this.gameScope = gameScope;
     }
 
@@ -98,13 +92,9 @@ class GameEventIngestion {
             recordUnknownType(envelope, spec);
             return Optional.empty();
         }
-        if (isFenced(message)) {
-            log.debug("Ignoring {} event {} from before the last close", spec.eventName(), envelope.eventId());
-            return Optional.empty();
-        }
-        if (!gameScope.admits(envelope.gameId())) {
+        if (!gameScope.admits(inboundRecordOf(message, envelope))) {
             log.debug(
-                    "Ignoring {} event {} of game {} outside the hosted execution",
+                    "Ignoring {} event {} of game {} outside the hosted execution or from before it opened",
                     spec.eventName(),
                     envelope.eventId(),
                     envelope.gameId());
@@ -130,13 +120,13 @@ class GameEventIngestion {
         return Optional.of(envelope);
     }
 
-    /** A record still in the source when a context closed belongs to that context, whatever its game id. */
-    private boolean isFenced(Message<Object> message) {
+    private static InboundRecord inboundRecordOf(Message<Object> message, GameEventEnvelope envelope) {
         var headers = message.getHeaders();
-        var topic = headers.get(KafkaHeaders.RECEIVED_TOPIC, String.class);
-        var partition = headers.get(KafkaHeaders.RECEIVED_PARTITION, Integer.class);
-        var offset = headers.get(KafkaHeaders.OFFSET, Long.class);
-        return topic != null && partition != null && offset != null && eventFence.isFenced(topic, partition, offset);
+        return new InboundRecord(
+                headers.get(KafkaHeaders.RECEIVED_TOPIC, String.class),
+                headers.get(KafkaHeaders.RECEIVED_PARTITION, Integer.class),
+                headers.get(KafkaHeaders.OFFSET, Long.class),
+                envelope.gameId());
     }
 
     private static boolean matches(GameEventEnvelope envelope, Spec spec) {

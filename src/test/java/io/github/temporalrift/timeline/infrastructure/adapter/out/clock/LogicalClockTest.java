@@ -99,7 +99,12 @@ class LogicalClockTest {
             }
 
             @Override
-            public Optional<Bounds> findBoundsForScope() {
+            public Optional<Bounds> findBoundsForHandling() {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<Bounds> findBoundsForBinding() {
                 return Optional.empty();
             }
 

@@ -18,10 +18,16 @@ public interface ExecutionRepository {
     void update(Execution execution);
 
     /**
-     * Reads the open context's case and bound game, holding the execution row for the caller's transaction so a close
-     * cannot commit between this check and the handler's writes. Use {@link #findBounds()} for a plain read.
+     * Reads the open context's case and bound game, holding the execution row shared for the caller's transaction so a
+     * close cannot commit between this check and the handler's writes. Use {@link #findBounds()} for a plain read.
      */
-    Optional<Bounds> findBoundsForScope();
+    Optional<Bounds> findBoundsForHandling();
+
+    /**
+     * Reads the open context's case and bound game, holding the execution row exclusively for the caller's transaction,
+     * so its game can be bound under the same lock and concurrent binders queue on it one at a time.
+     */
+    Optional<Bounds> findBoundsForBinding();
 
     Optional<Bounds> findBounds();
 

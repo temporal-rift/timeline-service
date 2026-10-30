@@ -280,7 +280,7 @@ class PerGameExecutionIT {
 
     @Test
     @DisplayName("a record already in the source before an unbound context closes never binds the next one")
-    void closeFence_excludesAnUnboundContextsBacklog() throws Exception {
+    void openFence_excludesAnUnboundContextsBacklog() throws Exception {
         var first = context(UUID.randomUUID(), ExecutionContextTestData.RULES, START);
         var second = context(UUID.randomUUID(), ExecutionContextTestData.RULES, START);
         var lateGame = UUID.randomUUID();
@@ -289,6 +289,7 @@ class PerGameExecutionIT {
         listeners.stop();
         try {
             gameEvents.eraStarted(lateGame, 1, seats());
+            gameEvents.flush();
             close(first.caseKey());
             open(second);
             var watermarkBefore = sumWatermarks();
@@ -308,11 +309,54 @@ class PerGameExecutionIT {
     }
 
     @Test
-    @DisplayName("a close records the source fence for its already-present records")
-    void close_recordsTheSourceFence() throws Exception {
+    @DisplayName("a backlog published before a context opens, with no context open, never binds it or acts")
+    void openFence_excludesABacklogFromBeforeTheOpen() throws Exception {
+        var context = context(UUID.randomUUID(), ExecutionContextTestData.RULES, START);
+        var backlogGame = UUID.randomUUID();
+        var backlogEvent = UUID.randomUUID();
+        var game = UUID.randomUUID();
+
+        listeners.stop();
+        try {
+            gameEvents.publish(
+                    backlogGame,
+                    "EraStarted",
+                    Map.of("gameId", backlogGame, "eraNumber", 1, "carryOverEventIds", List.of(), "playerIds", seats()),
+                    backlogEvent);
+            gameEvents.flush();
+            open(context);
+        } finally {
+            listeners.start();
+        }
+        gameEvents.eraStarted(game, 1, seats());
+
+        await().atMost(Duration.ofSeconds(30))
+                .until(() -> jdbcTemplate.queryForObject(
+                                "SELECT count(*) FROM era_players WHERE game_id = ?", Integer.class, game)
+                        > 0);
+        assertThat(executions.find().map(Execution::gameId)).contains(game);
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT count(*) FROM era_players WHERE game_id = ?", Integer.class, backlogGame))
+                .isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT count(*) FROM processed_events WHERE event_id = ?", Integer.class, backlogEvent))
+                .isZero();
+        close(context.caseKey());
+    }
+
+    @Test
+    @DisplayName("an open records the source fence for the records already present, and a close records none")
+    void open_recordsTheSourceFence() throws Exception {
         var first = context(UUID.randomUUID(), ExecutionContextTestData.RULES, START);
         var game = UUID.randomUUID();
+        gameEvents.eraStarted(UUID.randomUUID(), 1, seats());
+        gameEvents.flush();
+
         open(first);
+
+        assertThat(eventFence.isFenced("game.events", 0, 0L)).isTrue();
+        assertThat(eventFence.isFenced("game.events", 0, Long.MAX_VALUE)).isFalse();
+        var fenceAtOpen = fenceOfPartitionZero();
         gameEvents.eraStarted(game, 1, seats());
         await().atMost(Duration.ofSeconds(30))
                 .until(() ->
@@ -320,8 +364,13 @@ class PerGameExecutionIT {
 
         close(first.caseKey());
 
-        assertThat(eventFence.isFenced("game.events", 0, 0L)).isTrue();
-        assertThat(eventFence.isFenced("game.events", 0, Long.MAX_VALUE)).isFalse();
+        assertThat(fenceOfPartitionZero()).isEqualTo(fenceAtOpen);
+    }
+
+    private long fenceOfPartitionZero() {
+        return jdbcTemplate.queryForObject(
+                "SELECT next_offset FROM simulation_event_fence WHERE topic = 'game.events' AND partition_number = 0",
+                Long.class);
     }
 
     @Test
