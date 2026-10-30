@@ -5,6 +5,8 @@ import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
@@ -18,12 +20,14 @@ import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
  * {@code eventType} header, reject a record outside the hosted game or from before its context opened, discard a
  * missing {@code eventId}, skip an unsupported version, then claim the {@code eventId}.
  * A rejected record is consumed normally — no handler runs and no claim is recorded — so its consumer group's offset
- * still advances and a late record of another game can never act.
+ * still advances and a late record of another game can never act. A deployment that defines no {@link GameScope}, as an
+ * ordinary one, hosts any number of games and admits every record.
  */
 @Component
 class GameEventIngestion {
 
     private static final Logger log = LoggerFactory.getLogger(GameEventIngestion.class);
+    private static final GameScope ALL_GAMES = inbound -> true;
     private static final Set<String> KNOWN_GAME_EVENT_TYPES = Set.of(
             "LobbyCreated",
             "PlayerJoinedLobby",
@@ -74,6 +78,12 @@ class GameEventIngestion {
     private final ProcessedEventPort processedEvents;
     private final GameEventSkipMetrics skipMetrics;
     private final GameScope gameScope;
+
+    @Autowired
+    GameEventIngestion(
+            ProcessedEventPort processedEvents, GameEventSkipMetrics skipMetrics, ObjectProvider<GameScope> gameScope) {
+        this(processedEvents, skipMetrics, gameScope.getIfAvailable(() -> ALL_GAMES));
+    }
 
     GameEventIngestion(ProcessedEventPort processedEvents, GameEventSkipMetrics skipMetrics, GameScope gameScope) {
         this.processedEvents = processedEvents;

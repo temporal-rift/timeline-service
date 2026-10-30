@@ -43,7 +43,7 @@ class SimulationGameScopeTest {
         return new SimulationGameScope(executions, eventFence);
     }
 
-    private static InboundRecord record(UUID gameId) {
+    private static InboundRecord inbound(UUID gameId) {
         return new InboundRecord(TOPIC, 0, OFFSET, gameId);
     }
 
@@ -52,7 +52,7 @@ class SimulationGameScopeTest {
     void admits_noContext_isRefused() {
         given(executions.findBounds()).willReturn(Optional.empty());
 
-        assertThat(scope().admits(record(GAME))).isFalse();
+        assertThat(scope().admits(inbound(GAME))).isFalse();
     }
 
     @Test
@@ -62,7 +62,7 @@ class SimulationGameScopeTest {
         given(executions.findBoundsForBinding()).willReturn(Optional.of(new Bounds(CASE, null)));
         given(executions.bindGame(CASE, GAME)).willReturn(true);
 
-        assertThat(scope().admits(record(GAME))).isTrue();
+        assertThat(scope().admits(inbound(GAME))).isTrue();
 
         var order = inOrder(executions);
         order.verify(executions).findBoundsForBinding();
@@ -76,7 +76,7 @@ class SimulationGameScopeTest {
         given(executions.findBounds()).willReturn(Optional.of(new Bounds(CASE, null)));
         given(executions.findBoundsForBinding()).willReturn(Optional.of(new Bounds(CASE, OTHER)));
 
-        assertThat(scope().admits(record(GAME))).isFalse();
+        assertThat(scope().admits(inbound(GAME))).isFalse();
         verify(executions, never()).bindGame(any(), any());
     }
 
@@ -86,8 +86,8 @@ class SimulationGameScopeTest {
         given(executions.findBounds()).willReturn(Optional.of(new Bounds(CASE, GAME)));
         given(executions.findBoundsForHandling()).willReturn(Optional.of(new Bounds(CASE, GAME)));
 
-        assertThat(scope().admits(record(GAME))).isTrue();
-        assertThat(scope().admits(record(OTHER))).isFalse();
+        assertThat(scope().admits(inbound(GAME))).isTrue();
+        assertThat(scope().admits(inbound(OTHER))).isFalse();
         verify(executions, never()).findBoundsForBinding();
     }
 
@@ -98,7 +98,7 @@ class SimulationGameScopeTest {
         given(executions.findBoundsForBinding()).willReturn(Optional.of(new Bounds(CASE, null)));
         given(executions.isClosedGame(GAME)).willReturn(true);
 
-        assertThat(scope().admits(record(GAME))).isFalse();
+        assertThat(scope().admits(inbound(GAME))).isFalse();
         verify(executions, never()).bindGame(any(), any());
     }
 
@@ -109,7 +109,7 @@ class SimulationGameScopeTest {
         given(executions.findBoundsForBinding()).willReturn(Optional.of(new Bounds(CASE, null)));
         given(eventFence.isFenced(TOPIC, 0, OFFSET)).willReturn(true);
 
-        assertThat(scope().admits(record(GAME))).isFalse();
+        assertThat(scope().admits(inbound(GAME))).isFalse();
         verify(executions, never()).bindGame(any(), any());
     }
 
@@ -120,7 +120,7 @@ class SimulationGameScopeTest {
         given(executions.findBoundsForHandling()).willReturn(Optional.of(new Bounds(CASE, GAME)));
         given(eventFence.isFenced(TOPIC, 0, OFFSET)).willReturn(true);
 
-        assertThat(scope().admits(record(GAME))).isFalse();
+        assertThat(scope().admits(inbound(GAME))).isFalse();
     }
 
     @Test
@@ -130,7 +130,7 @@ class SimulationGameScopeTest {
         given(executions.findBoundsForBinding()).willReturn(Optional.of(new Bounds(CASE, null)));
         given(executions.bindGame(CASE, GAME)).willReturn(true);
 
-        scope().admits(record(GAME));
+        scope().admits(inbound(GAME));
 
         var order = inOrder(executions, eventFence);
         order.verify(executions).findBoundsForBinding();
@@ -144,7 +144,7 @@ class SimulationGameScopeTest {
         given(executions.findBounds()).willReturn(Optional.of(new Bounds(CASE, OTHER)));
         given(executions.findBoundsForHandling()).willReturn(Optional.of(new Bounds(NEXT_CASE, null)));
 
-        assertThat(scope().admits(record(GAME))).isFalse();
+        assertThat(scope().admits(inbound(GAME))).isFalse();
         verify(executions, never()).bindGame(any(), any());
     }
 
@@ -154,7 +154,7 @@ class SimulationGameScopeTest {
         given(executions.findBounds()).willReturn(Optional.of(new Bounds(CASE, GAME)));
         given(executions.findBoundsForHandling()).willReturn(Optional.empty());
 
-        assertThat(scope().admits(record(GAME))).isFalse();
+        assertThat(scope().admits(inbound(GAME))).isFalse();
     }
 
     @Test
@@ -170,6 +170,6 @@ class SimulationGameScopeTest {
     @Test
     @DisplayName("a record without a game id is refused")
     void admits_missingGame_isRefused() {
-        assertThat(scope().admits(record(null))).isFalse();
+        assertThat(scope().admits(inbound(null))).isFalse();
     }
 }

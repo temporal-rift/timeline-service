@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.support.MessageBuilder;
 
@@ -152,6 +154,22 @@ class GameEventIngestionTest {
         assertThat(ingestion.accept(message, spec)).isEmpty();
 
         verify(processedEvents, never()).claim(any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void deploymentWithoutAScope_admitsEveryGame() {
+        var eventId = UUID.randomUUID();
+        ObjectProvider<GameScope> noScope = org.mockito.Mockito.mock(ObjectProvider.class);
+        when(noScope.getIfAvailable(any()))
+                .thenAnswer(invocation -> ((Supplier<GameScope>) invocation.getArgument(0)).get());
+        when(processedEvents.claim(eventId, "futureevent.era-started")).thenReturn(true);
+        var unscoped = new GameEventIngestion(processedEvents, skipMetrics, noScope);
+        var spec = new GameEventIngestion.Spec("EraStarted", "futureevent.era-started", 1);
+
+        var accepted = unscoped.accept(KafkaTestMessages.withHeaders(new Object(), eventId, "EraStarted", 1), spec);
+
+        assertThat(accepted).isPresent();
     }
 
     @Test
