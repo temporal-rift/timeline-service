@@ -14,7 +14,6 @@ import io.github.temporalrift.timeline.domain.execution.ExecutionContextConflict
 import io.github.temporalrift.timeline.domain.execution.ExecutionNotConfiguredException;
 import io.github.temporalrift.timeline.domain.port.out.ClockOperationRepository;
 import io.github.temporalrift.timeline.domain.port.out.EntropyDecisionRepository;
-import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
 import io.github.temporalrift.timeline.domain.port.out.GameplayDiscard;
 import io.github.temporalrift.timeline.domain.port.out.LogicalClockControl;
@@ -27,7 +26,6 @@ class CloseSimulationExecutionCommandHandler implements CloseSimulationExecution
     private final ClockOperationRepository operations;
     private final EntropyDecisionRepository decisions;
     private final GameplayDiscard gameplay;
-    private final EventFence eventFence;
     private final LogicalClockControl clock;
     private final ApplicationEventPublisher events;
     private final SimulationControlLock controlLock;
@@ -38,7 +36,6 @@ class CloseSimulationExecutionCommandHandler implements CloseSimulationExecution
             ClockOperationRepository operations,
             EntropyDecisionRepository decisions,
             GameplayDiscard gameplay,
-            EventFence eventFence,
             LogicalClockControl clock,
             ApplicationEventPublisher events,
             SimulationControlLock controlLock,
@@ -47,7 +44,6 @@ class CloseSimulationExecutionCommandHandler implements CloseSimulationExecution
         this.operations = operations;
         this.decisions = decisions;
         this.gameplay = gameplay;
-        this.eventFence = eventFence;
         this.clock = clock;
         this.events = events;
         this.controlLock = controlLock;
@@ -56,59 +52,49 @@ class CloseSimulationExecutionCommandHandler implements CloseSimulationExecution
 
     /**
      * The context's work is discarded in the transaction that closes it, so no handler can act on it afterwards; the
-     * in-process views of the context are dropped once that transaction committed.
+     * in-process views of the context are dropped once that transaction committed. A close never reads the source:
+     * the next open fences whatever the closed context left in it.
      */
     @Override
     public void handle(UUID caseKey) {
         controlLock.lock();
         try {
-            var outcome = transaction.execute(status -> close(caseKey));
-            if (outcome == Outcome.CLOSED) {
-                // Drop the in-process views before a broker call that can fail, so a committed close always frees them.
+            if (Boolean.TRUE.equals(transaction.execute(status -> close(caseKey)))) {
                 clock.reset();
                 events.publishEvent(new ExecutionClosed(caseKey));
-            }
-            if (outcome == Outcome.CLOSED || outcome == Outcome.LAST_CLOSED) {
-                // Recorded before the lock is released: the next context cannot open while the fence is captured.
-                eventFence.capture();
             }
         } finally {
             controlLock.unlock();
         }
     }
 
-    private Outcome close(UUID caseKey) {
+    /** @return whether this call closed the open context; {@code false} for a repeat of the last close */
+    private boolean close(UUID caseKey) {
         var open = executions.findWithLock();
         if (open.isPresent()) {
             return closeOpen(open.get(), caseKey);
         }
         var lastClosed = executions.lastClosedCaseKey().orElseThrow(ExecutionNotConfiguredException::new);
         requireClosedEarlier(lastClosed, caseKey);
-        return Outcome.LAST_CLOSED;
+        return false;
     }
 
-    private Outcome closeOpen(Execution open, UUID caseKey) {
+    private boolean closeOpen(Execution open, UUID caseKey) {
         if (open.context().caseKey().equals(caseKey)) {
             gameplay.discardAll();
             operations.clear();
             decisions.clear();
             executions.close(caseKey);
-            return Outcome.CLOSED;
+            return true;
         }
+        // Repeating the last closed case while another is open is a no-op.
         requireClosedEarlier(executions.lastClosedCaseKey().orElse(null), caseKey);
-        // Repeating the last closed case while another is open is a no-op; it must not fence the open context.
-        return Outcome.LAST_CLOSED_WHILE_OPEN;
+        return false;
     }
 
     private static void requireClosedEarlier(UUID lastClosed, UUID caseKey) {
         if (!caseKey.equals(lastClosed)) {
             throw new ExecutionContextConflictException("The case is neither the open context nor the last closed one");
         }
-    }
-
-    private enum Outcome {
-        CLOSED,
-        LAST_CLOSED,
-        LAST_CLOSED_WHILE_OPEN
     }
 }

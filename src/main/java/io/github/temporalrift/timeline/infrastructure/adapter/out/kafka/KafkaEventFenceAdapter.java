@@ -13,6 +13,8 @@ import java.util.function.Supplier;
 import jakarta.annotation.PreDestroy;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.OffsetSpec;
+import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,9 +27,9 @@ import org.springframework.stereotype.Component;
 import io.github.temporalrift.timeline.domain.port.out.EventFence;
 
 /**
- * The close fence of a real simulation lane: the broker's end offset of every {@code game.events} partition at the
- * last close. A record below that offset was already in the log before the context closed, so it belongs to the closed
- * context even if no consumer had reached it yet.
+ * The source fence of a real simulation lane: the broker's end offset of every {@code game.events} partition when the
+ * open context opened. A record below that offset was already in the log before the context opened, so it belongs to
+ * an earlier context or to none, even if no consumer had reached it yet.
  */
 @Component
 @ConditionalOnProperty(name = "game.simulation.enabled", havingValue = "true")
@@ -73,37 +75,44 @@ class KafkaEventFenceAdapter implements EventFence {
     public void capture() {
         try {
             var client = client();
+            var description = described(
+                    client.describeTopics(List.of(TOPIC)).topicNameValues().get(TOPIC));
             Map<TopicPartition, OffsetSpec> request = new HashMap<>();
-            var description = client.describeTopics(List.of(TOPIC))
-                    .allTopicNames()
-                    .get(BROKER_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
-                    .get(TOPIC);
-            description
-                    .partitions()
-                    .forEach(partition ->
-                            request.put(new TopicPartition(TOPIC, partition.partition()), OffsetSpec.latest()));
-            if (request.isEmpty()) {
-                fence.set(Map.of());
-                return;
+            if (description != null) {
+                description
+                        .partitions()
+                        .forEach(partition ->
+                                request.put(new TopicPartition(TOPIC, partition.partition()), OffsetSpec.latest()));
             }
-            var endOffsets = client.listOffsets(request).all().get(BROKER_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-            endOffsets.forEach((partition, info) -> jdbc.sql(UPSERT_FENCE)
-                    .param("topic", partition.topic())
-                    .param("partition", partition.partition())
-                    .param("nextOffset", info.offset())
-                    .update());
+            if (!request.isEmpty()) {
+                client.listOffsets(request)
+                        .all()
+                        .get(BROKER_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
+                        .forEach((partition, info) -> jdbc.sql(UPSERT_FENCE)
+                                .param("topic", partition.topic())
+                                .param("partition", partition.partition())
+                                .param("nextOffset", info.offset())
+                                .update());
+            }
             fence.set(load());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while recording the event close fence", e);
+            throw new IllegalStateException("Interrupted while recording the event fence", e);
+        } catch (ExecutionException | TimeoutException e) {
+            throw new IllegalStateException("Could not record the event fence", e);
+        }
+    }
+
+    /** A topic nothing was ever published to does not exist yet, and holds no record to fence. */
+    private static TopicDescription described(KafkaFuture<TopicDescription> description)
+            throws InterruptedException, ExecutionException, TimeoutException {
+        try {
+            return description.get(BROKER_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
         } catch (ExecutionException e) {
             if (e.getCause() instanceof UnknownTopicOrPartitionException) {
-                fence.set(Map.of());
-                return;
+                return null;
             }
-            throw new IllegalStateException("Could not record the event close fence", e);
-        } catch (TimeoutException e) {
-            throw new IllegalStateException("Could not record the event close fence", e);
+            throw e;
         }
     }
 

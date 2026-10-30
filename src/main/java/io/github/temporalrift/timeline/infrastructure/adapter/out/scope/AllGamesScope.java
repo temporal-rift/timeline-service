@@ -1,7 +1,5 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.scope;
 
-import java.util.UUID;
-
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -13,7 +11,7 @@ import io.github.temporalrift.timeline.domain.port.out.GameScope;
 class AllGamesScope implements GameScope {
 
     @Override
-    public boolean admits(UUID gameId) {
+    public boolean admits(InboundRecord inbound) {
         return true;
     }
 }

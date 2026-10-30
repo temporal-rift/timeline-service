@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 
@@ -30,6 +32,7 @@ import io.github.temporalrift.timeline.domain.execution.ExecutionState;
 import io.github.temporalrift.timeline.domain.execution.ExecutionStateNotCleanException;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionContextException;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesException;
+import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRulesValidator;
 import io.github.temporalrift.timeline.domain.port.out.GameplayDiscard;
@@ -49,6 +52,9 @@ class ConfigureSimulationExecutionCommandHandlerTest {
 
     @Mock
     GameplayDiscard gameplay;
+
+    @Mock
+    EventFence eventFence;
 
     @Mock
     LogicalClockControl clock;
@@ -88,6 +94,7 @@ class ConfigureSimulationExecutionCommandHandlerTest {
                 executions,
                 gameplay,
                 List.of(rulesValidator),
+                eventFence,
                 clock,
                 assembler,
                 new SimulationControlLock(),
@@ -108,6 +115,37 @@ class ConfigureSimulationExecutionCommandHandlerTest {
     }
 
     @Test
+    @DisplayName("an empty lane fences the source before it stores the context")
+    void handle_emptyLane_capturesTheFenceBeforeStoring() {
+        given(executions.findWithLock()).willReturn(Optional.empty());
+        given(executions.insertIfAbsent(any())).willReturn(true);
+
+        handler.handle(CONTEXT);
+
+        var order = inOrder(eventFence, transaction, executions);
+        order.verify(eventFence).capture();
+        order.verify(transaction).execute(any());
+        order.verify(executions).insertIfAbsent(CONFIGURED);
+    }
+
+    @Test
+    @DisplayName("a capture the broker cannot complete opens nothing")
+    void handle_failedCapture_storesNothing() {
+        willThrow(new IllegalStateException("Could not record the event fence"))
+                .given(eventFence)
+                .capture();
+
+        assertThatThrownBy(() -> handler.handle(CONTEXT))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Could not record the event fence");
+
+        then(transaction).should(never()).execute(any());
+        then(executions).should(never()).insertIfAbsent(any());
+        then(executions).should(never()).forgetClosedGames(any());
+        then(clock).should(never()).advanceTo(any());
+    }
+
+    @Test
     @DisplayName("opening a context makes the closed game of the same case admissible again")
     void handle_emptyLane_forgetsTheCasesClosedGames() {
         given(executions.findWithLock()).willReturn(Optional.empty());
@@ -121,27 +159,30 @@ class ConfigureSimulationExecutionCommandHandlerTest {
     @Test
     @DisplayName("an identical repeat is a no-op")
     void handle_identicalContext_isNoOp() {
+        given(executions.find()).willReturn(Optional.of(CONFIGURED));
         given(executions.findWithLock()).willReturn(Optional.of(CONFIGURED));
 
         handler.handle(CONTEXT);
 
         then(executions).should(never()).insertIfAbsent(any());
+        then(eventFence).should(never()).capture();
     }
 
     @Test
     @DisplayName("a different context is a conflict")
     void handle_differentContext_isConflict() {
         var other = ExecutionContextTestData.context("43");
+        given(executions.find()).willReturn(Optional.of(CONFIGURED));
         given(executions.findWithLock()).willReturn(Optional.of(CONFIGURED));
 
         assertThatThrownBy(() -> handler.handle(other)).isInstanceOf(ExecutionContextConflictException.class);
+        then(eventFence).should(never()).capture();
     }
 
     @Test
     @DisplayName("a rule the service uses is validated before the context is stored")
     void handle_invalidRules_isRejectedBeforeStoring() {
-        org.mockito.BDDMockito.willThrow(new InvalidExecutionRulesException(
-                        "game.rules.probability.suppress-shift.I", "must be negative"))
+        willThrow(new InvalidExecutionRulesException("game.rules.probability.suppress-shift.I", "must be negative"))
                 .given(rulesValidator)
                 .validate(any());
 
@@ -150,6 +191,7 @@ class ConfigureSimulationExecutionCommandHandlerTest {
                 .hasMessageContaining("game.rules.probability.suppress-shift.I");
 
         then(executions).should(never()).insertIfAbsent(any());
+        then(eventFence).should(never()).capture();
     }
 
     @Test

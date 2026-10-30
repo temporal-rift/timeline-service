@@ -23,7 +23,6 @@ import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.Fa
 import io.github.temporalrift.asyncapi.sessionevents.GeneratedChannelContract.FactionAssignedPayload;
 import io.github.temporalrift.timeline.domain.membership.GameMembership;
 import io.github.temporalrift.timeline.domain.membership.MemberFaction;
-import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.GameMembershipPort;
 import io.github.temporalrift.timeline.domain.port.out.GameScope;
 import io.github.temporalrift.timeline.domain.port.out.ProcessedEventPort;
@@ -49,9 +48,6 @@ class FactionAssignedKafkaConsumerTest {
     @Mock
     GameScope gameScope;
 
-    @Mock
-    EventFence eventFence;
-
     private FactionAssignedKafkaConsumer consumer;
 
     @BeforeEach
@@ -60,7 +56,7 @@ class FactionAssignedKafkaConsumerTest {
                 .when(gameScope.admits(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(true);
         consumer = new FactionAssignedKafkaConsumer(
-                memberships, objectMapper, new GameEventIngestion(processedEvents, skipMetrics, eventFence, gameScope));
+                memberships, objectMapper, new GameEventIngestion(processedEvents, skipMetrics, gameScope));
     }
 
     @Test

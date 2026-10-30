@@ -27,7 +27,6 @@ import io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData
 import io.github.temporalrift.timeline.domain.execution.ExecutionNotConfiguredException;
 import io.github.temporalrift.timeline.domain.port.out.ClockOperationRepository;
 import io.github.temporalrift.timeline.domain.port.out.EntropyDecisionRepository;
-import io.github.temporalrift.timeline.domain.port.out.EventFence;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRepository;
 import io.github.temporalrift.timeline.domain.port.out.GameplayDiscard;
 import io.github.temporalrift.timeline.domain.port.out.LogicalClockControl;
@@ -52,9 +51,6 @@ class CloseSimulationExecutionCommandHandlerTest {
     GameplayDiscard gameplay;
 
     @Mock
-    EventFence eventFence;
-
-    @Mock
     LogicalClockControl clock;
 
     @Mock
@@ -73,15 +69,7 @@ class CloseSimulationExecutionCommandHandlerTest {
                 .thenAnswer(
                         invocation -> ((TransactionCallback<Object>) invocation.getArgument(0)).doInTransaction(null));
         handler = new CloseSimulationExecutionCommandHandler(
-                executions,
-                operations,
-                decisions,
-                gameplay,
-                eventFence,
-                clock,
-                events,
-                new SimulationControlLock(),
-                transaction);
+                executions, operations, decisions, gameplay, clock, events, new SimulationControlLock(), transaction);
     }
 
     @Test
@@ -91,7 +79,6 @@ class CloseSimulationExecutionCommandHandlerTest {
 
         handler.handle(CASE_KEY);
 
-        then(eventFence).should().capture();
         then(gameplay).should().discardAll();
         then(operations).should().clear();
         then(decisions).should().clear();

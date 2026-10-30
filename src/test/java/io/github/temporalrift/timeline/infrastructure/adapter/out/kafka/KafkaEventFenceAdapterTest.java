@@ -1,12 +1,14 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.kafka;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -23,7 +25,9 @@ import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
+import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
+import org.apache.kafka.common.internals.KafkaFutureImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.RowMapper;
@@ -57,13 +61,29 @@ class KafkaEventFenceAdapterTest {
         var failing = mock(KafkaFuture.class);
         when(failing.get(anyLong(), any())).thenThrow(new ExecutionException(new UnknownTopicOrPartitionException()));
         var described = mock(DescribeTopicsResult.class);
-        when(described.allTopicNames()).thenReturn(failing);
+        when(described.topicNameValues()).thenReturn(Map.of(TOPIC, failing));
         when(admin.describeTopics(List.of(TOPIC))).thenReturn(described);
 
         var fence = new KafkaEventFenceAdapter(jdbc, () -> admin);
         fence.capture();
 
         assertThat(fence.isFenced(TOPIC, 0, 0L)).isFalse();
+        verify(admin, never()).listOffsets(anyMap());
+    }
+
+    @Test
+    @DisplayName("a broker that cannot report the end offsets fails the capture")
+    void capture_brokerFailure_fails() {
+        givenPartitions();
+        var failing = new KafkaFutureImpl<ListOffsetsResultInfo>();
+        failing.completeExceptionally(new TimeoutException("listOffsets"));
+        when(admin.listOffsets(anyMap())).thenReturn(new ListOffsetsResult(Map.of(PARTITION, failing)));
+
+        var fence = new KafkaEventFenceAdapter(jdbc, () -> admin);
+
+        assertThatThrownBy(fence::capture)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Could not record the event fence");
     }
 
     @Test
@@ -84,16 +104,19 @@ class KafkaEventFenceAdapterTest {
     }
 
     private void givenEndOffsets(long endOffset) {
+        givenPartitions();
+        var info = new ListOffsetsResultInfo(endOffset, 0L, Optional.empty());
+        when(admin.listOffsets(anyMap()))
+                .thenReturn(new ListOffsetsResult(Map.of(PARTITION, KafkaFuture.completedFuture(info))));
+    }
+
+    private void givenPartitions() {
         var partitionInfo = mock(TopicPartitionInfo.class);
         when(partitionInfo.partition()).thenReturn(0);
         var description = mock(TopicDescription.class);
         when(description.partitions()).thenReturn(List.of(partitionInfo));
         var described = mock(DescribeTopicsResult.class);
-        when(described.allTopicNames()).thenReturn(KafkaFuture.completedFuture(Map.of(TOPIC, description)));
+        when(described.topicNameValues()).thenReturn(Map.of(TOPIC, KafkaFuture.completedFuture(description)));
         when(admin.describeTopics(List.of(TOPIC))).thenReturn(described);
-
-        var info = new ListOffsetsResultInfo(endOffset, 0L, Optional.empty());
-        when(admin.listOffsets(anyMap()))
-                .thenReturn(new ListOffsetsResult(Map.of(PARTITION, KafkaFuture.completedFuture(info))));
     }
 }

@@ -267,6 +267,11 @@ class GameEventsTestPublisher {
         kafkaTemplate.send(message);
     }
 
+    /** Blocks until every record published so far is in the log, so a later fence capture sees it. */
+    void flush() {
+        kafkaTemplate.flush();
+    }
+
     private static Map<String, Object> outcome(UUID outcomeId, String description, int initialProbability) {
         return Map.of("outcomeId", outcomeId, "description", description, "initialProbability", initialProbability);
     }
