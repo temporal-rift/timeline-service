@@ -114,6 +114,38 @@ class ExecutionRulesBindingTest {
     }
 
     @Test
+    @DisplayName("a defaulted rule is not required and a context without it binds the default")
+    void defaultedRule_mayBeOmitted() {
+        var properties = flatRules();
+        var required = new TimelineExecutionRulesConfiguration().executionRequiredRulesValidator();
+
+        required.validate(properties);
+        assertThat(ExecutionRulesBinding.requiredKeys(TimelineRulesProperties.class, "game.rules.probability"))
+                .doesNotContain("game.rules.probability.erased-weight-to-written-outcome");
+        assertThat(probability.bind(properties).erasedWeightToWrittenOutcome()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a context may switch the defaulted rule off")
+    void defaultedRule_mayBeSet() {
+        var properties = flatRules();
+        properties.put("game.rules.probability.erased-weight-to-written-outcome", "false");
+
+        assertThat(probability.bind(properties).erasedWeightToWrittenOutcome()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a non-boolean value for the defaulted rule names the key")
+    void defaultedRule_wrongType_namesTheKey() {
+        var properties = flatRules();
+        properties.put("game.rules.probability.erased-weight-to-written-outcome", "sometimes");
+
+        assertThatThrownBy(() -> probability.bind(properties))
+                .isInstanceOf(InvalidExecutionRulesException.class)
+                .hasMessageContaining("game.rules.probability.erased-weight-to-written-outcome");
+    }
+
+    @Test
     @DisplayName("the paradox-resolution timer binds from the game.rules namespace")
     void bind_paradoxTimer_binds() {
         var binding = new ExecutionRulesBinding<>(ParadoxResolutionRulesProperties.class, "game.rules", VALIDATOR);

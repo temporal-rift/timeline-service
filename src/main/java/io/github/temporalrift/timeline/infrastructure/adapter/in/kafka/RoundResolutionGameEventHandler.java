@@ -65,8 +65,9 @@ class RoundResolutionGameEventHandler {
 
     // The generated CardType/SpecialAction enums carry every value declared across the whole action-event
     // contract, including ones this consumer intentionally doesn't buffer (e.g. CardType.STABILIZE/DETONATE,
-    // SpecialAction.FORESIGHT/... are not yet wired into replay). Filtering to exactly this set preserves that
-    // existing scope -- it is not the same thing as "every type the schema knows about."
+    // SpecialAction.FULFILLMENT/REWRITE/... have no effect in replay). Filtering to exactly this set preserves that
+    // existing scope -- it is not the same thing as "every type the schema knows about." FORESIGHT is buffered
+    // because it writes its event's outcome, which a later or same-round Annihilate may route weight to.
     private static final Set<CardType> KNOWN_CARD_TYPES = Set.of(
             CardType.PUSH,
             CardType.SUPPRESS,
@@ -85,6 +86,7 @@ class RoundResolutionGameEventHandler {
     private static final Set<SpecialAction> KNOWN_SPECIAL_ACTIONS = Set.of(
             SpecialAction.SEAL,
             SpecialAction.ANNIHILATE,
+            SpecialAction.FORESIGHT,
             SpecialAction.CORRUPT,
             SpecialAction.MIMIC,
             SpecialAction.CASCADE,

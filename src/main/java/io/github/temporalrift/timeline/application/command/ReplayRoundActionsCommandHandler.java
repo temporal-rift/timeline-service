@@ -30,6 +30,7 @@ import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
+import io.github.temporalrift.timeline.domain.futureevent.ErasureRedistribution;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEvent;
 import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundException;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
@@ -50,7 +51,8 @@ import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 
 /**
  * Replays one round's buffered actions in strict priority-tier order: {@code NULLIFY -> (Round 1) MOMENTUM -> SEAL ->
- * TAPESTRY -> ANNIHILATE -> CASCADE -> REWEAVE -> THREAD -> CORRUPT -> MIMIC -> AMPLIFY -> remaining cards}, all in
+ * TAPESTRY -> FORESIGHT writing -> ANNIHILATE -> CASCADE -> REWEAVE -> THREAD -> CORRUPT -> MIMIC -> AMPLIFY ->
+ * remaining cards}, all in
  * one in-process pass. The remaining cards, MIMIC copies, and accepted THREAD shifts resolve simultaneously per
  * event, so no result depends on submission timestamp. Every player-targeted
  * correlation ({@code NULLIFY}, {@code AMPLIFY}, {@code REDIRECT}, and {@code CORRUPT}) is resolved once up front from
@@ -79,6 +81,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private static final String SPECIAL_ACTION_TAPESTRY = "TAPESTRY";
     private static final String SPECIAL_ACTION_REWEAVE = "REWEAVE";
     private static final String SPECIAL_ACTION_THREAD = "THREAD";
+    private static final String SPECIAL_ACTION_FORESIGHT = "FORESIGHT";
 
     /**
      * A round's actions resolve simultaneously, so submission time and transport ids never order them. A declaration
@@ -185,6 +188,12 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 cancelled,
                 a -> isSpecial(a, SPECIAL_ACTION_TAPESTRY),
                 a -> weaverChainSaga.playTapestry(gameId, eraNumber, a.playerId()));
+        // Written before ANNIHILATE so a same-round Annihilate routes weight to a same-round writing.
+        applyTier(
+                sorted,
+                cancelled,
+                a -> isSpecial(a, SPECIAL_ACTION_FORESIGHT),
+                a -> applyForesightWriting(roundNumber, a, events));
         applyAnnihilateTier(gameId, eraNumber, roundNumber, sorted, cancelled, events);
         applyCascadeTier(gameId, eraNumber, sorted, cancelled);
         // Judged after ANNIHILATE: both need a live target, and a Reweave escapes a same-round Annihilate.
@@ -423,6 +432,21 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     }
 
     /**
+     * Records a still-live FORESIGHT's named outcome as its event's written outcome for this era. The first writing
+     * stands, so a later Foresight on an already-written event appends nothing. A Foresight without both a target event
+     * and a target outcome writes nothing. The writing is internal state and is never published.
+     */
+    private void applyForesightWriting(int roundNumber, BufferedAction a, ReplayEvents events) {
+        if (a.targetEventId() == null || a.targetOutcomeId() == null) {
+            return;
+        }
+        events.find(a.targetEventId())
+                .ifPresent(futureEvent -> futureEvent
+                        .writeOutcome(a.targetOutcomeId(), roundNumber)
+                        .ifPresent(written -> futureEvents.append(a.targetEventId(), written)));
+    }
+
+    /**
      * Applies the still-live ANNIHILATEs, judging each event's together, then notifies the Weaver chain saga so any
      * chain link on the removed outcome is invalidated (or TAPESTRY-consumed). Runs here — not at
      * SpecialActionPlayed consumption — so a NULLIFY-cancelled ANNIHILATE never invalidates a chain.
@@ -465,7 +489,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 .collect(Collectors.groupingBy(BufferedAction::targetEventId, LinkedHashMap::new, Collectors.toList()))
                 .forEach((eventId, actions) -> events.find(eventId)
                         .ifPresent(futureEvent -> rejectedKeys.addAll(
-                                annihilateTogether(gameId, eraNumber, eventId, futureEvent, actions))));
+                                annihilateTogether(gameId, eraNumber, roundNumber, eventId, futureEvent, actions))));
         resolutions.stream()
                 .filter(resolution -> rejectedKeys.stream().noneMatch(key -> key.matches(resolution)))
                 .forEach(resolution -> publisher.publish(TimelineEventEnvelope.create(
@@ -477,9 +501,18 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                         clock)));
     }
 
-    /** Applies one event's live Annihilates as a single combined erasure and returns the keys it rejected. */
+    /**
+     * Applies one event's live Annihilates as a single combined erasure and returns the keys it rejected. With the
+     * written-outcome rule on, the erased weight goes to the event's written outcome first; acceptance is the same
+     * either way.
+     */
     private List<AnnihilationKey> annihilateTogether(
-            UUID gameId, int eraNumber, UUID eventId, FutureEvent futureEvent, List<BufferedAction> actions) {
+            UUID gameId,
+            int eraNumber,
+            int roundNumber,
+            UUID eventId,
+            FutureEvent futureEvent,
+            List<BufferedAction> actions) {
         var fresh = actions.stream()
                 .filter(a -> !futureEvent.isAnnihilated(a.targetOutcomeId()))
                 .toList();
@@ -491,13 +524,16 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         int floor = rules.probabilityFloor();
         int ceiling = rules.probabilityCeiling();
-        if (!futureEvent.canAnnihilate(targets, floor, ceiling)) {
+        ErasureRedistribution redistribution = rules.erasedWeightToWrittenOutcome()
+                ? ErasureRedistribution.writtenOutcomeFirst(roundNumber)
+                : ErasureRedistribution.proportional();
+        if (!futureEvent.canAnnihilate(targets, floor, ceiling, redistribution)) {
             fresh.forEach(a -> publishAnnihilateRejected(gameId, eraNumber, a));
             return fresh.stream()
                     .map(a -> new AnnihilationKey(a.playerId(), a.targetEventId(), a.targetOutcomeId()))
                     .toList();
         }
-        futureEvents.append(eventId, futureEvent.annihilateOutcomes(targets, floor, ceiling));
+        futureEvents.append(eventId, futureEvent.annihilateOutcomes(targets, floor, ceiling, redistribution));
         targets.forEach(outcomeId -> weaverChainSaga.annihilateOutcome(gameId, eraNumber, eventId, outcomeId));
         return List.of();
     }

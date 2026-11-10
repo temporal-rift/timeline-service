@@ -12,6 +12,7 @@ import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.OutcomeSealed;
+import io.github.temporalrift.timeline.domain.event.OutcomeWritten;
 import io.github.temporalrift.timeline.domain.event.OutcomesCollided;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
 import io.github.temporalrift.timeline.domain.eventstore.StoredEvent;
@@ -57,6 +58,7 @@ class JpaFutureEventRepository implements FutureEventRepository {
             case "EventUnstalled" -> objectMapper.readValue(stored.payload(), EventUnstalled.class);
             case "OutcomeSealed" -> objectMapper.readValue(stored.payload(), OutcomeSealed.class);
             case "OutcomeAnnihilated" -> objectMapper.readValue(stored.payload(), OutcomeAnnihilated.class);
+            case "OutcomeWritten" -> objectMapper.readValue(stored.payload(), OutcomeWritten.class);
             case "EraStateCleared" -> objectMapper.readValue(stored.payload(), EraStateCleared.class);
             default -> throw new IllegalStateException("Unknown FutureEvent event type: " + stored.eventType());
         };

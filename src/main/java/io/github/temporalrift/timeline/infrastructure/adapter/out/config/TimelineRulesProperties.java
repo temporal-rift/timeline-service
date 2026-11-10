@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.function.IntPredicate;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
 import io.github.temporalrift.timeline.domain.futureevent.CardGrade;
@@ -25,7 +26,8 @@ public record TimelineRulesProperties(
         int bandMediumMax,
         int momentumBonus,
         double rallyMultiplier,
-        int threadShift)
+        int threadShift,
+        @DefaultValue("true") boolean erasedWeightToWrittenOutcome)
         implements ProbabilityRulesPort, ProbabilityBandRulesPort {
 
     public TimelineRulesProperties {
@@ -181,6 +183,11 @@ public record TimelineRulesProperties(
     @Override
     public double rallyMultiplier() {
         return rallyMultiplier;
+    }
+
+    @Override
+    public boolean erasedWeightToWrittenOutcome() {
+        return erasedWeightToWrittenOutcome;
     }
 
     @Override

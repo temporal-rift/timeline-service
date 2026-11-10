@@ -542,12 +542,31 @@ class RoundResolutionGameEventHandlerTest {
     }
 
     @Test
+    @DisplayName("FORESIGHT — buffered with its target event and outcome, which it writes")
+    void handle_foresight_buffersWrittenTarget() {
+        var eventId = UUID.randomUUID();
+        var targetEventId = UUID.randomUUID();
+        var targetOutcomeId = UUID.randomUUID();
+        var payload = specialActionPlayed(SpecialAction.FORESIGHT, targetEventId, targetOutcomeId, null);
+        given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
+
+        consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));
+
+        var actionCaptor = ArgumentCaptor.forClass(BufferedAction.class);
+        then(buffer).should().save(eq(payload.gameId()), eq(ERA_NUMBER), eq(ROUND_NUMBER), actionCaptor.capture());
+        var action = actionCaptor.getValue();
+        assertThat(action.kind()).isEqualTo(ActionKind.SPECIAL_ACTION_PLAYED);
+        assertThat(action.specialAction()).isEqualTo("FORESIGHT");
+        assertThat(action.targetEventId()).isEqualTo(targetEventId);
+        assertThat(action.targetOutcomeId()).isEqualTo(targetOutcomeId);
+    }
+
+    @Test
     @DisplayName("permanent no-op specialActions — claimed but buffer nothing")
     void handle_permanentNoOpSpecialActions_buffersNothing() {
-        // FORESIGHT/FULFILLMENT/REWRITE/OBSCURE/EXPOSE have no probability effect by design; RALLY/MOMENTUM
+        // FULFILLMENT/REWRITE/OBSCURE/EXPOSE have no effect in replay by design; RALLY/MOMENTUM
         // are handled only via the separate ActivistDeclarationRecorded consumer, never via this event.
         for (var specialAction : new SpecialAction[] {
-            SpecialAction.FORESIGHT,
             SpecialAction.FULFILLMENT,
             SpecialAction.REWRITE,
             SpecialAction.OBSCURE,
@@ -570,7 +589,7 @@ class RoundResolutionGameEventHandlerTest {
     @DisplayName("unsupported specialAction — claimed but buffers nothing")
     void handle_unsupportedSpecialAction_buffersNothing() {
         var eventId = UUID.randomUUID();
-        var payload = specialActionPlayed(SpecialAction.FORESIGHT, UUID.randomUUID(), UUID.randomUUID(), null);
+        var payload = specialActionPlayed(SpecialAction.REWRITE, UUID.randomUUID(), UUID.randomUUID(), null);
         given(processedEvents.claim(eventId, SPECIAL_ACTION_PLAYED_CONSUMER)).willReturn(true);
 
         consumer.handle(KafkaTestMessages.withHeaders(payload, eventId, SPECIAL_ACTION_PLAYED_EVENT_TYPE, 1));

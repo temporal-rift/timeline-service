@@ -1,10 +1,13 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.config;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Proxy;
+import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,6 +17,7 @@ import jakarta.validation.Validator;
 import org.springframework.boot.context.properties.bind.BindException;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.boot.context.properties.bind.validation.BindValidationException;
 import org.springframework.boot.context.properties.bind.validation.ValidationBindHandler;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
@@ -57,12 +61,20 @@ public final class ExecutionRulesBinding<T> {
     }
 
     /**
-     * Every property key {@code type} reads, derived from its record components. A map component expands to one key per
-     * enum constant, so a scalar added to a properties record cannot be forgotten here.
+     * Every property key {@code type} reads without a documented default, derived from its record components. A map
+     * component expands to one key per enum constant, so a scalar added to a properties record cannot be forgotten
+     * here. A component carrying {@link DefaultValue} may be omitted from a context, which then binds that default.
      */
     public static List<String> requiredKeys(Class<?> type, String prefix) {
         var keys = new ArrayList<String>();
-        for (var component : type.getRecordComponents()) {
+        var components = type.getRecordComponents();
+        // DefaultValue targets parameters, so it lands on the canonical constructor's parameter, not the component.
+        var parameters = canonicalConstructor(type, components).getParameters();
+        for (int index = 0; index < components.length; index++) {
+            var component = components[index];
+            if (parameters[index].isAnnotationPresent(DefaultValue.class)) {
+                continue;
+            }
             var key = prefix + "." + kebab(component.getName());
             if (!Map.class.isAssignableFrom(component.getType())) {
                 keys.add(key);
@@ -79,6 +91,16 @@ public final class ExecutionRulesBinding<T> {
             }
         }
         return List.copyOf(keys);
+    }
+
+    private static Constructor<?> canonicalConstructor(Class<?> type, RecordComponent[] components) {
+        var parameterTypes =
+                Arrays.stream(components).map(RecordComponent::getType).toArray(Class<?>[]::new);
+        try {
+            return type.getDeclaredConstructor(parameterTypes);
+        } catch (NoSuchMethodException e) {
+            throw new IllegalArgumentException("A rules type must be a record: " + type.getName(), e);
+        }
     }
 
     /**
