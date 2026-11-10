@@ -71,26 +71,27 @@ public final class ExecutionRulesBinding<T> {
         // DefaultValue targets parameters, so it lands on the canonical constructor's parameter, not the component.
         var parameters = canonicalConstructor(type, components).getParameters();
         for (int index = 0; index < components.length; index++) {
-            var component = components[index];
-            if (parameters[index].isAnnotationPresent(DefaultValue.class)) {
-                continue;
-            }
-            var key = prefix + "." + kebab(component.getName());
-            if (!Map.class.isAssignableFrom(component.getType())) {
-                keys.add(key);
-                continue;
-            }
-            if (!(component.getGenericType() instanceof ParameterizedType parameterized)
-                    || !(parameterized.getActualTypeArguments()[0] instanceof Class<?> valueType)
-                    || !valueType.isEnum()) {
-                throw new IllegalArgumentException(
-                        "A map rule component must be keyed by an enum: " + component.getName());
-            }
-            for (var constant : valueType.getEnumConstants()) {
-                keys.add(key + "." + constant);
+            if (!parameters[index].isAnnotationPresent(DefaultValue.class)) {
+                keys.addAll(componentKeys(components[index], prefix));
             }
         }
         return List.copyOf(keys);
+    }
+
+    /** The key a scalar component reads, or one key per enum constant for a map component. */
+    private static List<String> componentKeys(RecordComponent component, String prefix) {
+        var key = prefix + "." + kebab(component.getName());
+        if (!Map.class.isAssignableFrom(component.getType())) {
+            return List.of(key);
+        }
+        if (!(component.getGenericType() instanceof ParameterizedType parameterized)
+                || !(parameterized.getActualTypeArguments()[0] instanceof Class<?> valueType)
+                || !valueType.isEnum()) {
+            throw new IllegalArgumentException("A map rule component must be keyed by an enum: " + component.getName());
+        }
+        return Arrays.stream(valueType.getEnumConstants())
+                .map(constant -> key + "." + constant)
+                .toList();
     }
 
     private static Constructor<?> canonicalConstructor(Class<?> type, RecordComponent[] components) {
