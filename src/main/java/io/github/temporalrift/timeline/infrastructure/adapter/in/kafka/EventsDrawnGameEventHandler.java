@@ -21,6 +21,7 @@ import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCas
 import io.github.temporalrift.timeline.domain.event.CascadeCarriedForwardEvent;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
+import io.github.temporalrift.timeline.domain.futureevent.ErasureRedistribution;
 import io.github.temporalrift.timeline.domain.futureevent.Outcome;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort.CascadeCarryForward;
@@ -130,12 +131,15 @@ class EventsDrawnGameEventHandler {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         int floor = rules.probabilityFloor();
         int ceiling = rules.probabilityCeiling();
-        if (!futureEvent.canAnnihilate(targets, floor, ceiling)) {
+        // A carried re-erasure is never routed to a written outcome: the carry cleared the writing, and the rule
+        // applies only to a direct Annihilate.
+        var redistribution = ErasureRedistribution.proportional();
+        if (!futureEvent.canAnnihilate(targets, floor, ceiling, redistribution)) {
             pendings.forEach(
                     pending -> reject(gameId, eraNumber, pending, SpecialRejectedEvent.REASON_ERASURE_OUT_OF_BOUNDS));
             return;
         }
-        futureEvents.append(eventId, futureEvent.annihilateOutcomes(targets, floor, ceiling));
+        futureEvents.append(eventId, futureEvent.annihilateOutcomes(targets, floor, ceiling, redistribution));
         targets.forEach(outcomeId -> weaverChainSaga.annihilateOutcome(gameId, eraNumber, eventId, outcomeId));
         for (var pending : pendings) {
             cascadeCarryForward.delete(gameId, eraNumber, eventId, pending.outcomeId());

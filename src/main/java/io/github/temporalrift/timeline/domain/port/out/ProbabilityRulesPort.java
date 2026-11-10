@@ -34,4 +34,10 @@ public interface ProbabilityRulesPort {
 
     /** Multiplier Rally applies to a Round 1 direct transfer's magnitude toward its declared outcome. */
     double rallyMultiplier();
+
+    /**
+     * True when an Annihilate's erased weight goes first to the event's written outcome, up to the ceiling, instead of
+     * being shared proportionally among the eligible outcomes.
+     */
+    boolean erasedWeightToWrittenOutcome();
 }

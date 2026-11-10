@@ -9,6 +9,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -42,6 +43,7 @@ import io.github.temporalrift.timeline.domain.event.AdjustedBandsPublished;
 import io.github.temporalrift.timeline.domain.event.AnnihilationResolved;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
+import io.github.temporalrift.timeline.domain.event.OutcomeWritten;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
@@ -2335,6 +2337,176 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
         then(weaverChainSaga).should().annihilateOutcome(GAME_ID, ERA_NUMBER, eventId, target);
+    }
+
+    @Test
+    void replay_foresightThenAnnihilate_routesErasedWeightToTheWrittenOutcome() {
+        var w = writtenOutcomeFixture(50, 30, 20);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        givenRound(1, specialAction("FORESIGHT", w.eventId(), w.o3()));
+        givenRound(2, specialAction("ANNIHILATE", w.eventId(), w.o1()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 1);
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+
+        assertThat(w.weights()).containsExactly(0, 30, 70);
+        then(futureEvents).should().append(w.eventId(), new OutcomeWritten(w.eventId(), w.o3(), 1));
+        var published = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeastOnce()).publish(published.capture());
+        assertThat(published.getAllValues())
+                .extracting(TimelineEventEnvelope::payload)
+                .noneMatch(OutcomeWritten.class::isInstance)
+                .filteredOn(AnnihilationResolved.class::isInstance)
+                .hasSize(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void replay_sameRoundForesight_isWrittenBeforeAnnihilateInEitherBufferOrder(boolean foresightFirst) {
+        var w = writtenOutcomeFixture(50, 30, 20);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        var foresight = specialAction("FORESIGHT", w.eventId(), w.o2());
+        var annihilate = specialAction("ANNIHILATE", w.eventId(), w.o1());
+        givenRound(2, foresightFirst ? List.of(foresight, annihilate) : List.of(annihilate, foresight));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+
+        assertThat(w.weights()).containsExactly(0, 80, 20);
+    }
+
+    @Test
+    void replay_routedErasure_isCappedAtTheCeiling() {
+        var w = writtenOutcomeFixture(70, 25, 5);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        givenRound(1, specialAction("FORESIGHT", w.eventId(), w.o2()));
+        givenRound(2, specialAction("ANNIHILATE", w.eventId(), w.o1()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 1);
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+
+        assertThat(w.weights()).containsExactly(0, 90, 10);
+    }
+
+    @Test
+    void replay_annihilateWithoutForesight_isProportional() {
+        var w = writtenOutcomeFixture(50, 30, 20);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        givenRound(2, specialAction("ANNIHILATE", w.eventId(), w.o1()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+
+        assertThat(w.weights()).containsExactly(0, 60, 40);
+    }
+
+    @Test
+    void replay_laterForesight_doesNotReachBackToAnEarlierErasure() {
+        var w = writtenOutcomeFixture(50, 30, 20);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        givenRound(2, specialAction("ANNIHILATE", w.eventId(), w.o1()));
+        givenRound(3, specialAction("FORESIGHT", w.eventId(), w.o3()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+        handler.replay(GAME_ID, ERA_NUMBER, 3);
+
+        assertThat(w.weights()).containsExactly(0, 60, 40);
+    }
+
+    @Test
+    void replay_nullifiedForesight_writesNothing() {
+        var w = writtenOutcomeFixture(50, 30, 20);
+        var prophet = UUID.randomUUID();
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        givenRound(
+                2,
+                List.of(
+                        specialActionBy(prophet, "FORESIGHT", w.eventId(), w.o3()),
+                        nullifyTargets(UUID.randomUUID(), List.of(prophet)),
+                        specialAction("ANNIHILATE", w.eventId(), w.o1())));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+
+        assertThat(w.weights()).containsExactly(0, 60, 40);
+        then(futureEvents).should(never()).append(any(), any(OutcomeWritten.class));
+    }
+
+    @Test
+    void replay_sealedWrittenOutcome_keepsItsWeight() {
+        var w = writtenOutcomeFixture(50, 30, 20);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        givenRound(
+                1,
+                List.of(specialAction("FORESIGHT", w.eventId(), w.o3()), specialAction("SEAL", w.eventId(), w.o3())));
+        givenRound(2, specialAction("ANNIHILATE", w.eventId(), w.o1()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 1);
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+
+        assertThat(w.weights()).containsExactly(0, 80, 20);
+    }
+
+    @Test
+    void replay_firstForesightStands() {
+        var w = writtenOutcomeFixture(50, 30, 20);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        givenRound(1, specialAction("FORESIGHT", w.eventId(), w.o3()));
+        givenRound(2, specialAction("FORESIGHT", w.eventId(), w.o2()));
+        givenRound(3, specialAction("ANNIHILATE", w.eventId(), w.o1()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 1);
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+        handler.replay(GAME_ID, ERA_NUMBER, 3);
+
+        assertThat(w.weights()).containsExactly(0, 30, 70);
+        then(futureEvents).should(never()).append(any(), eq(new OutcomeWritten(w.eventId(), w.o2(), 2)));
+    }
+
+    @Test
+    void replay_ruleSwitchedOff_keepsProportionalRedistribution() {
+        var w = writtenOutcomeFixture(50, 30, 20);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(false);
+        givenRound(1, specialAction("FORESIGHT", w.eventId(), w.o3()));
+        givenRound(2, specialAction("ANNIHILATE", w.eventId(), w.o1()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 1);
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+
+        assertThat(w.weights()).containsExactly(0, 60, 40);
+    }
+
+    @Test
+    void replay_foresightWithoutTargets_writesNothing() {
+        givenRound(1, specialAction("FORESIGHT", null, null));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 1);
+
+        then(futureEvents).shouldHaveNoInteractions();
+    }
+
+    private WrittenOutcomeFixture writtenOutcomeFixture(int first, int second, int third) {
+        var eventId = UUID.randomUUID();
+        var o1 = UUID.randomUUID();
+        var o2 = UUID.randomUUID();
+        var o3 = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(o1, first), outcome(o2, second), outcome(o3, third));
+        lenient().when(futureEvents.findById(eventId)).thenReturn(futureEvent);
+        lenient().when(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).thenReturn(List.of());
+        return new WrittenOutcomeFixture(eventId, o1, o2, o3, futureEvent);
+    }
+
+    private void givenRound(int roundNumber, BufferedAction action) {
+        givenRound(roundNumber, List.of(action));
+    }
+
+    private void givenRound(int roundNumber, List<BufferedAction> actions) {
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, roundNumber)).willReturn(actions);
+    }
+
+    /** One event whose stored state the mocked repository hands back to every round's replay. */
+    private record WrittenOutcomeFixture(UUID eventId, UUID o1, UUID o2, UUID o3, FutureEvent futureEvent) {
+        List<Integer> weights() {
+            return List.of(
+                    probabilityOf(futureEvent, o1), probabilityOf(futureEvent, o2), probabilityOf(futureEvent, o3));
+        }
     }
 
     @Test

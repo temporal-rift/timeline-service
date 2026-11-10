@@ -19,6 +19,7 @@ import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.OutcomeSealed;
+import io.github.temporalrift.timeline.domain.event.OutcomeWritten;
 import io.github.temporalrift.timeline.domain.event.OutcomesCollided;
 import io.github.temporalrift.timeline.domain.event.ProbabilityShifted;
 
@@ -33,14 +34,21 @@ public final class FutureEvent {
     private Resolution resolution;
     private boolean stalled;
     private List<CollidedPair> collidedPairs;
+    private WrittenOutcome writtenOutcome;
 
     private FutureEvent(
-            UUID id, List<Outcome> outcomes, Resolution resolution, boolean stalled, List<CollidedPair> collidedPairs) {
+            UUID id,
+            List<Outcome> outcomes,
+            Resolution resolution,
+            boolean stalled,
+            List<CollidedPair> collidedPairs,
+            WrittenOutcome writtenOutcome) {
         this.id = id;
         this.outcomes = outcomes;
         this.resolution = resolution;
         this.stalled = stalled;
         this.collidedPairs = List.copyOf(collidedPairs);
+        this.writtenOutcome = writtenOutcome;
     }
 
     /** Rebuilds this aggregate by replaying its domain-event stream in order. */
@@ -57,30 +65,42 @@ public final class FutureEvent {
                             || event instanceof EventUnstalled
                             || event instanceof OutcomeSealed
                             || event instanceof OutcomeAnnihilated
+                            || event instanceof OutcomeWritten
                             || event instanceof EraStateCleared)
                     && (state == null || state.resolved())) {
                 throw new IllegalStateException("Event replayed outside the drafted and unresolved state for " + id);
             }
             state = switch (event) {
-                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), null, false, List.of());
+                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), null, false, List.of(), null);
                 case OutcomeApplied e ->
                     new FutureEvent(
                             id,
                             e.finalOutcomes(),
                             new Resolution(e.winningOutcomeId(), e.eraNumber()),
                             false,
-                            state.collidedPairs());
+                            state.collidedPairs(),
+                            state.writtenOutcome);
                 case ProbabilityShifted e -> state.withOutcomes(e.outcomes());
                 case OutcomesCollided e -> {
                     var pairs = new ArrayList<>(state.collidedPairs());
                     pairs.add(new CollidedPair(e.firstOutcomeId(), e.secondOutcomeId()));
-                    yield new FutureEvent(id, e.outcomes(), null, state.stalled(), pairs);
+                    yield new FutureEvent(id, e.outcomes(), null, state.stalled(), pairs, state.writtenOutcome);
                 }
-                case EventStalled _ -> new FutureEvent(id, state.outcomes(), null, true, state.collidedPairs());
-                case EventUnstalled _ -> new FutureEvent(id, state.outcomes(), null, false, state.collidedPairs());
+                case EventStalled _ ->
+                    new FutureEvent(id, state.outcomes(), null, true, state.collidedPairs(), state.writtenOutcome);
+                case EventUnstalled _ ->
+                    new FutureEvent(id, state.outcomes(), null, false, state.collidedPairs(), state.writtenOutcome);
                 case OutcomeSealed e -> state.withOutcomes(e.outcomes());
                 case OutcomeAnnihilated e -> state.withOutcomes(e.outcomes());
-                case EraStateCleared e -> new FutureEvent(id, e.outcomes(), null, state.stalled(), List.of());
+                case OutcomeWritten e ->
+                    new FutureEvent(
+                            id,
+                            state.outcomes(),
+                            null,
+                            state.stalled(),
+                            state.collidedPairs(),
+                            new WrittenOutcome(e.outcomeId(), e.roundNumber()));
+                case EraStateCleared e -> new FutureEvent(id, e.outcomes(), null, state.stalled(), List.of(), null);
                 default -> throw new IllegalArgumentException("Unknown FutureEvent domain event: " + event.getClass());
             };
         }
@@ -91,7 +111,7 @@ public final class FutureEvent {
     }
 
     private FutureEvent withOutcomes(List<Outcome> replayedOutcomes) {
-        return new FutureEvent(id, replayedOutcomes, null, stalled, collidedPairs);
+        return new FutureEvent(id, replayedOutcomes, null, stalled, collidedPairs, writtenOutcome);
     }
 
     /**
@@ -207,7 +227,7 @@ public final class FutureEvent {
         var equalizedPairs = new ArrayList<CollidedPair>();
         var movedAlone = new ArrayList<Boolean>();
         for (var simultaneous : shifts) {
-            var scratch = new FutureEvent(id, start, null, stalled, collidedPairs);
+            var scratch = new FutureEvent(id, start, null, stalled, collidedPairs, writtenOutcome);
             var aloneResult = scratch.applyShift(simultaneous.shift(), simultaneous.magnitude(), floor, ceiling);
             movedAlone.add(!scratch.outcomes.equals(start));
             if (simultaneous.shift() instanceof ProbabilityShift.Collide(var a, var b)
@@ -443,9 +463,9 @@ public final class FutureEvent {
     }
 
     /**
-     * Clears this event's per-era state — every outcome's sealed/annihilated flag and the collided pairs —
-     * when it carries into a new era. Identity, outcome set, and
-     * probabilities are preserved; only the flags a new era must not inherit are cleared.
+     * Clears this event's per-era state — every outcome's sealed/annihilated flag, the collided pairs, and the written
+     * outcome — when it carries into a new era. Identity, outcome set, and
+     * probabilities are preserved; only the state a new era must not inherit is cleared.
      */
     public EraStateCleared clearEraState() {
         if (resolved()) {
@@ -457,28 +477,52 @@ public final class FutureEvent {
         var event = new EraStateCleared(id, cleared);
         this.outcomes = cleared;
         this.collidedPairs = List.of();
+        this.writtenOutcome = null;
         return event;
     }
 
     /**
-     * Erases {@code outcomeId} ({@code ANNIHILATE}); see {@link #annihilateOutcomes}. Callers must check
+     * Records {@code outcomeId} as this era's written outcome (a Prophet's {@code FORESIGHT}, written in action round
+     * {@code roundNumber}). The first writing stands for the rest of the era: when the event is already written,
+     * nothing changes and no fact is returned.
+     */
+    public Optional<OutcomeWritten> writeOutcome(UUID outcomeId, int roundNumber) {
+        if (resolved()) {
+            throw new FutureEventAlreadyResolvedException(id);
+        }
+        outcomeById(outcomeId);
+        if (writtenOutcome != null) {
+            return Optional.empty();
+        }
+        this.writtenOutcome = new WrittenOutcome(outcomeId, roundNumber);
+        return Optional.of(new OutcomeWritten(id, outcomeId, roundNumber));
+    }
+
+    /** This era's written outcome, if a Foresight wrote one. */
+    public Optional<WrittenOutcome> writtenOutcome() {
+        return Optional.ofNullable(writtenOutcome);
+    }
+
+    /**
+     * Erases {@code outcomeId} with proportional redistribution; see {@link #annihilateOutcomes}. Callers must check
      * {@link #canAnnihilate(UUID, int, int)} first.
      */
     public OutcomeAnnihilated annihilateOutcome(UUID outcomeId, int floor, int ceiling) {
-        return annihilateOutcomes(Set.of(outcomeId), floor, ceiling);
+        return annihilateOutcomes(Set.of(outcomeId), floor, ceiling, ErasureRedistribution.proportional());
     }
 
     /**
      * Erases {@code outcomeIds} together: each drops to zero, loses any seal, and can never win, while their combined
-     * weight moves to the remaining eligible, unsealed outcomes in proportion to their weights, so every probability
-     * stays the outcome's actual chance of winning. Already-annihilated outcomes are left as they are. Callers must
-     * check {@link #canAnnihilate(Set, int, int)} first.
+     * weight moves to the remaining eligible, unsealed outcomes as {@code redistribution} splits it, so every
+     * probability stays the outcome's actual chance of winning. Already-annihilated outcomes are left as they are.
+     * Callers must check {@link #canAnnihilate(Set, int, int, ErasureRedistribution)} first.
      */
-    public OutcomeAnnihilated annihilateOutcomes(Set<UUID> outcomeIds, int floor, int ceiling) {
+    public OutcomeAnnihilated annihilateOutcomes(
+            Set<UUID> outcomeIds, int floor, int ceiling, ErasureRedistribution redistribution) {
         if (resolved()) {
             throw new FutureEventAlreadyResolvedException(id);
         }
-        var updated = erasedOutcomes(outcomeIds, floor, ceiling)
+        var updated = erasedOutcomes(outcomeIds, floor, ceiling, redistribution)
                 .orElseThrow(() -> new IllegalStateException(
                         "Erasing outcomes " + outcomeIds + " of FutureEvent " + id + " cannot stay within bounds"));
         var event = new OutcomeAnnihilated(id, updated);
@@ -486,21 +530,26 @@ public final class FutureEvent {
         return event;
     }
 
-    /** True when erasing {@code outcomeId} alone stays within bounds; see {@link #canAnnihilate(Set, int, int)}. */
+    /**
+     * True when erasing {@code outcomeId} alone with proportional redistribution stays within bounds; see
+     * {@link #canAnnihilate(Set, int, int, ErasureRedistribution)}.
+     */
     public boolean canAnnihilate(UUID outcomeId, int floor, int ceiling) {
-        return canAnnihilate(Set.of(outcomeId), floor, ceiling);
+        return canAnnihilate(Set.of(outcomeId), floor, ceiling, ErasureRedistribution.proportional());
     }
 
     /**
      * True when erasing {@code outcomeIds} together leaves every eligible outcome within {@code [floor, ceiling]}
      * without moving a sealed weight. False when no eligible outcome would remain, a lone survivor would pass the
-     * ceiling, or a sealed survivor leaves the other one out of bounds.
+     * ceiling, or a sealed survivor leaves the other one out of bounds. The answer is the same for every
+     * {@code redistribution}: acceptance depends only on the absorbing outcomes' combined weight, never on its split.
      */
-    public boolean canAnnihilate(Set<UUID> outcomeIds, int floor, int ceiling) {
-        return erasedOutcomes(outcomeIds, floor, ceiling).isPresent();
+    public boolean canAnnihilate(Set<UUID> outcomeIds, int floor, int ceiling, ErasureRedistribution redistribution) {
+        return erasedOutcomes(outcomeIds, floor, ceiling, redistribution).isPresent();
     }
 
-    private Optional<List<Outcome>> erasedOutcomes(Set<UUID> outcomeIds, int floor, int ceiling) {
+    private Optional<List<Outcome>> erasedOutcomes(
+            Set<UUID> outcomeIds, int floor, int ceiling, ErasureRedistribution redistribution) {
         var erased = outcomeIds.stream()
                 .map(this::outcomeById)
                 .filter(o -> !o.annihilated())
@@ -524,14 +573,25 @@ public final class FutureEvent {
             if (pairSum < 2 * floor || pairSum > 2 * ceiling) {
                 return Optional.empty();
             }
-            int absorbersTotal = first.probability() + second.probability();
-            int firstShare = absorbersTotal == 0
-                    ? weight / 2
-                    : (int) Math.round(weight * (double) first.probability() / absorbersTotal);
-            var rebalanced = clampPairPreservingSum(
-                    first.probability() + firstShare, second.probability() + weight - firstShare, floor, ceiling);
-            absorbed.put(first.outcomeId(), rebalanced[0]);
-            absorbed.put(second.outcomeId(), rebalanced[1]);
+            var routed = routedAbsorber(redistribution, absorbers);
+            if (routed.isPresent()) {
+                // The written outcome takes the weight up to the ceiling; the other absorber holds the rest.
+                var written = routed.get();
+                var other = written.outcomeId().equals(first.outcomeId()) ? second : first;
+                var rebalanced =
+                        clampPairPreservingSum(written.probability() + weight, other.probability(), floor, ceiling);
+                absorbed.put(written.outcomeId(), rebalanced[0]);
+                absorbed.put(other.outcomeId(), rebalanced[1]);
+            } else {
+                int absorbersTotal = first.probability() + second.probability();
+                int firstShare = absorbersTotal == 0
+                        ? weight / 2
+                        : (int) Math.round(weight * (double) first.probability() / absorbersTotal);
+                var rebalanced = clampPairPreservingSum(
+                        first.probability() + firstShare, second.probability() + weight - firstShare, floor, ceiling);
+                absorbed.put(first.outcomeId(), rebalanced[0]);
+                absorbed.put(second.outcomeId(), rebalanced[1]);
+            }
         } else if (absorbers.size() == 1) {
             absorbed.put(absorbers.getFirst().outcomeId(), absorbers.getFirst().probability() + weight);
         } else if (weight != 0) {
@@ -551,6 +611,22 @@ public final class FutureEvent {
         boolean inBounds = !eligible.isEmpty()
                 && eligible.stream().allMatch(o -> o.probability() >= floor && o.probability() <= ceiling);
         return inBounds ? Optional.of(updated) : Optional.empty();
+    }
+
+    /**
+     * The absorbing outcome that takes the erased weight first: the written outcome, when routing is requested, it
+     * was written no later than the erasure's round, and it is one of the absorbers (so not erased, annihilated, or
+     * sealed).
+     */
+    private Optional<Outcome> routedAbsorber(ErasureRedistribution redistribution, List<Outcome> absorbers) {
+        if (!(redistribution instanceof ErasureRedistribution.WrittenOutcomeFirst(var roundNumber))
+                || writtenOutcome == null
+                || writtenOutcome.roundNumber() > roundNumber) {
+            return Optional.empty();
+        }
+        return absorbers.stream()
+                .filter(o -> o.outcomeId().equals(writtenOutcome.outcomeId()))
+                .findFirst();
     }
 
     /** Single-outcome shift: clamp the target, redistribute the actual delta across the other two proportionally. */
