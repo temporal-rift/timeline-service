@@ -565,39 +565,68 @@ public final class FutureEvent {
                 .filter(o -> erased.contains(o.outcomeId()))
                 .mapToInt(Outcome::probability)
                 .sum();
-        var absorbed = new LinkedHashMap<UUID, Integer>();
-        if (absorbers.size() == 2) {
-            var first = absorbers.get(0);
-            var second = absorbers.get(1);
-            int pairSum = first.probability() + second.probability() + weight;
-            if (pairSum < 2 * floor || pairSum > 2 * ceiling) {
-                return Optional.empty();
+        return absorbedWeights(absorbers, weight, floor, ceiling, redistribution)
+                .map(absorbed -> withErasure(erased, absorbed))
+                .filter(updated -> eligibleWithinBounds(updated, floor, ceiling));
+    }
+
+    /**
+     * The absorbing outcomes' new weights once they take the erased {@code weight}, or empty when they cannot hold it
+     * within bounds. With no absorber left, only a weightless erasure is possible.
+     */
+    private Optional<Map<UUID, Integer>> absorbedWeights(
+            List<Outcome> absorbers, int weight, int floor, int ceiling, ErasureRedistribution redistribution) {
+        return switch (absorbers.size()) {
+            case 2 -> pairAbsorbs(absorbers, weight, floor, ceiling, redistribution);
+            case 1 -> {
+                var absorber = absorbers.getFirst();
+                yield Optional.of(Map.of(absorber.outcomeId(), absorber.probability() + weight));
             }
-            var routed = routedAbsorber(redistribution, absorbers);
-            if (routed.isPresent()) {
-                // The written outcome takes the weight up to the ceiling; the other absorber holds the rest.
-                var written = routed.get();
-                var other = written.outcomeId().equals(first.outcomeId()) ? second : first;
-                var rebalanced =
-                        clampPairPreservingSum(written.probability() + weight, other.probability(), floor, ceiling);
-                absorbed.put(written.outcomeId(), rebalanced[0]);
-                absorbed.put(other.outcomeId(), rebalanced[1]);
-            } else {
-                int absorbersTotal = first.probability() + second.probability();
-                int firstShare = absorbersTotal == 0
-                        ? weight / 2
-                        : (int) Math.round(weight * (double) first.probability() / absorbersTotal);
-                var rebalanced = clampPairPreservingSum(
-                        first.probability() + firstShare, second.probability() + weight - firstShare, floor, ceiling);
-                absorbed.put(first.outcomeId(), rebalanced[0]);
-                absorbed.put(second.outcomeId(), rebalanced[1]);
-            }
-        } else if (absorbers.size() == 1) {
-            absorbed.put(absorbers.getFirst().outcomeId(), absorbers.getFirst().probability() + weight);
-        } else if (weight != 0) {
+            default -> weight == 0 ? Optional.of(Map.of()) : Optional.empty();
+        };
+    }
+
+    /**
+     * Splits the erased {@code weight} between two absorbers whose combined weight fits the bounds: the written
+     * outcome first, up to the ceiling, when routing applies, otherwise in proportion to their current weights.
+     */
+    private Optional<Map<UUID, Integer>> pairAbsorbs(
+            List<Outcome> pair, int weight, int floor, int ceiling, ErasureRedistribution redistribution) {
+        var first = pair.get(0);
+        var second = pair.get(1);
+        int pairSum = first.probability() + second.probability() + weight;
+        if (pairSum < 2 * floor || pairSum > 2 * ceiling) {
             return Optional.empty();
         }
-        var updated = outcomes.stream()
+        var routed = routedAbsorber(redistribution, pair);
+        if (routed.isPresent()) {
+            var written = routed.get();
+            var other = written.outcomeId().equals(first.outcomeId()) ? second : first;
+            return Optional.of(rebalancedPair(
+                    written, written.probability() + weight, other, other.probability(), floor, ceiling));
+        }
+        int absorbersTotal = first.probability() + second.probability();
+        int firstShare = absorbersTotal == 0
+                ? weight / 2
+                : (int) Math.round(weight * (double) first.probability() / absorbersTotal);
+        return Optional.of(rebalancedPair(
+                first,
+                first.probability() + firstShare,
+                second,
+                second.probability() + weight - firstShare,
+                floor,
+                ceiling));
+    }
+
+    private static Map<UUID, Integer> rebalancedPair(
+            Outcome first, int firstWeight, Outcome second, int secondWeight, int floor, int ceiling) {
+        var rebalanced = clampPairPreservingSum(firstWeight, secondWeight, floor, ceiling);
+        return Map.of(first.outcomeId(), rebalanced[0], second.outcomeId(), rebalanced[1]);
+    }
+
+    /** The outcomes with {@code erased} annihilated at 0 and each absorber at its {@code absorbed} weight. */
+    private List<Outcome> withErasure(Set<UUID> erased, Map<UUID, Integer> absorbed) {
+        return outcomes.stream()
                 .map(o -> erased.contains(o.outcomeId())
                         ? new Outcome(o.outcomeId(), o.description(), 0, false, true)
                         : new Outcome(
@@ -607,10 +636,12 @@ public final class FutureEvent {
                                 o.sealed(),
                                 o.annihilated()))
                 .toList();
+    }
+
+    private static boolean eligibleWithinBounds(List<Outcome> updated, int floor, int ceiling) {
         var eligible = updated.stream().filter(o -> !o.annihilated()).toList();
-        boolean inBounds = !eligible.isEmpty()
+        return !eligible.isEmpty()
                 && eligible.stream().allMatch(o -> o.probability() >= floor && o.probability() <= ceiling);
-        return inBounds ? Optional.of(updated) : Optional.empty();
     }
 
     /**
