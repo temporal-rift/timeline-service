@@ -1,17 +1,22 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.outbox;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -80,6 +85,35 @@ class OutboxRelayTest {
         then(kafkaTemplate).should(never()).send(any(Message.class));
         then(repository).should().compareAndSetStatus(id, OutboxStatus.SENDING, OutboxStatus.PENDING);
         then(repository).should(never()).compareAndSetStatus(id, OutboxStatus.SENDING, OutboxStatus.SENT);
+    }
+
+    @Test
+    @DisplayName("a failed send is retried with the stored payload — consequential erasures are not recomputed")
+    void relay_retryAfterFailedSend_republishesTheStoredPayloadUnchanged() {
+        var id = UUID.randomUUID();
+        var erased = UUID.randomUUID();
+        var template = """
+                {"gameId":"%s","eraNumber":1,"eventId":"%s","winningOutcomeId":"%s",\
+                "finalProbabilities":[],"consequentialErasures":["%s"]}""";
+        var payload = template.formatted(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), erased);
+        var row = OutboxEventEntity.pending(id, "timeline.events", "game-1", "{}", payload, Instant.now());
+        given(repository.findByStatusOrderBySeqAsc(OutboxStatus.PENDING)).willReturn(List.of(row));
+        given(repository.compareAndSetStatus(id, OutboxStatus.PENDING, OutboxStatus.SENDING))
+                .willReturn(1);
+        given(kafkaTemplate.send(any(Message.class)))
+                .willThrow(new IllegalStateException("broker unavailable"))
+                .willReturn(CompletableFuture.completedFuture(null));
+
+        relay.relay();
+        relay.relay();
+
+        var sent = ArgumentCaptor.forClass(Message.class);
+        then(kafkaTemplate).should(times(2)).send(sent.capture());
+        var first = (Map<?, ?>) sent.getAllValues().get(0).getPayload();
+        var retried = (Map<?, ?>) sent.getAllValues().get(1).getPayload();
+        assertThat(retried).isEqualTo(first);
+        assertThat(retried.get("consequentialErasures")).isEqualTo(List.of(erased.toString()));
+        then(repository).should().compareAndSetStatus(id, OutboxStatus.SENDING, OutboxStatus.SENT);
     }
 
     @Test
