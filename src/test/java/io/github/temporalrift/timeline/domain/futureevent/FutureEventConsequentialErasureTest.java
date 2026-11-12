@@ -99,6 +99,22 @@ class FutureEventConsequentialErasureTest {
     }
 
     @Test
+    void weightlessErasureThatRebalancesTheSurvivors_listsNothing() {
+        var a = new Outcome(UUID.randomUUID(), "a", 95);
+        var b = new Outcome(UUID.randomUUID(), "b", 5);
+        var c = new Outcome(UUID.randomUUID(), "c", 0);
+        var event = replay(new FutureEventDrafted(id, List.of(a, b, c)));
+        var annihilated = event.annihilateOutcome(c.outcomeId(), FLOOR, CEILING);
+        assertThat(annihilated.outcomes()).extracting(Outcome::probability).containsExactly(90, 10, 0);
+
+        var applied = event.resolve(GAME_ID, ERA_NUMBER, FixedDraw.of(92));
+
+        // Restoring 95/5/0 would select a at 92, but c held nothing, so its erasure is never judged.
+        assertThat(applied.winningOutcomeId()).isEqualTo(b.outcomeId());
+        assertThat(applied.consequentialErasures()).isEmpty();
+    }
+
+    @Test
     void repeatedAnnihilateOnAnErasedOutcome_keepsTheOriginalErasure() {
         var event = replay(
                 new FutureEventDrafted(id, List.of(first, second, third)),
