@@ -697,6 +697,6 @@ class ResolveEraCommandHandlerTest {
                 eventId,
                 List.of(
                         new FutureEventDrafted(eventId, outcomes),
-                        new OutcomeApplied(GAME_ID, ERA_NUMBER, eventId, outcomeId, outcomes)));
+                        new OutcomeApplied(GAME_ID, ERA_NUMBER, eventId, outcomeId, outcomes, List.of())));
     }
 }

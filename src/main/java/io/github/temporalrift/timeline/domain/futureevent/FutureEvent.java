@@ -3,6 +3,7 @@ package io.github.temporalrift.timeline.domain.futureevent;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -35,6 +36,7 @@ public final class FutureEvent {
     private boolean stalled;
     private List<CollidedPair> collidedPairs;
     private WrittenOutcome writtenOutcome;
+    private List<Erasure> erasures;
 
     private FutureEvent(
             UUID id,
@@ -42,13 +44,15 @@ public final class FutureEvent {
             Resolution resolution,
             boolean stalled,
             List<CollidedPair> collidedPairs,
-            WrittenOutcome writtenOutcome) {
+            WrittenOutcome writtenOutcome,
+            List<Erasure> erasures) {
         this.id = id;
         this.outcomes = outcomes;
         this.resolution = resolution;
         this.stalled = stalled;
         this.collidedPairs = List.copyOf(collidedPairs);
         this.writtenOutcome = writtenOutcome;
+        this.erasures = List.copyOf(erasures);
     }
 
     /** Rebuilds this aggregate by replaying its domain-event stream in order. */
@@ -71,7 +75,7 @@ public final class FutureEvent {
                 throw new IllegalStateException("Event replayed outside the drafted and unresolved state for " + id);
             }
             state = switch (event) {
-                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), null, false, List.of(), null);
+                case FutureEventDrafted e -> new FutureEvent(id, e.outcomes(), null, false, List.of(), null, List.of());
                 case OutcomeApplied e ->
                     new FutureEvent(
                             id,
@@ -79,19 +83,35 @@ public final class FutureEvent {
                             new Resolution(e.winningOutcomeId(), e.eraNumber()),
                             false,
                             state.collidedPairs(),
-                            state.writtenOutcome);
+                            state.writtenOutcome,
+                            state.erasures);
                 case ProbabilityShifted e -> state.withOutcomes(e.outcomes());
                 case OutcomesCollided e -> {
                     var pairs = new ArrayList<>(state.collidedPairs());
                     pairs.add(new CollidedPair(e.firstOutcomeId(), e.secondOutcomeId()));
-                    yield new FutureEvent(id, e.outcomes(), null, state.stalled(), pairs, state.writtenOutcome);
+                    yield new FutureEvent(
+                            id, e.outcomes(), null, state.stalled(), pairs, state.writtenOutcome, state.erasures);
                 }
                 case EventStalled _ ->
-                    new FutureEvent(id, state.outcomes(), null, true, state.collidedPairs(), state.writtenOutcome);
+                    new FutureEvent(
+                            id,
+                            state.outcomes(),
+                            null,
+                            true,
+                            state.collidedPairs(),
+                            state.writtenOutcome,
+                            state.erasures);
                 case EventUnstalled _ ->
-                    new FutureEvent(id, state.outcomes(), null, false, state.collidedPairs(), state.writtenOutcome);
+                    new FutureEvent(
+                            id,
+                            state.outcomes(),
+                            null,
+                            false,
+                            state.collidedPairs(),
+                            state.writtenOutcome,
+                            state.erasures);
                 case OutcomeSealed e -> state.withOutcomes(e.outcomes());
-                case OutcomeAnnihilated e -> state.withOutcomes(e.outcomes());
+                case OutcomeAnnihilated e -> state.withErasure(e.outcomes());
                 case OutcomeWritten e ->
                     new FutureEvent(
                             id,
@@ -99,8 +119,10 @@ public final class FutureEvent {
                             null,
                             state.stalled(),
                             state.collidedPairs(),
-                            new WrittenOutcome(e.outcomeId(), e.roundNumber()));
-                case EraStateCleared e -> new FutureEvent(id, e.outcomes(), null, state.stalled(), List.of(), null);
+                            new WrittenOutcome(e.outcomeId(), e.roundNumber()),
+                            state.erasures);
+                case EraStateCleared e ->
+                    new FutureEvent(id, e.outcomes(), null, state.stalled(), List.of(), null, List.of());
                 default -> throw new IllegalArgumentException("Unknown FutureEvent domain event: " + event.getClass());
             };
         }
@@ -111,7 +133,29 @@ public final class FutureEvent {
     }
 
     private FutureEvent withOutcomes(List<Outcome> replayedOutcomes) {
-        return new FutureEvent(id, replayedOutcomes, null, stalled, collidedPairs, writtenOutcome);
+        return new FutureEvent(id, replayedOutcomes, null, stalled, collidedPairs, writtenOutcome, erasures);
+    }
+
+    private FutureEvent withErasure(List<Outcome> erasedOutcomes) {
+        return new FutureEvent(
+                id,
+                erasedOutcomes,
+                null,
+                stalled,
+                collidedPairs,
+                writtenOutcome,
+                erasuresAfter(outcomes, erasedOutcomes));
+    }
+
+    /** This era's erasures plus the one, if any, that turned {@code before} into {@code after}. */
+    private List<Erasure> erasuresAfter(List<Outcome> before, List<Outcome> after) {
+        return Erasure.between(before, after)
+                .map(erasure -> {
+                    var recorded = new ArrayList<>(erasures);
+                    recorded.add(erasure);
+                    return List.copyOf(recorded);
+                })
+                .orElse(erasures);
     }
 
     /**
@@ -142,6 +186,10 @@ public final class FutureEvent {
      * eligible weights, then the eligible outcomes are walked cumulatively. An annihilated outcome contributes no
      * weight and can never win. Tied outcomes, including a Dead Heat cleared by Stabilize, are equally likely.
      * Callers must check {@link #hasDrawableWeight()} first.
+     *
+     * <p>The fact also lists this era's consequential erasures: an erased outcome is listed when the same roll, walked
+     * over the final weights with that erasure's own redistribution given back, selects a different winner. No second
+     * value is drawn.
      */
     public OutcomeApplied resolve(UUID gameId, int eraNumber, RandomGenerator random) {
         if (resolved()) {
@@ -150,18 +198,34 @@ public final class FutureEvent {
         if (stalled) {
             throw new FutureEventStalledException(id);
         }
-        var winner = drawWeighted(random);
-        var event = new OutcomeApplied(gameId, eraNumber, id, winner.outcomeId(), outcomes);
+        var draw = drawWeighted(random);
+        var winnerId = draw.winner().outcomeId();
+        var event = new OutcomeApplied(
+                gameId, eraNumber, id, winnerId, outcomes, consequentialErasures(winnerId, draw.roll()));
         this.outcomes = event.finalOutcomes();
-        this.resolution = new Resolution(winner.outcomeId(), eraNumber);
+        this.resolution = new Resolution(winnerId, eraNumber);
         return event;
     }
+
+    /** The erased outcomes, in erasure order, whose own redistribution decided which outcome {@code roll} selects. */
+    private List<UUID> consequentialErasures(UUID winnerId, int roll) {
+        var consequential = new LinkedHashSet<UUID>();
+        for (var erasure : erasures) {
+            if (!erasure.counterfactualWinner(outcomes, roll).equals(winnerId)) {
+                consequential.addAll(erasure.erasedOutcomeIds());
+            }
+        }
+        return List.copyOf(consequential);
+    }
+
+    /** The drawn winner and the single value {@code roll} that selected it. */
+    private record Draw(Outcome winner, int roll) {}
 
     /**
      * Cumulative-weight walk over the non-annihilated outcomes. A zero eligible total is {@code IMPOSSIBLE_ERASURE}
      * and never reaches here, so the defensive exceptions below are not expected runtime paths.
      */
-    private Outcome drawWeighted(RandomGenerator random) {
+    private Draw drawWeighted(RandomGenerator random) {
         var eligible = outcomes.stream().filter(o -> !o.annihilated()).toList();
         if (eligible.isEmpty()) {
             throw new IllegalStateException("FutureEvent " + id + " has no eligible outcomes");
@@ -175,7 +239,7 @@ public final class FutureEvent {
         for (var outcome : eligible) {
             cumulative += outcome.probability();
             if (roll < cumulative) {
-                return outcome;
+                return new Draw(outcome, roll);
             }
         }
         throw new IllegalStateException("FutureEvent " + id + " weighted draw did not resolve a winner");
@@ -227,7 +291,7 @@ public final class FutureEvent {
         var equalizedPairs = new ArrayList<CollidedPair>();
         var movedAlone = new ArrayList<Boolean>();
         for (var simultaneous : shifts) {
-            var scratch = new FutureEvent(id, start, null, stalled, collidedPairs, writtenOutcome);
+            var scratch = new FutureEvent(id, start, null, stalled, collidedPairs, writtenOutcome, erasures);
             var aloneResult = scratch.applyShift(simultaneous.shift(), simultaneous.magnitude(), floor, ceiling);
             movedAlone.add(!scratch.outcomes.equals(start));
             if (simultaneous.shift() instanceof ProbabilityShift.Collide(var a, var b)
@@ -464,7 +528,7 @@ public final class FutureEvent {
 
     /**
      * Clears this event's per-era state — every outcome's sealed/annihilated flag, the collided pairs, and the written
-     * outcome — when it carries into a new era. Identity, outcome set, and
+     * outcome, and the recorded erasures — when it carries into a new era. Identity, outcome set, and
      * probabilities are preserved; only the state a new era must not inherit is cleared.
      */
     public EraStateCleared clearEraState() {
@@ -478,6 +542,7 @@ public final class FutureEvent {
         this.outcomes = cleared;
         this.collidedPairs = List.of();
         this.writtenOutcome = null;
+        this.erasures = List.of();
         return event;
     }
 
@@ -526,6 +591,7 @@ public final class FutureEvent {
                 .orElseThrow(() -> new IllegalStateException(
                         "Erasing outcomes " + outcomeIds + " of FutureEvent " + id + " cannot stay within bounds"));
         var event = new OutcomeAnnihilated(id, updated);
+        this.erasures = erasuresAfter(outcomes, updated);
         this.outcomes = updated;
         return event;
     }
