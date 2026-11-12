@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 import io.github.temporalrift.timeline.domain.event.CascadeCarriedForwardEvent;
 import io.github.temporalrift.timeline.domain.event.ChainBrokenEvent;
@@ -16,6 +18,7 @@ import io.github.temporalrift.timeline.domain.event.ChainProtectionArmedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainProtectionConsumedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchoredEvent;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
+import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxCascaded;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
@@ -61,6 +64,38 @@ class TimelineEventWireMapperTest {
         assertThat(cascadedWire.revealIndex()).isEqualTo(1);
         assertThat(cascadedWire.terminalState()).isEqualTo("CASCADED");
         assertThat(cascadedWire.winningOutcomeId()).isNull();
+    }
+
+    @Test
+    void toWire_outcomeApplied_carriesTheConsequentialErasures() {
+        var erased = UUID.randomUUID();
+        var event = new OutcomeApplied(
+                UUID.randomUUID(),
+                1,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                List.of(new Outcome(erased, "erased", 0, false, true)),
+                List.of(erased));
+
+        assertThat(mapper.toWire(event).consequentialErasures()).containsExactly(erased);
+    }
+
+    @Test
+    void toWire_outcomeApplied_sendsAnEmptyListUnderTheServiceInclusion() {
+        var event = new OutcomeApplied(
+                UUID.randomUUID(),
+                1,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                List.of(new Outcome(UUID.randomUUID(), "only", 100)),
+                List.of());
+        // Mirrors spring.jackson.default-property-inclusion: non_null, which the outbox serializes with.
+        var json = JsonMapper.builder()
+                .changeDefaultPropertyInclusion(inclusion -> inclusion.withValueInclusion(JsonInclude.Include.NON_NULL))
+                .build()
+                .writeValueAsString(mapper.toWire(event));
+
+        assertThat(json).contains("\"consequentialErasures\":[]");
     }
 
     @Test

@@ -1048,7 +1048,7 @@ class WeaverChainSagaTest {
                 eventId,
                 List.of(
                         new FutureEventDrafted(eventId, outcomes),
-                        new OutcomeApplied(GAME_ID, eraNumber, eventId, winnerId, outcomes)));
+                        new OutcomeApplied(GAME_ID, eraNumber, eventId, winnerId, outcomes, List.of())));
     }
 
     private FutureEvent unresolvedEventWithOutcome(UUID eventId, UUID outcomeId) {

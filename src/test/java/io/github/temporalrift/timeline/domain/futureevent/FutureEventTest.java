@@ -190,7 +190,7 @@ class FutureEventTest {
     @Test
     void replay_outcomeAppliedBeforeDrafted_throwsIllegalState() {
         var id = UUID.randomUUID();
-        var outcomeApplied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, UUID.randomUUID(), List.of());
+        var outcomeApplied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, UUID.randomUUID(), List.of(), List.of());
         List<Object> history = List.of(outcomeApplied);
 
         assertThatThrownBy(() -> FutureEvent.replay(id, history)).isInstanceOf(IllegalStateException.class);
@@ -210,7 +210,7 @@ class FutureEventTest {
         var id = UUID.randomUUID();
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);
         var drafted = new FutureEventDrafted(id, List.of(outcome));
-        var applied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, outcome.outcomeId(), List.of(outcome));
+        var applied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, outcome.outcomeId(), List.of(outcome), List.of());
         var shifted = new ProbabilityShifted(id, List.of(outcome));
         List<Object> history = List.of(drafted, applied, shifted);
 
@@ -232,7 +232,7 @@ class FutureEventTest {
         var id = UUID.randomUUID();
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);
         var drafted = new FutureEventDrafted(id, List.of(outcome));
-        var applied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, outcome.outcomeId(), List.of(outcome));
+        var applied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, outcome.outcomeId(), List.of(outcome), List.of());
 
         var event = FutureEvent.replay(id, List.of(drafted, applied));
 
@@ -1328,7 +1328,7 @@ class FutureEventTest {
         var id = UUID.randomUUID();
         var outcome = new Outcome(UUID.randomUUID(), "only", 100);
         var drafted = new FutureEventDrafted(id, List.of(outcome));
-        var applied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, outcome.outcomeId(), List.of(outcome));
+        var applied = new OutcomeApplied(GAME_ID, ERA_NUMBER, id, outcome.outcomeId(), List.of(outcome), List.of());
         var cleared = new EraStateCleared(id, List.of(outcome));
         List<Object> history = List.of(drafted, applied, cleared);
 
