@@ -112,7 +112,7 @@ class OutboxRelayTest {
         var first = (Map<?, ?>) sent.getAllValues().get(0).getPayload();
         var retried = (Map<?, ?>) sent.getAllValues().get(1).getPayload();
         assertThat(retried).isEqualTo(first);
-        assertThat(retried.get("consequentialErasures")).isEqualTo(List.of(erased.toString()));
+        assertThat(retried).containsEntry("consequentialErasures", List.of(erased.toString()));
         then(repository).should().compareAndSetStatus(id, OutboxStatus.SENDING, OutboxStatus.SENT);
     }
 
