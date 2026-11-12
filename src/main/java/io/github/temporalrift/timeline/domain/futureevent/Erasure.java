@@ -19,14 +19,18 @@ record Erasure(List<UUID> erasedOutcomeIds, Map<UUID, Integer> weightsBefore, Ma
         weightsAfter = Map.copyOf(weightsAfter);
     }
 
-    /** The erasure that turned {@code before} into {@code after}, or empty when no outcome became annihilated. */
+    /**
+     * The erasure that turned {@code before} into {@code after}, or empty when no outcome holding weight became
+     * annihilated. An outcome erased at 0 took nothing from the draw, so it is never judged, even when the bounds made
+     * the survivors rebalance.
+     */
     static Optional<Erasure> between(List<Outcome> before, List<Outcome> after) {
-        var alreadyAnnihilated = before.stream()
-                .filter(Outcome::annihilated)
+        var weightedAndEligible = before.stream()
+                .filter(o -> !o.annihilated() && o.probability() > 0)
                 .map(Outcome::outcomeId)
                 .collect(Collectors.toSet());
         var erased = after.stream()
-                .filter(o -> o.annihilated() && !alreadyAnnihilated.contains(o.outcomeId()))
+                .filter(o -> o.annihilated() && weightedAndEligible.contains(o.outcomeId()))
                 .map(Outcome::outcomeId)
                 .toList();
         if (erased.isEmpty()) {
