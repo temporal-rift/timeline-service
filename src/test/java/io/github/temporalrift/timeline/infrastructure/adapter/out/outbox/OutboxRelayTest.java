@@ -109,8 +109,10 @@ class OutboxRelayTest {
 
         var sent = ArgumentCaptor.forClass(Message.class);
         then(kafkaTemplate).should(times(2)).send(sent.capture());
-        var first = (Map<?, ?>) sent.getAllValues().get(0).getPayload();
-        var retried = (Map<?, ?>) sent.getAllValues().get(1).getPayload();
+        Map<Object, Object> first =
+                Map.copyOf((Map<?, ?>) sent.getAllValues().get(0).getPayload());
+        Map<Object, Object> retried =
+                Map.copyOf((Map<?, ?>) sent.getAllValues().get(1).getPayload());
         assertThat(retried).isEqualTo(first);
         assertThat(retried).containsEntry("consequentialErasures", List.of(erased.toString()));
         then(repository).should().compareAndSetStatus(id, OutboxStatus.SENDING, OutboxStatus.SENT);
