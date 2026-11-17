@@ -115,7 +115,7 @@ class GetChainQueryHandlerTest {
         givenMembership(gameId, playerId, MemberFaction.WEAVERS);
         given(sagas.findAllByGameAndPlayer(gameId, playerId))
                 .willReturn(List.of(new WeaverChainSagaState(
-                        chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 2, null)));
+                        chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 2, null, null)));
         given(chains.findById(chainId))
                 .willReturn(WeaverChain.replay(chainId, List.of(new WeaverChainStarted(chainId, playerId, gameId))));
         given(eraPlayers.findLatestEraNumber(gameId)).willReturn(Optional.of(2));
@@ -132,7 +132,7 @@ class GetChainQueryHandlerTest {
         givenMembership(gameId, playerId, MemberFaction.WEAVERS);
         given(sagas.findAllByGameAndPlayer(gameId, playerId))
                 .willReturn(List.of(new WeaverChainSagaState(
-                        chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 1, null)));
+                        chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 1, null, null)));
         given(chains.findById(chainId))
                 .willReturn(WeaverChain.replay(chainId, List.of(new WeaverChainStarted(chainId, playerId, gameId))));
         given(eraPlayers.findLatestEraNumber(gameId)).willReturn(Optional.of(2));
@@ -149,7 +149,7 @@ class GetChainQueryHandlerTest {
         givenMembership(gameId, playerId, MemberFaction.WEAVERS);
         given(sagas.findAllByGameAndPlayer(gameId, playerId))
                 .willReturn(List.of(new WeaverChainSagaState(
-                        chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 1, null)));
+                        chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 1, null, null)));
         given(chains.findById(chainId))
                 .willReturn(WeaverChain.replay(chainId, List.of(new WeaverChainStarted(chainId, playerId, gameId))));
         given(eraPlayers.findLatestEraNumber(gameId)).willReturn(Optional.empty());
@@ -168,7 +168,7 @@ class GetChainQueryHandlerTest {
         given(sagas.findAllByGameAndPlayer(gameId, playerId))
                 .willReturn(List.of(
                         new WeaverChainSagaState(
-                                brokenChainId, gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null, null),
+                                brokenChainId, gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null, null, null),
                         openSaga(openChainId, gameId, playerId)));
         given(chains.findById(brokenChainId))
                 .willReturn(WeaverChain.replay(
@@ -238,6 +238,6 @@ class GetChainQueryHandlerTest {
     }
 
     private static WeaverChainSagaState openSaga(UUID chainId, UUID gameId, UUID playerId) {
-        return new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null);
+        return new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null, null);
     }
 }

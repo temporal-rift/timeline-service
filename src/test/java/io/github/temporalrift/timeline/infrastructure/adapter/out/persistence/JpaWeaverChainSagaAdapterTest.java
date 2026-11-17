@@ -38,7 +38,7 @@ class JpaWeaverChainSagaAdapterTest {
         var chainId = UUID.randomUUID();
         var gameId = UUID.randomUUID();
         var playerId = UUID.randomUUID();
-        sagas.save(new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 2, 3));
+        sagas.save(new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 2, 3, 2));
 
         var state = sagas.findByChainId(chainId).orElseThrow();
 
@@ -48,6 +48,16 @@ class JpaWeaverChainSagaAdapterTest {
         assertThat(state.tapestryProtected()).isTrue();
         assertThat(state.tapestryUsedEra()).isEqualTo(2);
         assertThat(state.reweaveUsedEra()).isEqualTo(3);
+        assertThat(state.breakGuardEra()).isEqualTo(2);
+    }
+
+    @Test
+    void save_withoutABreakGuard_readsBackNoGuard() {
+        var chainId = UUID.randomUUID();
+        sagas.save(new WeaverChainSagaState(
+                chainId, UUID.randomUUID(), UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null, null, null));
+
+        assertThat(sagas.findByChainId(chainId).orElseThrow().breakGuardEra()).isNull();
     }
 
     @Test
@@ -56,10 +66,10 @@ class JpaWeaverChainSagaAdapterTest {
         var playerId = UUID.randomUUID();
         var openChain = UUID.randomUUID();
         var brokenChain = UUID.randomUUID();
-        sagas.save(
-                new WeaverChainSagaState(openChain, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null));
         sagas.save(new WeaverChainSagaState(
-                brokenChain, gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null, null));
+                openChain, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null, null));
+        sagas.save(new WeaverChainSagaState(
+                brokenChain, gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null, null, null));
 
         var open = sagas.findOpenByGameAndPlayer(gameId, playerId).orElseThrow();
 
@@ -78,13 +88,20 @@ class JpaWeaverChainSagaAdapterTest {
         var playerId = UUID.randomUUID();
         var completedChain = UUID.randomUUID();
         sagas.save(new WeaverChainSagaState(
-                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null, null));
+                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null, null, null));
         sagas.save(new WeaverChainSagaState(
-                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null));
+                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null, null));
         sagas.save(new WeaverChainSagaState(
-                UUID.randomUUID(), gameId, UUID.randomUUID(), WeaverChainSagaStatus.COMPLETED, false, null, null));
+                UUID.randomUUID(),
+                gameId,
+                UUID.randomUUID(),
+                WeaverChainSagaStatus.COMPLETED,
+                false,
+                null,
+                null,
+                null));
         sagas.save(new WeaverChainSagaState(
-                completedChain, gameId, playerId, WeaverChainSagaStatus.COMPLETED, false, null, null));
+                completedChain, gameId, playerId, WeaverChainSagaStatus.COMPLETED, false, null, null, null));
 
         assertThat(sagas.findCompletedByGameAndPlayer(gameId, playerId))
                 .get()
@@ -100,10 +117,10 @@ class JpaWeaverChainSagaAdapterTest {
         var playerId = UUID.randomUUID();
         var openChain = UUID.randomUUID();
         var brokenChain = UUID.randomUUID();
-        sagas.save(
-                new WeaverChainSagaState(openChain, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null));
         sagas.save(new WeaverChainSagaState(
-                brokenChain, gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null, null));
+                openChain, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null, null));
+        sagas.save(new WeaverChainSagaState(
+                brokenChain, gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null, null, null));
 
         assertThat(sagas.findAllByGameAndPlayer(gameId, playerId))
                 .extracting(WeaverChainSagaState::chainId)
@@ -122,11 +139,11 @@ class JpaWeaverChainSagaAdapterTest {
         var first = UUID.randomUUID();
         var second = UUID.randomUUID();
         sagas.save(new WeaverChainSagaState(
-                first, gameId, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null, null));
+                first, gameId, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null, null, null));
         sagas.save(new WeaverChainSagaState(
-                second, gameId, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null, null));
+                second, gameId, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null, null, null));
         sagas.save(new WeaverChainSagaState(
-                UUID.randomUUID(), gameId, UUID.randomUUID(), WeaverChainSagaStatus.ENDED, false, null, null));
+                UUID.randomUUID(), gameId, UUID.randomUUID(), WeaverChainSagaStatus.ENDED, false, null, null, null));
 
         assertThat(sagas.findOpenByGame(gameId))
                 .extracting(WeaverChainSagaState::chainId)
@@ -138,9 +155,11 @@ class JpaWeaverChainSagaAdapterTest {
         var chainId = UUID.randomUUID();
         var gameId = UUID.randomUUID();
         var playerId = UUID.randomUUID();
-        sagas.save(new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 2, null));
+        sagas.save(
+                new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, true, 2, null, null));
 
-        sagas.save(new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, false, 2, null));
+        sagas.save(
+                new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, false, 2, null, null));
 
         var state = sagas.findByChainId(chainId).orElseThrow();
         assertThat(state.tapestryProtected()).isFalse();
@@ -152,9 +171,9 @@ class JpaWeaverChainSagaAdapterTest {
         var gameId = UUID.randomUUID();
         var playerId = UUID.randomUUID();
         sagas.save(new WeaverChainSagaState(
-                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null));
+                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null, null));
         sagas.save(new WeaverChainSagaState(
-                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null));
+                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null, null));
 
         assertThatThrownBy(entityManager::flush).isInstanceOf(PersistenceException.class);
     }
@@ -164,9 +183,9 @@ class JpaWeaverChainSagaAdapterTest {
         var gameId = UUID.randomUUID();
         var playerId = UUID.randomUUID();
         sagas.save(new WeaverChainSagaState(
-                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null));
+                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null, null));
         sagas.save(new WeaverChainSagaState(
-                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null, null));
+                UUID.randomUUID(), gameId, playerId, WeaverChainSagaStatus.BROKEN, false, null, null, null));
 
         entityManager.flush();
 

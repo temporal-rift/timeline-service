@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+  <!--
+      The era in which Tapestry protection was consumed against the chain's pending link while its
+      CHAIN_CONFLICT stays raised: a cascade of that era's paradox clears the link instead of breaking the
+      chain. NULL (every existing row) means no protection was consumed that way.
+  -->
+  <changeSet id="003-add-weaver-chain-saga-break-guard" author="timeline-service">
+    <addColumn tableName="weaver_chain_saga">
+      <column name="break_guard_era" type="INTEGER"/>
+    </addColumn>
+  </changeSet>
+
+</databaseChangeLog>

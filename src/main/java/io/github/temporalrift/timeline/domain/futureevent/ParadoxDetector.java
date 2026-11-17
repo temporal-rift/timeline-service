@@ -90,8 +90,9 @@ public final class ParadoxDetector {
     /**
      * Reports one {@link DetectedParadox} of type {@code CHAIN_CONFLICT} per active chain whose pending link
      * names {@code eventId} and whose named outcome was annihilated — the timeline erased the outcome the
-     * chain's causal claim depends on. Tapestry-protected annihilations never reach here: protection consumes
-     * the Annihilate and clears the link before this detection ever runs (see {@code WeaverChainSaga}).
+     * chain's causal claim depends on. A Tapestry-protected annihilation reaches here like any other under the
+     * default rule, since the protection only keeps the chain from breaking if the paradox cascades; under the
+     * absorbing rule the saga has already cleared the link, so no conflict is found (see {@code WeaverChainSaga}).
      */
     private static List<DetectedParadox> detectChainConflict(
             UUID eventId, List<Outcome> outcomes, List<WeaverChain> chains) {

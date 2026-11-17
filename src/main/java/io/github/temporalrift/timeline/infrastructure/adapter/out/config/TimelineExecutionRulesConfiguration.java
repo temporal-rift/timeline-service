@@ -15,6 +15,7 @@ import io.github.temporalrift.timeline.domain.port.out.ExecutionRulesValidator;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityBandRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
+import io.github.temporalrift.timeline.domain.port.out.TapestryRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRulesPort;
 
 /**
@@ -80,6 +81,19 @@ class TimelineExecutionRulesConfiguration {
     }
 
     @Bean
+    @Primary
+    TapestryRulesPort executionTapestryRules(
+            ExecutionRules active, TapestryRulesProperties deployment, Validator validator) {
+        return ExecutionRulesBinding.servedFrom(
+                TapestryRulesPort.class, active, tapestryBinding(validator), deployment);
+    }
+
+    @Bean
+    ExecutionRulesValidator executionTapestryRulesValidator(Validator validator) {
+        return tapestryBinding(validator).validator();
+    }
+
+    @Bean
     ExecutionRulesValidator executionProbabilityRulesValidator(Validator validator) {
         return probabilityBinding(validator).validator();
     }
@@ -99,5 +113,9 @@ class TimelineExecutionRulesConfiguration {
 
     private static ExecutionRulesBinding<WeaverChainRulesProperties> weaverChainBinding(Validator validator) {
         return new ExecutionRulesBinding<>(WeaverChainRulesProperties.class, "game.rules.victory", validator);
+    }
+
+    private static ExecutionRulesBinding<TapestryRulesProperties> tapestryBinding(Validator validator) {
+        return new ExecutionRulesBinding<>(TapestryRulesProperties.class, "game.rules", validator);
     }
 }
