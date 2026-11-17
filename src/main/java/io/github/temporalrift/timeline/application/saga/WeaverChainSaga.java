@@ -33,6 +33,7 @@ import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaState;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaStatus;
@@ -75,6 +76,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     private final FutureEventEraIndexPort eraIndex;
     private final TimelineEventPublisher publisher;
     private final ExecutionEntropy entropy;
+    private final WeaverChainRulesPort rules;
     private final Clock clock;
 
     WeaverChainSaga(
@@ -84,6 +86,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             FutureEventEraIndexPort eraIndex,
             TimelineEventPublisher publisher,
             ExecutionEntropy entropy,
+            WeaverChainRulesPort rules,
             Clock clock) {
         this.chains = chains;
         this.sagas = sagas;
@@ -91,6 +94,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         this.eraIndex = eraIndex;
         this.publisher = publisher;
         this.entropy = entropy;
+        this.rules = rules;
         this.clock = clock;
     }
 
@@ -513,7 +517,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         var chain = chains.findById(saga.chainId());
         var pending = chain.pendingLink();
         var beforeLength = chain.length();
-        List<WeaverChainEvent> facts = chain.confirmPendingLink();
+        List<WeaverChainEvent> facts = chain.confirmPendingLink(rules.completionLength());
         chains.appendAll(saga.chainId(), facts);
         var grown = chains.findById(saga.chainId());
         UUID previousLinkEventId =

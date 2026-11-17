@@ -56,6 +56,7 @@ import io.github.temporalrift.timeline.domain.port.out.StubExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaState;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaStatus;
@@ -83,6 +84,8 @@ class WeaverChainSagaTest {
 
     private final Map<Integer, List<UUID>> liveEventsByEra = new HashMap<>();
 
+    private static final WeaverChainRulesPort THREE_LINK_CHAINS = () -> 3;
+
     FakeChains chains;
     FakeSagas sagas;
     WeaverChainSaga saga;
@@ -92,7 +95,14 @@ class WeaverChainSagaTest {
         chains = new FakeChains();
         sagas = new FakeSagas();
         saga = new WeaverChainSaga(
-                chains, sagas, futureEvents, eraIndex, publisher, StubExecutionEntropy.unpredictable(), clock);
+                chains,
+                sagas,
+                futureEvents,
+                eraIndex,
+                publisher,
+                StubExecutionEntropy.unpredictable(),
+                THREE_LINK_CHAINS,
+                clock);
     }
 
     private record Coordinate(UUID eventId, UUID outcomeId) {}
@@ -267,6 +277,50 @@ class WeaverChainSagaTest {
         assertThat(chains.findById(chainId).length()).isEqualTo(3);
         published(ChainCompletedEvent.class);
         assertThat(sagas.findByChainId(chainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.COMPLETED);
+    }
+
+    @Test
+    void resolvePendingLink_thirdLinkOfAFourLinkChain_emitsNoCompletion() {
+        useCompletionLength(4);
+        var chainId = openChainWithConfirmedLinks(2);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, pendingEvent, pendingOutcome, ERA));
+
+        saga.resolvePendingLink(GAME_ID, ERA, pendingEvent, pendingOutcome);
+
+        assertThat(chains.findById(chainId).length()).isEqualTo(3);
+        assertThat(chains.findById(chainId).status()).isEqualTo(ChainStatus.ACTIVE);
+        published(ChainLinkAddedEvent.class);
+        publishedNever(ChainCompletedEvent.class);
+        assertThat(sagas.findByChainId(chainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.OPEN);
+    }
+
+    @Test
+    void resolvePendingLink_fourthLinkOfAFourLinkChain_completesChain() {
+        useCompletionLength(4);
+        var chainId = openChainWithConfirmedLinks(3);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, pendingEvent, pendingOutcome, ERA));
+
+        saga.resolvePendingLink(GAME_ID, ERA, pendingEvent, pendingOutcome);
+
+        assertThat(chains.findById(chainId).length()).isEqualTo(4);
+        assertThat(published(ChainCompletedEvent.class).links()).hasSize(4);
+        assertThat(sagas.findByChainId(chainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.COMPLETED);
+    }
+
+    private void useCompletionLength(int completionLength) {
+        saga = new WeaverChainSaga(
+                chains,
+                sagas,
+                futureEvents,
+                eraIndex,
+                publisher,
+                StubExecutionEntropy.unpredictable(),
+                () -> completionLength,
+                clock);
     }
 
     @Test
@@ -912,7 +966,14 @@ class WeaverChainSagaTest {
         var chainId = openChainWithConfirmedLinks(1);
         // Simulate a restart: rebuild the saga service over the same durable repositories.
         var restarted = new WeaverChainSaga(
-                chains, sagas, futureEvents, eraIndex, publisher, StubExecutionEntropy.unpredictable(), clock);
+                chains,
+                sagas,
+                futureEvents,
+                eraIndex,
+                publisher,
+                StubExecutionEntropy.unpredictable(),
+                THREE_LINK_CHAINS,
+                clock);
         var coordinate = stubValidCoordinate();
 
         restarted.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
@@ -958,6 +1019,7 @@ class WeaverChainSagaTest {
                 eraIndex,
                 publisher,
                 StubExecutionEntropy.deterministicIdentities(),
+                THREE_LINK_CHAINS,
                 clock);
         var first = liveOutcome(1);
         saga.playThread(GAME_ID, 1, PLAYER_ID, first.eventId(), first.outcomeId());

@@ -15,19 +15,21 @@ import io.github.temporalrift.timeline.domain.port.out.ExecutionRulesValidator;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityBandRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainRulesPort;
 
 /**
- * In an isolated simulation deployment the probability and paradox-resolution rules are those of the open execution
- * context. The deployment's own records stay the fallback while no context is open.
+ * In an isolated simulation deployment the probability, paradox-resolution and Weaver chain rules are those of the
+ * open execution context. The deployment's own records stay the fallback while no context is open.
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(name = "game.simulation.enabled", havingValue = "true")
 class TimelineExecutionRulesConfiguration {
 
-    private static final List<String> REQUIRED_RULE_KEYS = Stream.concat(
-                    ExecutionRulesBinding.requiredKeys(TimelineRulesProperties.class, "game.rules.probability")
-                            .stream(),
-                    ExecutionRulesBinding.requiredKeys(ParadoxResolutionRulesProperties.class, "game.rules").stream())
+    private static final List<String> REQUIRED_RULE_KEYS = Stream.of(
+                    ExecutionRulesBinding.requiredKeys(TimelineRulesProperties.class, "game.rules.probability"),
+                    ExecutionRulesBinding.requiredKeys(ParadoxResolutionRulesProperties.class, "game.rules"),
+                    ExecutionRulesBinding.requiredKeys(WeaverChainRulesProperties.class, "game.rules.victory"))
+            .flatMap(List::stream)
             .toList();
 
     @Bean
@@ -65,6 +67,19 @@ class TimelineExecutionRulesConfiguration {
     }
 
     @Bean
+    @Primary
+    WeaverChainRulesPort executionWeaverChainRules(
+            ExecutionRules active, WeaverChainRulesProperties deployment, Validator validator) {
+        return ExecutionRulesBinding.servedFrom(
+                WeaverChainRulesPort.class, active, weaverChainBinding(validator), deployment);
+    }
+
+    @Bean
+    ExecutionRulesValidator executionWeaverChainRulesValidator(Validator validator) {
+        return weaverChainBinding(validator).validator();
+    }
+
+    @Bean
     ExecutionRulesValidator executionProbabilityRulesValidator(Validator validator) {
         return probabilityBinding(validator).validator();
     }
@@ -80,5 +95,9 @@ class TimelineExecutionRulesConfiguration {
 
     private static ExecutionRulesBinding<ParadoxResolutionRulesProperties> paradoxBinding(Validator validator) {
         return new ExecutionRulesBinding<>(ParadoxResolutionRulesProperties.class, "game.rules", validator);
+    }
+
+    private static ExecutionRulesBinding<WeaverChainRulesProperties> weaverChainBinding(Validator validator) {
+        return new ExecutionRulesBinding<>(WeaverChainRulesProperties.class, "game.rules.victory", validator);
     }
 }
