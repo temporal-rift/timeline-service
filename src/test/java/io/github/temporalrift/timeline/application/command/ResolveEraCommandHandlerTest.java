@@ -100,6 +100,7 @@ class ResolveEraCommandHandlerTest {
                 chainSagas,
                 chains,
                 weaverChainSaga,
+                () -> true,
                 clock,
                 StubExecutionEntropy.using(random));
         given(chainSagas.findOpenByGame(any())).willReturn(List.of());
