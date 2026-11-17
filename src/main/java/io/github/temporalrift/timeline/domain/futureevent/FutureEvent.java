@@ -548,15 +548,15 @@ public final class FutureEvent {
 
     /**
      * Records {@code outcomeId} as this era's written outcome (a Prophet's {@code FORESIGHT}, written in action round
-     * {@code roundNumber}). The first writing stands for the rest of the era: when the event is already written,
-     * nothing changes and no fact is returned.
+     * {@code roundNumber}). The first writing stands for the rest of the era: when the event is already written, or
+     * the outcome was annihilated in an earlier round, nothing changes and no fact is returned.
      */
     public Optional<OutcomeWritten> writeOutcome(UUID outcomeId, int roundNumber) {
         if (resolved()) {
             throw new FutureEventAlreadyResolvedException(id);
         }
-        outcomeById(outcomeId);
-        if (writtenOutcome != null) {
+        var outcome = outcomeById(outcomeId);
+        if (writtenOutcome != null || outcome.annihilated()) {
             return Optional.empty();
         }
         this.writtenOutcome = new WrittenOutcome(outcomeId, roundNumber);

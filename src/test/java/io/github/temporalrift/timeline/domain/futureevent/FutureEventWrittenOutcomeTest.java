@@ -40,6 +40,19 @@ class FutureEventWrittenOutcomeTest {
     }
 
     @Test
+    @DisplayName("an outcome annihilated in an earlier round cannot be written, and the event stays writable")
+    void writeOutcome_annihilatedOutcome_writesNothing() {
+        var event = event(50, 30, 20);
+        erase(event, ErasureRedistribution.proportional(), o1);
+
+        var written = event.writeOutcome(o1, 2);
+
+        assertThat(written).isEmpty();
+        assertThat(event.writtenOutcome()).isEmpty();
+        assertThat(event.writeOutcome(o2, 2)).contains(new OutcomeWritten(id, o2, 2));
+    }
+
+    @Test
     @DisplayName("writing an unknown outcome is refused")
     void writeOutcome_unknownOutcome_throws() {
         var event = event(50, 30, 20);
