@@ -58,7 +58,8 @@ class BalanceRuleSwitchesTest {
                         .bind(Map.of("game.rules.foresight.writings-per-era", "3"))
                         .writingsPerEra())
                 .isEqualTo(3);
-        assertThatThrownBy(() -> foresight.bind(Map.of("game.rules.foresight.writings-per-era", "0")))
+        var zero = Map.of("game.rules.foresight.writings-per-era", "0");
+        assertThatThrownBy(() -> foresight.bind(zero))
                 .isInstanceOf(InvalidExecutionRulesException.class)
                 .hasMessageContaining("game.rules.foresight.writings-per-era");
     }
