@@ -32,7 +32,8 @@ class WeaverChainRulesPropertiesTest {
 
     @Test
     void aCompletionLengthBelowTwoIsRejectedNamingTheKey() {
-        assertThatThrownBy(() -> binding.bind(Map.of(KEY, "1")))
+        var one = Map.of(KEY, "1");
+        assertThatThrownBy(() -> binding.bind(one))
                 .isInstanceOf(InvalidExecutionRulesException.class)
                 .hasMessageContaining(KEY);
     }

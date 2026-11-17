@@ -28,10 +28,14 @@ import io.github.temporalrift.timeline.domain.port.out.WeaverChainRulesPort;
 @ConditionalOnProperty(name = "game.simulation.enabled", havingValue = "true")
 class TimelineExecutionRulesConfiguration {
 
+    private static final String RULES_PREFIX = "game.rules";
+    private static final String PROBABILITY_PREFIX = RULES_PREFIX + ".probability";
+    private static final String VICTORY_PREFIX = RULES_PREFIX + ".victory";
+
     private static final List<String> REQUIRED_RULE_KEYS = Stream.of(
-                    ExecutionRulesBinding.requiredKeys(TimelineRulesProperties.class, "game.rules.probability"),
-                    ExecutionRulesBinding.requiredKeys(ParadoxResolutionRulesProperties.class, "game.rules"),
-                    ExecutionRulesBinding.requiredKeys(WeaverChainRulesProperties.class, "game.rules.victory"))
+                    ExecutionRulesBinding.requiredKeys(TimelineRulesProperties.class, PROBABILITY_PREFIX),
+                    ExecutionRulesBinding.requiredKeys(ParadoxResolutionRulesProperties.class, RULES_PREFIX),
+                    ExecutionRulesBinding.requiredKeys(WeaverChainRulesProperties.class, VICTORY_PREFIX))
             .flatMap(List::stream)
             .toList();
 
@@ -132,26 +136,26 @@ class TimelineExecutionRulesConfiguration {
     }
 
     private static ExecutionRulesBinding<TimelineRulesProperties> probabilityBinding(Validator validator) {
-        return new ExecutionRulesBinding<>(TimelineRulesProperties.class, "game.rules.probability", validator);
+        return new ExecutionRulesBinding<>(TimelineRulesProperties.class, PROBABILITY_PREFIX, validator);
     }
 
     private static ExecutionRulesBinding<ParadoxResolutionRulesProperties> paradoxBinding(Validator validator) {
-        return new ExecutionRulesBinding<>(ParadoxResolutionRulesProperties.class, "game.rules", validator);
+        return new ExecutionRulesBinding<>(ParadoxResolutionRulesProperties.class, RULES_PREFIX, validator);
     }
 
     private static ExecutionRulesBinding<WeaverChainRulesProperties> weaverChainBinding(Validator validator) {
-        return new ExecutionRulesBinding<>(WeaverChainRulesProperties.class, "game.rules.victory", validator);
+        return new ExecutionRulesBinding<>(WeaverChainRulesProperties.class, VICTORY_PREFIX, validator);
     }
 
     private static ExecutionRulesBinding<TapestryRulesProperties> tapestryBinding(Validator validator) {
-        return new ExecutionRulesBinding<>(TapestryRulesProperties.class, "game.rules", validator);
+        return new ExecutionRulesBinding<>(TapestryRulesProperties.class, RULES_PREFIX, validator);
     }
 
     private static ExecutionRulesBinding<ForesightRulesProperties> foresightBinding(Validator validator) {
-        return new ExecutionRulesBinding<>(ForesightRulesProperties.class, "game.rules.foresight", validator);
+        return new ExecutionRulesBinding<>(ForesightRulesProperties.class, RULES_PREFIX + ".foresight", validator);
     }
 
     private static ExecutionRulesBinding<ParadoxDetectionRulesProperties> paradoxDetectionBinding(Validator validator) {
-        return new ExecutionRulesBinding<>(ParadoxDetectionRulesProperties.class, "game.rules.paradox", validator);
+        return new ExecutionRulesBinding<>(ParadoxDetectionRulesProperties.class, RULES_PREFIX + ".paradox", validator);
     }
 }
