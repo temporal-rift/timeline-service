@@ -13,6 +13,7 @@ import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesExc
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRules;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRulesValidator;
 import io.github.temporalrift.timeline.domain.port.out.ForesightRulesPort;
+import io.github.temporalrift.timeline.domain.port.out.ParadoxDetectionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityBandRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
@@ -108,6 +109,19 @@ class TimelineExecutionRulesConfiguration {
     }
 
     @Bean
+    @Primary
+    ParadoxDetectionRulesPort executionParadoxDetectionRules(
+            ExecutionRules active, ParadoxDetectionRulesProperties deployment, Validator validator) {
+        return ExecutionRulesBinding.servedFrom(
+                ParadoxDetectionRulesPort.class, active, paradoxDetectionBinding(validator), deployment);
+    }
+
+    @Bean
+    ExecutionRulesValidator executionParadoxDetectionRulesValidator(Validator validator) {
+        return paradoxDetectionBinding(validator).validator();
+    }
+
+    @Bean
     ExecutionRulesValidator executionProbabilityRulesValidator(Validator validator) {
         return probabilityBinding(validator).validator();
     }
@@ -135,5 +149,9 @@ class TimelineExecutionRulesConfiguration {
 
     private static ExecutionRulesBinding<ForesightRulesProperties> foresightBinding(Validator validator) {
         return new ExecutionRulesBinding<>(ForesightRulesProperties.class, "game.rules.foresight", validator);
+    }
+
+    private static ExecutionRulesBinding<ParadoxDetectionRulesProperties> paradoxDetectionBinding(Validator validator) {
+        return new ExecutionRulesBinding<>(ParadoxDetectionRulesProperties.class, "game.rules.paradox", validator);
     }
 }

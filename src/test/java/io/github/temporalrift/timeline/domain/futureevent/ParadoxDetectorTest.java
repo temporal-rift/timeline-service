@@ -20,6 +20,45 @@ class ParadoxDetectorTest {
             Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
     @Test
+    void detect_annihilatedWrittenOutcome_reportsFateContradiction() {
+        var written = UUID.randomUUID();
+        var outcomes = List.of(
+                new Outcome(written, "written", 0, false, true),
+                new Outcome(UUID.randomUUID(), "second", 60),
+                new Outcome(UUID.randomUUID(), "third", 40));
+
+        var paradoxes = ParadoxDetector.detect(outcomes, List.of(), UUID.randomUUID(), List.of(), written);
+
+        assertThat(paradoxes).singleElement().satisfies(paradox -> {
+            assertThat(paradox.type()).isEqualTo(ParadoxType.FATE_CONTRADICTION);
+            assertThat(paradox.affectedOutcomeIds()).containsExactly(written);
+        });
+    }
+
+    @Test
+    void detect_annihilatedOtherOutcome_reportsNoFateContradiction() {
+        var written = UUID.randomUUID();
+        var outcomes = List.of(
+                new Outcome(UUID.randomUUID(), "erased", 0, false, true),
+                new Outcome(UUID.randomUUID(), "second", 60),
+                new Outcome(written, "written", 40));
+
+        assertThat(ParadoxDetector.detect(outcomes, List.of(), UUID.randomUUID(), List.of(), written))
+                .isEmpty();
+    }
+
+    @Test
+    void detect_withoutAContestedWriting_reportsNoFateContradiction() {
+        var outcomes = List.of(
+                new Outcome(UUID.randomUUID(), "erased", 0, false, true),
+                new Outcome(UUID.randomUUID(), "second", 60),
+                new Outcome(UUID.randomUUID(), "third", 40));
+
+        assertThat(ParadoxDetector.detect(outcomes, List.of(), UUID.randomUUID(), List.of(), null))
+                .isEmpty();
+    }
+
+    @Test
     void detect_annihilatedOutcomeStrictlyHighest_reportsNoParadox() {
         var outcomes = List.of(
                 new Outcome(UUID.randomUUID(), "annihilated", 50, false, true),

@@ -121,6 +121,7 @@ class ParadoxResolutionSagaImplTest {
                 chains,
                 weaverChainSaga,
                 settleCascades,
+                () -> true,
                 clock,
                 StubExecutionEntropy.using(random));
         lenient().when(chainSagas.findOpenByGame(any())).thenReturn(List.of());

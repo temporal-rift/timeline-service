@@ -7,5 +7,6 @@ package io.github.temporalrift.timeline.domain.futureevent;
 public enum ParadoxType {
     DEAD_HEAT,
     IMPOSSIBLE_ERASURE,
-    CHAIN_CONFLICT
+    CHAIN_CONFLICT,
+    FATE_CONTRADICTION
 }
