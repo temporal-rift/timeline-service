@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Primary;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesException;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRules;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRulesValidator;
+import io.github.temporalrift.timeline.domain.port.out.ForesightRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityBandRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
@@ -94,6 +95,19 @@ class TimelineExecutionRulesConfiguration {
     }
 
     @Bean
+    @Primary
+    ForesightRulesPort executionForesightRules(
+            ExecutionRules active, ForesightRulesProperties deployment, Validator validator) {
+        return ExecutionRulesBinding.servedFrom(
+                ForesightRulesPort.class, active, foresightBinding(validator), deployment);
+    }
+
+    @Bean
+    ExecutionRulesValidator executionForesightRulesValidator(Validator validator) {
+        return foresightBinding(validator).validator();
+    }
+
+    @Bean
     ExecutionRulesValidator executionProbabilityRulesValidator(Validator validator) {
         return probabilityBinding(validator).validator();
     }
@@ -117,5 +131,9 @@ class TimelineExecutionRulesConfiguration {
 
     private static ExecutionRulesBinding<TapestryRulesProperties> tapestryBinding(Validator validator) {
         return new ExecutionRulesBinding<>(TapestryRulesProperties.class, "game.rules", validator);
+    }
+
+    private static ExecutionRulesBinding<ForesightRulesProperties> foresightBinding(Validator validator) {
+        return new ExecutionRulesBinding<>(ForesightRulesProperties.class, "game.rules.foresight", validator);
     }
 }

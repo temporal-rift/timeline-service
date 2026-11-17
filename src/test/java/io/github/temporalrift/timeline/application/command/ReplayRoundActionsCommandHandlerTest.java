@@ -106,6 +106,9 @@ class ReplayRoundActionsCommandHandlerTest {
 
     private final Clock clock = Clock.fixed(BASE_TIME, ZoneOffset.UTC);
 
+    /** The configured writings per era each test runs under, read when the handler replays. */
+    private int writingsPerEra = 1;
+
     private ReplayRoundActionsCommandHandler handler;
 
     @BeforeEach
@@ -120,6 +123,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 cascadeCarryForward,
                 rules,
                 bandRules,
+                () -> writingsPerEra,
                 publisher,
                 weaverChainSaga,
                 clock);
@@ -2471,6 +2475,71 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, 2);
 
         assertThat(w.weights()).containsExactly(0, 60, 40);
+    }
+
+    @Test
+    void replay_secondEventOfTheEra_writesNothingUnderTheDefaultCap() {
+        var first = writtenOutcomeFixture(50, 30, 20);
+        var second = writtenOutcomeFixture(50, 30, 20);
+        givenEraEvents(first, second);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        givenRound(1, specialAction("FORESIGHT", first.eventId(), first.o3()));
+        givenRound(2, specialAction("FORESIGHT", second.eventId(), second.o3()));
+        givenRound(3, specialAction("ANNIHILATE", second.eventId(), second.o1()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 1);
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+        handler.replay(GAME_ID, ERA_NUMBER, 3);
+
+        assertThat(second.weights()).containsExactly(0, 60, 40);
+        then(futureEvents).should().append(first.eventId(), new OutcomeWritten(first.eventId(), first.o3(), 1));
+        then(futureEvents).should(never()).append(eq(second.eventId()), any(OutcomeWritten.class));
+    }
+
+    @Test
+    void replay_secondEventOfTheEra_isWrittenUnderACapOfTwo() {
+        writingsPerEra = 2;
+        var first = writtenOutcomeFixture(50, 30, 20);
+        var second = writtenOutcomeFixture(50, 30, 20);
+        givenEraEvents(first, second);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        givenRound(1, specialAction("FORESIGHT", first.eventId(), first.o3()));
+        givenRound(2, specialAction("FORESIGHT", second.eventId(), second.o3()));
+        givenRound(3, specialAction("ANNIHILATE", second.eventId(), second.o1()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 1);
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+        handler.replay(GAME_ID, ERA_NUMBER, 3);
+
+        assertThat(second.weights()).containsExactly(0, 30, 70);
+    }
+
+    @Test
+    void replay_cancelledFirstForesight_leavesTheAllowanceForALaterOne() {
+        var first = writtenOutcomeFixture(50, 30, 20);
+        var second = writtenOutcomeFixture(50, 30, 20);
+        givenEraEvents(first, second);
+        var prophet = UUID.randomUUID();
+        givenRound(
+                1,
+                List.of(
+                        specialActionBy(prophet, "FORESIGHT", first.eventId(), first.o3()),
+                        nullifyTargets(UUID.randomUUID(), List.of(prophet))));
+        givenRound(2, specialActionBy(prophet, "FORESIGHT", second.eventId(), second.o2()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 1);
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+
+        then(futureEvents).should(never()).append(eq(first.eventId()), any(OutcomeWritten.class));
+        then(futureEvents).should().append(second.eventId(), new OutcomeWritten(second.eventId(), second.o2(), 2));
+    }
+
+    private void givenEraEvents(WrittenOutcomeFixture... fixtures) {
+        var indexed = new java.util.ArrayList<FutureEventEraIndexPort.IndexedEventId>();
+        for (int index = 0; index < fixtures.length; index++) {
+            indexed.add(new FutureEventEraIndexPort.IndexedEventId(fixtures[index].eventId(), index));
+        }
+        lenient().when(eraIndex.findByGameIdAndEraNumber(GAME_ID, ERA_NUMBER)).thenReturn(List.copyOf(indexed));
     }
 
     @Test
