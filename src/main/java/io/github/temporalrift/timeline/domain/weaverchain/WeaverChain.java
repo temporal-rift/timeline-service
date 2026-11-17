@@ -20,11 +20,14 @@ import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
  * {@link #restore(WeaverChainSnapshot, List)}, never loaded from a current-state row. The newest link may be
  * {@code pending} — anchored to a not-yet-resolved current-era outcome (a live THREAD prediction) — before it
  * confirms into {@link #links()}; at most one pending link is open at a time. Links are connected by era
- * succession: each link's era is strictly later than the era of the link before it.
+ * succession: each link's era is strictly later than the era of the link before it. The completion length is a
+ * configured rule passed in when a link confirms; replay never infers completion from the link count, only from the
+ * stored {@link ChainCompleted} fact, so chains completed under an earlier length keep replaying.
  */
 public final class WeaverChain {
 
-    static final int COMPLETION_LENGTH = 3;
+    /** The shortest chain a completion can close: a completed chain always links at least two eras. */
+    static final int MINIMUM_COMPLETION_LENGTH = 2;
 
     private static final String PARAM_EVENT_ID = "eventId";
     private static final String PARAM_OUTCOME_ID = "outcomeId";
@@ -104,9 +107,10 @@ public final class WeaverChain {
     }
 
     /**
-     * Applies one replayed event. A third {@link ChainLinkAdded} marks the chain completed. A repeated completion
+     * Applies one replayed event. Only a {@link ChainCompleted} marks the chain completed. A repeated completion
      * fact is an idempotent echo; anything else after a terminal state fails loudly. Facts carrying another chain's
-     * id, repeating a linked event, or completing a short chain are rejected before mutation.
+     * id, repeating a linked event, or completing a chain shorter than two links or with a pending link are rejected
+     * before mutation.
      */
     private void applyReplayed(ChainFact event, UUID chainId) {
         if (!Objects.equals(event.chainId(), chainId)) {
@@ -144,7 +148,9 @@ public final class WeaverChain {
             when e.eraNumber() != pendingLink.eraNumber() || isLinked(e.eventId()) ->
                 "Invalid re-aimed pending link for " + e.eventId();
             case ChainCompleted _
-            when links.size() != COMPLETION_LENGTH -> "ChainCompleted requires " + COMPLETION_LENGTH + " links";
+            when links.size() < MINIMUM_COMPLETION_LENGTH || pendingLink != null ->
+                "ChainCompleted requires at least " + MINIMUM_COMPLETION_LENGTH
+                        + " confirmed links and no pending link";
             default -> null;
         };
     }
@@ -179,9 +185,6 @@ public final class WeaverChain {
             case ChainLinkAdded _ -> {
                 links.add(pendingLink);
                 pendingLink = null;
-                if (links.size() == COMPLETION_LENGTH) {
-                    status = ChainStatus.COMPLETED;
-                }
             }
             case ChainLinkInvalidated _ -> pendingLink = null;
             case ChainCompleted _ -> status = ChainStatus.COMPLETED;
@@ -221,10 +224,16 @@ public final class WeaverChain {
 
     /**
      * Confirms the chain's open pending link once its named outcome is drawn as its event's winner. Returns the
-     * stream facts to append in order — one {@link ChainLinkAdded}, plus a {@link ChainCompleted} when the third
-     * link lands.
+     * stream facts to append in order — one {@link ChainLinkAdded}, plus a {@link ChainCompleted} when the confirmed
+     * links reach {@code completionLength}.
+     *
+     * @param completionLength the configured number of confirmed links that completes a chain, at least 2
      */
-    public List<WeaverChainEvent> confirmPendingLink() {
+    public List<WeaverChainEvent> confirmPendingLink(int completionLength) {
+        if (completionLength < MINIMUM_COMPLETION_LENGTH) {
+            throw new IllegalArgumentException(
+                    "completionLength must be at least " + MINIMUM_COMPLETION_LENGTH + ": " + completionLength);
+        }
         if (pendingLink == null) {
             throw new InvalidChainLinkException(chainId, null, null, "chain has no pending link to confirm");
         }
@@ -232,7 +241,7 @@ public final class WeaverChain {
         var linkAdded = new ChainLinkAdded(chainId, confirmed.eventId(), confirmed.outcomeId(), confirmed.eraNumber());
         links.add(confirmed);
         pendingLink = null;
-        if (links.size() == COMPLETION_LENGTH) {
+        if (links.size() >= completionLength) {
             status = ChainStatus.COMPLETED;
             return List.of(linkAdded, new ChainCompleted(chainId));
         }

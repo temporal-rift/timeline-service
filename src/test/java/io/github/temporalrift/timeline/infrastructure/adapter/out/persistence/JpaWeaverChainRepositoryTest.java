@@ -149,12 +149,12 @@ class JpaWeaverChainRepositoryTest {
             if (era < 3) {
                 chains.append(chainId, live.threadPendingLink(eventId, outcomeId, era));
                 live = chains.findById(chainId);
-                chains.appendAll(chainId, live.confirmPendingLink());
+                chains.appendAll(chainId, live.confirmPendingLink(3));
                 live = chains.findById(chainId);
             } else {
                 chains.append(chainId, live.threadPendingLink(eventId, outcomeId, era));
                 live = chains.findById(chainId);
-                facts.addAll(live.confirmPendingLink());
+                facts.addAll(live.confirmPendingLink(3));
             }
         }
 
