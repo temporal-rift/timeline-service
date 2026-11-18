@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -109,7 +110,12 @@ class ParadoxResolutionSagaImplTest {
 
     @BeforeEach
     void setUp() {
-        saga = new ParadoxResolutionSagaImpl(
+        saga = sagaWithContest(true);
+        lenient().when(chainSagas.findOpenByGame(any())).thenReturn(List.of());
+    }
+
+    private ParadoxResolutionSagaImpl sagaWithContest(boolean detonateContestsStabilize) {
+        return new ParadoxResolutionSagaImpl(
                 stateManager,
                 futureEvents,
                 eraIndex,
@@ -122,9 +128,9 @@ class ParadoxResolutionSagaImplTest {
                 weaverChainSaga,
                 settleCascades,
                 () -> true,
+                () -> detonateContestsStabilize,
                 clock,
                 StubExecutionEntropy.using(random));
-        lenient().when(chainSagas.findOpenByGame(any())).thenReturn(List.of());
     }
 
     @Test
@@ -1511,6 +1517,54 @@ class ParadoxResolutionSagaImplTest {
                 .toList();
         assertThat(payloads).noneMatch(ParadoxCascaded.class::isInstance);
         assertThat(payloads.get(0)).isInstanceOf(ParadoxResolved.class);
+    }
+
+    @Test
+    void handlePlayerSubmitted_stabilizeOutnumberedByDetonate_cascades() {
+        var publications = closeWithOneStabilizeAndTwoDetonates(saga);
+
+        assertThat(publications).anyMatch(ParadoxCascaded.class::isInstance);
+        assertThat(publications).noneMatch(ParadoxResolved.class::isInstance);
+    }
+
+    @Test
+    void handlePlayerSubmitted_contestOff_singleStabilizeStillClears() {
+        var publications = closeWithOneStabilizeAndTwoDetonates(sagaWithContest(false));
+
+        assertThat(publications).noneMatch(ParadoxCascaded.class::isInstance);
+        assertThat(publications.getFirst()).isInstanceOf(ParadoxResolved.class);
+    }
+
+    private List<Object> closeWithOneStabilizeAndTwoDetonates(ParadoxResolutionSagaImpl underTest) {
+        var paradoxId = UUID.randomUUID();
+        var affectedEventId = UUID.randomUUID();
+        var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        var futureEvent = deadHeatFutureEvent(affectedEventId, outcomeIds, 20, 40, 40, false);
+        var stabilize = new Submission(UUID.randomUUID(), "STABILIZE", CardGrade.I, affectedEventId, null);
+        var firstDetonate = new Submission(UUID.randomUUID(), "DETONATE", CardGrade.I, affectedEventId, null);
+        var secondDetonate = new Submission(UUID.randomUUID(), "DETONATE", CardGrade.I, affectedEventId, null);
+        var phase = ParadoxResolutionPhase.withKnownRoster(
+                UUID.randomUUID(),
+                GAME_ID,
+                ERA_NUMBER,
+                ParadoxResolutionPhaseStatus.WAITING,
+                List.of(new PendingParadox(
+                        paradoxId, ParadoxType.DEAD_HEAT, outcomeIds.subList(1, 3), affectedEventId, 0)),
+                List.of(),
+                List.of(),
+                List.of(stabilize, firstDetonate, secondDetonate),
+                clock.instant());
+        given(stateManager.markSubmitted(GAME_ID, ERA_NUMBER, secondDetonate)).willReturn(Optional.of(phase));
+        given(futureEvents.findById(affectedEventId)).willReturn(futureEvent);
+
+        underTest.handlePlayerSubmitted(GAME_ID, ERA_NUMBER, secondDetonate);
+
+        var captor = ArgumentCaptor.forClass(TimelineEventEnvelope.class);
+        then(publisher).should(atLeastOnce()).publish(captor.capture());
+        return captor.getAllValues().stream()
+                .map(TimelineEventEnvelope::payload)
+                .map(Object.class::cast)
+                .toList();
     }
 
     /** The annihilated outcome holds all the weight, leaving nothing to draw — triggers IMPOSSIBLE_ERASURE. */
