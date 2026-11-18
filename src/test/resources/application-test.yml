@@ -6,6 +6,9 @@ game:
   rules:
     # Short timer so ParadoxResolutionForceCascadeIT doesn't wait the production 60s default.
     paradox-resolution-timer-seconds: 2
+    victory:
+      # The suite's chains complete at three links; the four-link default is covered by its own tests.
+      weaver-chain-length: 3
     probability:
       push-shift:
         I: 10

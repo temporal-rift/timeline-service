@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.github.temporal-rift</groupId>
         <artifactId>temporal-rift-bom</artifactId>
-        <version>2.0.5</version>
+        <version>2.1.0</version>
         <relativePath/>
     </parent>
 
@@ -54,7 +54,7 @@
         <sonar.exclusions>**/generated-sources/**/*</sonar.exclusions>
         <sonar.coverage.exclusions>**/generated-sources/**/*</sonar.coverage.exclusions>
 
-        <timeline-event.version>7.4.0</timeline-event.version>
+        <timeline-event.version>7.5.0</timeline-event.version>
         <session-event.version>7.2.0</session-event.version>
         <action-event.version>9.5.0</action-event.version>
         <chains-api.version>2.0.0</chains-api.version>
@@ -231,6 +231,20 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <configuration>
+                    <targetClasses>
+                        <param>io.github.temporalrift.timeline.domain.*</param>
+                        <param>io.github.temporalrift.timeline.application.*</param>
+                    </targetClasses>
+                    <targetTests>
+                        <param>io.github.temporalrift.timeline.domain.*</param>
+                        <param>io.github.temporalrift.timeline.application.*</param>
+                    </targetTests>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

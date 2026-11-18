@@ -34,11 +34,58 @@ public final class ParadoxDetector {
      */
     public static List<DetectedParadox> detect(
             List<Outcome> outcomes, List<CollidedPair> collidedPairs, UUID eventId, List<WeaverChain> chains) {
+        return detect(outcomes, collidedPairs, eventId, chains, null);
+    }
+
+    /**
+     * Detection for one active event from its own era state: its outcomes, its collided pairs and, while
+     * {@code fateContradiction} is on, its written outcome.
+     */
+    public static List<DetectedParadox> detect(FutureEvent event, List<WeaverChain> chains, boolean fateContradiction) {
+        UUID written = fateContradiction
+                ? event.writtenOutcome().map(WrittenOutcome::outcomeId).orElse(null)
+                : null;
+        return detect(event.outcomes(), event.collidedPairs(), event.id(), chains, written);
+    }
+
+    /**
+     * Full detection for one active event. {@code contestedWrittenOutcomeId} is the event's written outcome when the
+     * fate-contradiction rule is on, otherwise {@code null}; an annihilated written outcome is a
+     * {@code FATE_CONTRADICTION}.
+     */
+    public static List<DetectedParadox> detect(
+            List<Outcome> outcomes,
+            List<CollidedPair> collidedPairs,
+            UUID eventId,
+            List<WeaverChain> chains,
+            UUID contestedWrittenOutcomeId) {
         var paradoxes = new ArrayList<DetectedParadox>();
         paradoxes.addAll(detectDeadHeat(outcomes, collidedPairs));
         paradoxes.addAll(detectImpossibleErasure(outcomes));
         paradoxes.addAll(detectChainConflict(eventId, outcomes, chains));
+        paradoxes.addAll(detectFateContradiction(outcomes, contestedWrittenOutcomeId));
         return List.copyOf(paradoxes);
+    }
+
+    /**
+     * Reports one {@link DetectedParadox} of type {@code FATE_CONTRADICTION} when the event's written outcome is
+     * annihilated — the timeline erased what a Prophet wrote. A writing applies before its round's Annihilates and an
+     * annihilated outcome cannot be written, so such an erasure always came in the write round or later.
+     */
+    private static List<DetectedParadox> detectFateContradiction(List<Outcome> outcomes, UUID writtenOutcomeId) {
+        if (writtenOutcomeId == null) {
+            return List.of();
+        }
+        boolean erased = outcomes.stream()
+                .anyMatch(
+                        outcome -> outcome.annihilated() && outcome.outcomeId().equals(writtenOutcomeId));
+        if (!erased) {
+            return List.of();
+        }
+        return List.of(new DetectedParadox(
+                ParadoxType.FATE_CONTRADICTION,
+                List.of(writtenOutcomeId),
+                "Written outcome " + writtenOutcomeId + " was annihilated"));
     }
 
     /**
@@ -90,8 +137,9 @@ public final class ParadoxDetector {
     /**
      * Reports one {@link DetectedParadox} of type {@code CHAIN_CONFLICT} per active chain whose pending link
      * names {@code eventId} and whose named outcome was annihilated — the timeline erased the outcome the
-     * chain's causal claim depends on. Tapestry-protected annihilations never reach here: protection consumes
-     * the Annihilate and clears the link before this detection ever runs (see {@code WeaverChainSaga}).
+     * chain's causal claim depends on. A Tapestry-protected annihilation reaches here like any other under the
+     * default rule, since the protection only keeps the chain from breaking if the paradox cascades; under the
+     * absorbing rule the saga has already cleared the link, so no conflict is found (see {@code WeaverChainSaga}).
      */
     private static List<DetectedParadox> detectChainConflict(
             UUID eventId, List<Outcome> outcomes, List<WeaverChain> chains) {

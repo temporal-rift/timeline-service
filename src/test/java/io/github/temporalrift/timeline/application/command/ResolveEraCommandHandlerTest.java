@@ -100,6 +100,7 @@ class ResolveEraCommandHandlerTest {
                 chainSagas,
                 chains,
                 weaverChainSaga,
+                () -> true,
                 clock,
                 StubExecutionEntropy.using(random));
         given(chainSagas.findOpenByGame(any())).willReturn(List.of());
@@ -656,7 +657,7 @@ class ResolveEraCommandHandlerTest {
         var chainId = UUID.randomUUID();
         given(chainSagas.findOpenByGame(GAME_ID))
                 .willReturn(List.of(new WeaverChainSagaState(
-                        chainId, GAME_ID, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null, null)));
+                        chainId, GAME_ID, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null, null, null)));
         given(chains.findById(chainId)).willReturn(chainWithPendingLink(chainId, eventId, pendingOutcomeId));
     }
 

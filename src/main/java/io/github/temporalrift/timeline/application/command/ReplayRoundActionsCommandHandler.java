@@ -38,6 +38,7 @@ import io.github.temporalrift.timeline.domain.futureevent.ProbabilityBand;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.futureevent.SimultaneousShift;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
+import io.github.temporalrift.timeline.domain.port.out.ForesightRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityBandRulesPort;
@@ -125,6 +126,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private final CascadeCarryForwardPort cascadeCarryForward;
     private final ProbabilityRulesPort rules;
     private final ProbabilityBandRulesPort bandRules;
+    private final ForesightRulesPort foresightRules;
     private final TimelineEventPublisher publisher;
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final Clock clock;
@@ -137,6 +139,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             CascadeCarryForwardPort cascadeCarryForward,
             ProbabilityRulesPort rules,
             ProbabilityBandRulesPort bandRules,
+            ForesightRulesPort foresightRules,
             TimelineEventPublisher publisher,
             WeaverChainSagaUseCase weaverChainSaga,
             Clock clock) {
@@ -147,6 +150,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         this.cascadeCarryForward = cascadeCarryForward;
         this.rules = rules;
         this.bandRules = bandRules;
+        this.foresightRules = foresightRules;
         this.publisher = publisher;
         this.weaverChainSaga = weaverChainSaga;
         this.clock = clock;
@@ -193,7 +197,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 sorted,
                 cancelled,
                 a -> isSpecial(a, SPECIAL_ACTION_FORESIGHT),
-                a -> applyForesightWriting(roundNumber, a, events));
+                a -> applyForesightWriting(gameId, eraNumber, roundNumber, a, events));
         applyAnnihilateTier(gameId, eraNumber, roundNumber, sorted, cancelled, events);
         applyCascadeTier(gameId, eraNumber, sorted, cancelled);
         // Judged after ANNIHILATE: both need a live target, and a Reweave escapes a same-round Annihilate.
@@ -434,16 +438,34 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     /**
      * Records a still-live FORESIGHT's named outcome as its event's written outcome for this era. The first writing
      * stands, so a later Foresight on an already-written event appends nothing. A Foresight without both a target event
-     * and a target outcome writes nothing. The writing is internal state and is never published.
+     * and a target outcome writes nothing. Once the era holds the configured number of writings, a further Foresight
+     * writes nothing either; only the game's single Prophet writes, so the era's written events are that Prophet's
+     * writings. A Foresight that writes nothing for any reason does not count. The writing is internal state and is
+     * never published.
      */
-    private void applyForesightWriting(int roundNumber, BufferedAction a, ReplayEvents events) {
+    private void applyForesightWriting(
+            UUID gameId, int eraNumber, int roundNumber, BufferedAction a, ReplayEvents events) {
         if (a.targetEventId() == null || a.targetOutcomeId() == null) {
             return;
         }
-        events.find(a.targetEventId())
-                .ifPresent(futureEvent -> futureEvent
-                        .writeOutcome(a.targetOutcomeId(), roundNumber)
-                        .ifPresent(written -> futureEvents.append(a.targetEventId(), written)));
+        var target = events.find(a.targetEventId());
+        if (target.isEmpty() || target.get().writtenOutcome().isPresent()) {
+            return;
+        }
+        if (writingsThisEra(gameId, eraNumber, events) >= foresightRules.writingsPerEra()) {
+            return;
+        }
+        target.get()
+                .writeOutcome(a.targetOutcomeId(), roundNumber)
+                .ifPresent(written -> futureEvents.append(a.targetEventId(), written));
+    }
+
+    private long writingsThisEra(UUID gameId, int eraNumber, ReplayEvents events) {
+        return eraIndex.findByGameIdAndEraNumber(gameId, eraNumber).stream()
+                .map(indexed -> events.find(indexed.eventId()))
+                .flatMap(Optional::stream)
+                .filter(futureEvent -> futureEvent.writtenOutcome().isPresent())
+                .count();
     }
 
     /**

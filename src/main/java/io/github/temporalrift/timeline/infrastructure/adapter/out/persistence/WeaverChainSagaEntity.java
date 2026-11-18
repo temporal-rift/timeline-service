@@ -9,6 +9,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaState;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaStatus;
 
 @Entity
@@ -38,25 +39,22 @@ class WeaverChainSagaEntity {
     @Column(name = "reweave_used_era")
     private Integer reweaveUsedEra;
 
+    @Column(name = "break_guard_era")
+    private Integer breakGuardEra;
+
     protected WeaverChainSagaEntity() {
         // for JPA
     }
 
-    WeaverChainSagaEntity(
-            UUID chainId,
-            UUID gameId,
-            UUID playerId,
-            WeaverChainSagaStatus status,
-            boolean tapestryProtected,
-            Integer tapestryUsedEra,
-            Integer reweaveUsedEra) {
-        this.chainId = chainId;
-        this.gameId = gameId;
-        this.playerId = playerId;
-        this.status = status;
-        this.tapestryProtected = tapestryProtected;
-        this.tapestryUsedEra = tapestryUsedEra;
-        this.reweaveUsedEra = reweaveUsedEra;
+    WeaverChainSagaEntity(WeaverChainSagaState state) {
+        this.chainId = state.chainId();
+        this.gameId = state.gameId();
+        this.playerId = state.playerId();
+        this.status = state.status();
+        this.tapestryProtected = state.tapestryProtected();
+        this.tapestryUsedEra = state.tapestryUsedEra();
+        this.reweaveUsedEra = state.reweaveUsedEra();
+        this.breakGuardEra = state.breakGuardEra();
     }
 
     UUID getChainId() {
@@ -85,5 +83,9 @@ class WeaverChainSagaEntity {
 
     Integer getReweaveUsedEra() {
         return reweaveUsedEra;
+    }
+
+    Integer getBreakGuardEra() {
+        return breakGuardEra;
     }
 }

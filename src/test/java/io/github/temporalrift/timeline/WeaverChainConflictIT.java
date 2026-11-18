@@ -17,8 +17,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * Kafka-level proof that an Annihilate threatens the Weaver's pending link instead of guaranteeing it: a cleared
- * chain conflict and a Tapestry absorption both keep the chain unbroken, but only the drawn winner confirms a
- * link; and a pending link whose event cascades expires in its origin era so the next era's Thread is accepted.
+ * chain conflict keeps the chain unbroken, but only the drawn winner confirms a link; a Tapestry-protected link still
+ * raises the conflict, but its cascade keeps the chain; and a pending link whose event cascades expires in its origin
+ * era so the next era's Thread is accepted.
  */
 @TimelineServiceIntegrationTest
 class WeaverChainConflictIT {
@@ -90,14 +91,13 @@ class WeaverChainConflictIT {
     }
 
     @Test
-    void tapestryAbsorption_clearsTheLinkAndOnlyTheNextDrawnWinnerCompletesTheChain() {
+    void protectedAnnihilation_raisesTheConflictButACascadeKeepsTheChain() {
         var gameId = UUID.randomUUID();
         var weaver = UUID.randomUUID();
         confirmTwoLinks(gameId, weaver);
         var event = UUID.randomUUID();
         var predicted = UUID.randomUUID();
-        var rethreaded = UUID.randomUUID();
-        drawEra(gameId, 3, weaver, event, predicted, 50, rethreaded, 50, UUID.randomUUID(), 0);
+        drawEra(gameId, 3, weaver, event, predicted, 50, UUID.randomUUID(), 50, UUID.randomUUID(), 0);
 
         weaverSpecial(gameId, 3, 1, weaver, "THREAD", event, predicted);
         publisher.actionRoundClosed(gameId, 3, 1);
@@ -108,22 +108,22 @@ class WeaverChainConflictIT {
         publisher.actionRoundClosed(gameId, 3, 2);
         awaitCount(gameId, CHAIN_PROTECTION_ARMED, 1);
         awaitCount(gameId, CHAIN_PROTECTION_CONSUMED, 1);
-        awaitCount(gameId, CHAIN_LINK_INVALIDATED, 1);
-        assertThat(payloadsOf(gameId, CHAIN_LINK_ADDED)).hasSize(2);
+        assertThat(eventTypesOf(gameId)).doesNotContain(CHAIN_LINK_INVALIDATED);
 
-        weaverSpecial(gameId, 3, 3, weaver, "THREAD", event, rethreaded);
-        publisher.actionRoundClosed(gameId, 3, 3);
-        awaitCount(gameId, CHAIN_LINK_THREADED, 4);
+        // Nobody stabilizes: the conflict stands and the phase timer cascades the event.
         publisher.resolutionStarted(gameId, 3, UUID.randomUUID());
+        awaitParadox(gameId, "CHAIN_CONFLICT");
+        awaitCount(gameId, PARADOX_CASCADED, 1);
 
-        awaitWinner(gameId, event, rethreaded);
         await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(() -> assertThat(payloadsOf(gameId, CHAIN_COMPLETED))
+                .untilAsserted(() -> assertThat(payloadsOf(gameId, CHAIN_LINK_INVALIDATED))
                         .singleElement()
-                        .satisfies(completed -> assertThat(((List<?>) completed.get("links")).getLast())
-                                .asString()
-                                .contains(rethreaded.toString())));
-        assertThat(eventTypesOf(gameId)).doesNotContain(PARADOX_DETECTED, THREAD_REJECTED, CHAIN_BROKEN);
+                        .satisfies(payload -> {
+                            assertThat(payload.get("invalidatedOutcomeId")).hasToString(predicted.toString());
+                            assertThat(payload).containsEntry("chainLength", 2);
+                        }));
+        assertThat(payloadsOf(gameId, CHAIN_LINK_ADDED)).hasSize(2);
+        assertThat(eventTypesOf(gameId)).doesNotContain(CHAIN_BROKEN, CHAIN_COMPLETED);
     }
 
     @Test

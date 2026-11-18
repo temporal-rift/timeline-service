@@ -58,14 +58,7 @@ class JpaWeaverChainSagaAdapter implements WeaverChainSagaRepository {
     @Override
     @Transactional
     public void save(WeaverChainSagaState state) {
-        jpaRepository.save(new WeaverChainSagaEntity(
-                state.chainId(),
-                state.gameId(),
-                state.playerId(),
-                state.status(),
-                state.tapestryProtected(),
-                state.tapestryUsedEra(),
-                state.reweaveUsedEra()));
+        jpaRepository.save(new WeaverChainSagaEntity(state));
     }
 
     private static WeaverChainSagaState toState(WeaverChainSagaEntity entity) {
@@ -76,6 +69,7 @@ class JpaWeaverChainSagaAdapter implements WeaverChainSagaRepository {
                 entity.getStatus(),
                 entity.isTapestryProtected(),
                 entity.getTapestryUsedEra(),
-                entity.getReweaveUsedEra());
+                entity.getReweaveUsedEra(),
+                entity.getBreakGuardEra());
     }
 }

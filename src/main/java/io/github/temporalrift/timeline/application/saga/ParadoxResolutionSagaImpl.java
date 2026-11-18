@@ -38,6 +38,7 @@ import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
+import io.github.temporalrift.timeline.domain.port.out.ParadoxDetectionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
@@ -77,9 +78,13 @@ class ParadoxResolutionSagaImpl {
     private final WeaverChainRepository chains;
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final SettleCascadeCarryForwardUseCase settleCascades;
+    private final ParadoxDetectionRulesPort paradoxRules;
     private final Clock clock;
     private final ExecutionEntropy entropy;
 
+    // The two ExecutionEntropy beans are conditional on opposite values of game.simulation.enabled,
+    // so exactly one exists in any context.
+    @SuppressWarnings("java:S9352")
     ParadoxResolutionSagaImpl(
             ParadoxResolutionPhaseStateManager stateManager,
             FutureEventRepository futureEvents,
@@ -92,6 +97,7 @@ class ParadoxResolutionSagaImpl {
             WeaverChainRepository chains,
             WeaverChainSagaUseCase weaverChainSaga,
             SettleCascadeCarryForwardUseCase settleCascades,
+            ParadoxDetectionRulesPort paradoxRules,
             Clock clock,
             ExecutionEntropy entropy) {
         this.stateManager = stateManager;
@@ -105,6 +111,7 @@ class ParadoxResolutionSagaImpl {
         this.chains = chains;
         this.weaverChainSaga = weaverChainSaga;
         this.settleCascades = settleCascades;
+        this.paradoxRules = paradoxRules;
         this.clock = clock;
         this.entropy = entropy;
     }
@@ -330,8 +337,7 @@ class ParadoxResolutionSagaImpl {
         boolean stabilized = isStabilized(phase, affectedEventId, futureEvent);
         var freshParadoxes = stabilized
                 ? List.<DetectedParadox>of()
-                : ParadoxDetector.detect(
-                        futureEvent.outcomes(), futureEvent.collidedPairs(), futureEvent.id(), activeChains);
+                : ParadoxDetector.detect(futureEvent, activeChains, paradoxRules.fateContradiction());
 
         var persistingIds = reconcileFindings(
                 phase,

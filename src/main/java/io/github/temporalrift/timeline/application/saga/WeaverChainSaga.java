@@ -30,9 +30,11 @@ import io.github.temporalrift.timeline.domain.futureevent.FutureEventNotFoundExc
 import io.github.temporalrift.timeline.domain.port.out.ExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
+import io.github.temporalrift.timeline.domain.port.out.TapestryRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaState;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaStatus;
@@ -75,8 +77,13 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     private final FutureEventEraIndexPort eraIndex;
     private final TimelineEventPublisher publisher;
     private final ExecutionEntropy entropy;
+    private final WeaverChainRulesPort rules;
+    private final TapestryRulesPort tapestryRules;
     private final Clock clock;
 
+    // The two ExecutionEntropy beans are conditional on opposite values of game.simulation.enabled,
+    // so exactly one exists in any context.
+    @SuppressWarnings("java:S9352")
     WeaverChainSaga(
             WeaverChainRepository chains,
             WeaverChainSagaRepository sagas,
@@ -84,6 +91,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             FutureEventEraIndexPort eraIndex,
             TimelineEventPublisher publisher,
             ExecutionEntropy entropy,
+            WeaverChainRulesPort rules,
+            TapestryRulesPort tapestryRules,
             Clock clock) {
         this.chains = chains;
         this.sagas = sagas;
@@ -91,6 +100,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         this.eraIndex = eraIndex;
         this.publisher = publisher;
         this.entropy = entropy;
+        this.rules = rules;
+        this.tapestryRules = tapestryRules;
         this.clock = clock;
     }
 
@@ -141,8 +152,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         UUID chainId = saga == null ? newChainId(gameId, playerId) : saga.chainId();
         if (saga == null) {
             chains.append(chainId, new WeaverChainStarted(chainId, playerId, gameId));
-            sagas.save(
-                    new WeaverChainSagaState(chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null));
+            sagas.save(new WeaverChainSagaState(
+                    chainId, gameId, playerId, WeaverChainSagaStatus.OPEN, false, null, null, null));
         }
         var chain = chains.findById(chainId);
         try {
@@ -243,7 +254,14 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             return;
         }
         sagas.save(new WeaverChainSagaState(
-                saga.chainId(), gameId, playerId, WeaverChainSagaStatus.OPEN, true, eraNumber, saga.reweaveUsedEra()));
+                saga.chainId(),
+                gameId,
+                playerId,
+                WeaverChainSagaStatus.OPEN,
+                true,
+                eraNumber,
+                saga.reweaveUsedEra(),
+                saga.breakGuardEra()));
         publisher.publish(TimelineEventEnvelope.create(
                 saga.chainId(),
                 AGGREGATE_TYPE,
@@ -321,7 +339,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 WeaverChainSagaStatus.OPEN,
                 saga.tapestryProtected(),
                 saga.tapestryUsedEra(),
-                eraNumber));
+                eraNumber,
+                saga.breakGuardEra()));
         publisher.publish(TimelineEventEnvelope.create(
                 saga.chainId(),
                 AGGREGATE_TYPE,
@@ -374,9 +393,11 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     }
 
     /**
-     * An older-era pending link expires before matching the annihilated outcome. For a current-era match,
-     * Tapestry consumes protection and clears the link, whose erased outcome can no longer win; otherwise the
-     * link remains pending for {@code ParadoxDetector} at era resolution.
+     * An older-era pending link expires before matching the annihilated outcome. For a current-era match with armed
+     * Tapestry, the protection is consumed. Under the default rule the link stays pending, so {@code ParadoxDetector}
+     * raises {@code CHAIN_CONFLICT} at era resolution, and the saga records a break guard for this era: if that
+     * paradox cascades, the link only clears. Under the absorbing rule the link clears at once, its erased outcome
+     * being unable to win. Without protection the link remains pending for the detector as well.
      */
     private void protectPendingLinkIfArmed(
             WeaverChainSagaState saga, UUID gameId, int eraNumber, UUID eventId, UUID outcomeId) {
@@ -401,6 +422,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         if (!protectedNow) {
             return;
         }
+        boolean absorbs = tapestryRules.tapestryAbsorbsChainConflict();
         sagas.save(new WeaverChainSagaState(
                 saga.chainId(),
                 gameId,
@@ -408,7 +430,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 WeaverChainSagaStatus.OPEN,
                 false,
                 saga.tapestryUsedEra(),
-                saga.reweaveUsedEra()));
+                saga.reweaveUsedEra(),
+                absorbs ? saga.breakGuardEra() : Integer.valueOf(eraNumber)));
         publisher.publish(TimelineEventEnvelope.create(
                 saga.chainId(),
                 AGGREGATE_TYPE,
@@ -417,7 +440,9 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 new ChainProtectionConsumedEvent(
                         gameId, eraNumber, saga.chainId(), saga.playerId(), eventId, outcomeId),
                 clock));
-        clearPendingLink(gameId, eraNumber, saga, chain);
+        if (absorbs) {
+            clearPendingLink(gameId, eraNumber, saga, chain);
+        }
     }
 
     @Override
@@ -484,6 +509,11 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
             }
             return;
         }
+        if (Integer.valueOf(eraNumber).equals(saga.breakGuardEra())) {
+            // Tapestry protection was consumed against this link this era: the paradox stood, but the chain holds.
+            clearPendingLink(gameId, eraNumber, saga, chain);
+            return;
+        }
         breakChain(saga, gameId, eraNumber, paradoxId, chain);
     }
 
@@ -498,7 +528,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                 WeaverChainSagaStatus.BROKEN,
                 false,
                 saga.tapestryUsedEra(),
-                saga.reweaveUsedEra()));
+                saga.reweaveUsedEra(),
+                saga.breakGuardEra()));
         publisher.publish(TimelineEventEnvelope.create(
                 saga.chainId(),
                 AGGREGATE_TYPE,
@@ -513,7 +544,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         var chain = chains.findById(saga.chainId());
         var pending = chain.pendingLink();
         var beforeLength = chain.length();
-        List<WeaverChainEvent> facts = chain.confirmPendingLink();
+        List<WeaverChainEvent> facts = chain.confirmPendingLink(rules.completionLength());
         chains.appendAll(saga.chainId(), facts);
         var grown = chains.findById(saga.chainId());
         UUID previousLinkEventId =
@@ -541,7 +572,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                     WeaverChainSagaStatus.COMPLETED,
                     false,
                     saga.tapestryUsedEra(),
-                    saga.reweaveUsedEra()));
+                    saga.reweaveUsedEra(),
+                    saga.breakGuardEra()));
             publishChainCompleted(gameId, saga, grown);
         }
     }
@@ -579,7 +611,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                     WeaverChainSagaStatus.OPEN,
                     false,
                     saga.tapestryUsedEra(),
-                    saga.reweaveUsedEra()));
+                    saga.reweaveUsedEra(),
+                    saga.breakGuardEra()));
         }
     }
 
@@ -598,7 +631,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                     WeaverChainSagaStatus.ENDED,
                     false,
                     saga.tapestryUsedEra(),
-                    saga.reweaveUsedEra()));
+                    saga.reweaveUsedEra(),
+                    saga.breakGuardEra()));
         }
     }
 

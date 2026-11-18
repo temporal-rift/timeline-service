@@ -177,6 +177,7 @@ class ExecutionRulesBindingTest {
         properties.put("game.rules.probability.band-low-max", "30");
         properties.put("game.rules.probability.band-medium-max", "60");
         properties.put("game.rules.paradox-resolution-timer-seconds", "2");
+        properties.put("game.rules.victory.weaver-chain-length", "3");
         return properties;
     }
 }

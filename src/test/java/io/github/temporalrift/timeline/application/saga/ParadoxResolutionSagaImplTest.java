@@ -121,6 +121,7 @@ class ParadoxResolutionSagaImplTest {
                 chains,
                 weaverChainSaga,
                 settleCascades,
+                () -> true,
                 clock,
                 StubExecutionEntropy.using(random));
         lenient().when(chainSagas.findOpenByGame(any())).thenReturn(List.of());
@@ -1566,7 +1567,7 @@ class ParadoxResolutionSagaImplTest {
         var chainId = UUID.randomUUID();
         given(chainSagas.findOpenByGame(GAME_ID))
                 .willReturn(List.of(new WeaverChainSagaState(
-                        chainId, GAME_ID, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null, null)));
+                        chainId, GAME_ID, UUID.randomUUID(), WeaverChainSagaStatus.OPEN, false, null, null, null)));
         given(chains.findById(chainId)).willReturn(chainWithPendingLink(chainId, eventId, pendingOutcomeId));
     }
 

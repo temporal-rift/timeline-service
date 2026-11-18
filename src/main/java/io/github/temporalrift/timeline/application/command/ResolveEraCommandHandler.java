@@ -26,6 +26,7 @@ import io.github.temporalrift.timeline.domain.port.out.ExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
+import io.github.temporalrift.timeline.domain.port.out.ParadoxDetectionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
@@ -59,9 +60,13 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
     private final WeaverChainSagaRepository chainSagas;
     private final WeaverChainRepository chains;
     private final WeaverChainSagaUseCase weaverChainSaga;
+    private final ParadoxDetectionRulesPort paradoxRules;
     private final Clock clock;
     private final ExecutionEntropy entropy;
 
+    // The two ExecutionEntropy beans are conditional on opposite values of game.simulation.enabled,
+    // so exactly one exists in any context.
+    @SuppressWarnings("java:S9352")
     ResolveEraCommandHandler(
             FutureEventEraIndexPort eraIndex,
             FutureEventRepository futureEvents,
@@ -71,6 +76,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             WeaverChainSagaRepository chainSagas,
             WeaverChainRepository chains,
             WeaverChainSagaUseCase weaverChainSaga,
+            ParadoxDetectionRulesPort paradoxRules,
             Clock clock,
             ExecutionEntropy entropy) {
         this.eraIndex = eraIndex;
@@ -81,6 +87,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
         this.chainSagas = chainSagas;
         this.chains = chains;
         this.weaverChainSaga = weaverChainSaga;
+        this.paradoxRules = paradoxRules;
         this.clock = clock;
         this.entropy = entropy;
     }
@@ -137,8 +144,7 @@ class ResolveEraCommandHandler implements ResolveEraUseCase {
             addStalled(gameId, eraNumber, indexedEventId, futureEvent, accumulator.terminalResolutions());
             return;
         }
-        var detected = ParadoxDetector.detect(
-                futureEvent.outcomes(), futureEvent.collidedPairs(), futureEvent.id(), activeChains);
+        var detected = ParadoxDetector.detect(futureEvent, activeChains, paradoxRules.fateContradiction());
         if (detected.isEmpty()) {
             var outcomeApplied = resolveOne(futureEvent, gameId, eraNumber);
             weaverChainSaga.resolvePendingLink(gameId, eraNumber, futureEvent.id(), outcomeApplied.winningOutcomeId());

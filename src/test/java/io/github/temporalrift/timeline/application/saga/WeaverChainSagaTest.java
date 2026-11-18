@@ -53,9 +53,11 @@ import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort.IndexedEventId;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
 import io.github.temporalrift.timeline.domain.port.out.StubExecutionEntropy;
+import io.github.temporalrift.timeline.domain.port.out.TapestryRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaState;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaStatus;
@@ -83,6 +85,13 @@ class WeaverChainSagaTest {
 
     private final Map<Integer, List<UUID>> liveEventsByEra = new HashMap<>();
 
+    private static final WeaverChainRulesPort THREE_LINK_CHAINS = () -> 3;
+
+    /** The Tapestry rule each test runs under; {@code false} is the default rule, read when the saga acts. */
+    private boolean tapestryAbsorbs;
+
+    private final TapestryRulesPort tapestry = () -> tapestryAbsorbs;
+
     FakeChains chains;
     FakeSagas sagas;
     WeaverChainSaga saga;
@@ -92,7 +101,15 @@ class WeaverChainSagaTest {
         chains = new FakeChains();
         sagas = new FakeSagas();
         saga = new WeaverChainSaga(
-                chains, sagas, futureEvents, eraIndex, publisher, StubExecutionEntropy.unpredictable(), clock);
+                chains,
+                sagas,
+                futureEvents,
+                eraIndex,
+                publisher,
+                StubExecutionEntropy.unpredictable(),
+                THREE_LINK_CHAINS,
+                tapestry,
+                clock);
     }
 
     private record Coordinate(UUID eventId, UUID outcomeId) {}
@@ -270,6 +287,51 @@ class WeaverChainSagaTest {
     }
 
     @Test
+    void resolvePendingLink_thirdLinkOfAFourLinkChain_emitsNoCompletion() {
+        useCompletionLength(4);
+        var chainId = openChainWithConfirmedLinks(2);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, pendingEvent, pendingOutcome, ERA));
+
+        saga.resolvePendingLink(GAME_ID, ERA, pendingEvent, pendingOutcome);
+
+        assertThat(chains.findById(chainId).length()).isEqualTo(3);
+        assertThat(chains.findById(chainId).status()).isEqualTo(ChainStatus.ACTIVE);
+        published(ChainLinkAddedEvent.class);
+        publishedNever(ChainCompletedEvent.class);
+        assertThat(sagas.findByChainId(chainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.OPEN);
+    }
+
+    @Test
+    void resolvePendingLink_fourthLinkOfAFourLinkChain_completesChain() {
+        useCompletionLength(4);
+        var chainId = openChainWithConfirmedLinks(3);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, pendingEvent, pendingOutcome, ERA));
+
+        saga.resolvePendingLink(GAME_ID, ERA, pendingEvent, pendingOutcome);
+
+        assertThat(chains.findById(chainId).length()).isEqualTo(4);
+        assertThat(published(ChainCompletedEvent.class).links()).hasSize(4);
+        assertThat(sagas.findByChainId(chainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.COMPLETED);
+    }
+
+    private void useCompletionLength(int completionLength) {
+        saga = new WeaverChainSaga(
+                chains,
+                sagas,
+                futureEvents,
+                eraIndex,
+                publisher,
+                StubExecutionEntropy.unpredictable(),
+                () -> completionLength,
+                tapestry,
+                clock);
+    }
+
+    @Test
     void resolvePendingLink_differentWinner_clearsWithoutPenalty() {
         var chainId = openChainWithPendingLink();
         var pending = chains.findById(chainId).pendingLink();
@@ -371,7 +433,82 @@ class WeaverChainSagaTest {
     }
 
     @Test
+    void annihilate_protectedPendingLink_byDefault_keepsTheLinkOpenAndGuardsTheChain() {
+        var chainId = openChainWithConfirmedLinks(2);
+        saga.playTapestry(GAME_ID, ERA, PLAYER_ID);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, pendingEvent, pendingOutcome, ERA));
+
+        saga.annihilateOutcome(GAME_ID, ERA, pendingEvent, pendingOutcome);
+
+        var chain = chains.findById(chainId);
+        assertThat(chain.pendingLink().outcomeId()).isEqualTo(pendingOutcome);
+        assertThat(published(ChainProtectionConsumedEvent.class).protectedEventId())
+                .isEqualTo(pendingEvent);
+        publishedNever(ChainLinkInvalidatedEvent.class);
+        var state = sagas.findByChainId(chainId).orElseThrow();
+        assertThat(state.tapestryProtected()).isFalse();
+        assertThat(state.breakGuardEra()).isEqualTo(ERA);
+    }
+
+    @Test
+    void breakChainOnCascadedParadox_guardedLink_clearsTheLinkWithoutBreaking() {
+        var chainId = openChainWithConfirmedLinks(2);
+        saga.playTapestry(GAME_ID, ERA, PLAYER_ID);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, pendingEvent, pendingOutcome, ERA));
+        saga.annihilateOutcome(GAME_ID, ERA, pendingEvent, pendingOutcome);
+
+        saga.breakChainOnCascadedParadox(GAME_ID, ERA, pendingEvent, pendingOutcome, UUID.randomUUID());
+
+        var chain = chains.findById(chainId);
+        assertThat(chain.status()).isEqualTo(ChainStatus.ACTIVE);
+        assertThat(chain.length()).isEqualTo(2);
+        assertThat(chain.pendingLink()).isNull();
+        assertThat(published(ChainLinkInvalidatedEvent.class).invalidatedOutcomeId())
+                .isEqualTo(pendingOutcome);
+        publishedNever(ChainBrokenEvent.class);
+        assertThat(sagas.findByChainId(chainId).orElseThrow().status()).isEqualTo(WeaverChainSagaStatus.OPEN);
+    }
+
+    @Test
+    void breakChainOnCascadedParadox_guardFromAnEarlierEra_doesNotProtect() {
+        var chainId = openChainWithConfirmedLinks(2);
+        var state = sagas.findByChainId(chainId).orElseThrow();
+        sagas.save(new WeaverChainSagaState(
+                chainId, GAME_ID, PLAYER_ID, WeaverChainSagaStatus.OPEN, false, ERA - 1, null, ERA - 1));
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, pendingEvent, pendingOutcome, ERA));
+
+        saga.breakChainOnCascadedParadox(GAME_ID, ERA, pendingEvent, pendingOutcome, UUID.randomUUID());
+
+        assertThat(state.chainId()).isEqualTo(chainId);
+        assertThat(chains.findById(chainId).status()).isEqualTo(ChainStatus.BROKEN);
+        published(ChainBrokenEvent.class);
+    }
+
+    @Test
+    void annihilate_protectedPendingLink_byDefault_blocksANewThreadThatEra() {
+        var chainId = openChainWithConfirmedLinks(2);
+        saga.playTapestry(GAME_ID, ERA, PLAYER_ID);
+        var pendingEvent = UUID.randomUUID();
+        var pendingOutcome = UUID.randomUUID();
+        chains.append(chainId, new ChainLinkThreaded(chainId, pendingEvent, pendingOutcome, ERA));
+        saga.annihilateOutcome(GAME_ID, ERA, pendingEvent, pendingOutcome);
+        var coordinate = stubValidCoordinate();
+
+        saga.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
+
+        assertThat(chains.findById(chainId).pendingLink().eventId()).isEqualTo(pendingEvent);
+        published(ThreadRejectedEvent.class);
+    }
+
+    @Test
     void annihilate_protectedPendingLink_consumesProtectionAndClearsWithoutConfirming() {
+        tapestryAbsorbs = true;
         var chainId = openChainWithConfirmedLinks(2);
         saga.playTapestry(GAME_ID, ERA, PLAYER_ID);
         published(ChainProtectionArmedEvent.class);
@@ -398,6 +535,7 @@ class WeaverChainSagaTest {
 
     @Test
     void annihilate_protectedPendingLink_weaverThreadsAgainInTheSameEra() {
+        tapestryAbsorbs = true;
         var chainId = openChainWithConfirmedLinks(2);
         saga.playTapestry(GAME_ID, ERA, PLAYER_ID);
         var pendingEvent = UUID.randomUUID();
@@ -417,6 +555,7 @@ class WeaverChainSagaTest {
 
     @Test
     void annihilate_oldEraPendingLink_preservesNewEraProtection() {
+        tapestryAbsorbs = true;
         var chainId = openChainWithConfirmedLinks(2);
         var pendingEvent = UUID.randomUUID();
         var pendingOutcome = UUID.randomUUID();
@@ -680,6 +819,7 @@ class WeaverChainSagaTest {
 
     @Test
     void reweave_tapestryArmed_stillProtectsReAimedLink() {
+        tapestryAbsorbs = true;
         var chainId = openChainWithPendingLink(2, liveOutcome(ERA));
         saga.playTapestry(GAME_ID, ERA, PLAYER_ID);
         var target = liveOutcome(ERA);
@@ -912,7 +1052,15 @@ class WeaverChainSagaTest {
         var chainId = openChainWithConfirmedLinks(1);
         // Simulate a restart: rebuild the saga service over the same durable repositories.
         var restarted = new WeaverChainSaga(
-                chains, sagas, futureEvents, eraIndex, publisher, StubExecutionEntropy.unpredictable(), clock);
+                chains,
+                sagas,
+                futureEvents,
+                eraIndex,
+                publisher,
+                StubExecutionEntropy.unpredictable(),
+                THREE_LINK_CHAINS,
+                tapestry,
+                clock);
         var coordinate = stubValidCoordinate();
 
         restarted.playThread(GAME_ID, ERA, PLAYER_ID, coordinate.eventId(), coordinate.outcomeId());
@@ -958,6 +1106,8 @@ class WeaverChainSagaTest {
                 eraIndex,
                 publisher,
                 StubExecutionEntropy.deterministicIdentities(),
+                THREE_LINK_CHAINS,
+                tapestry,
                 clock);
         var first = liveOutcome(1);
         saga.playThread(GAME_ID, 1, PLAYER_ID, first.eventId(), first.outcomeId());
@@ -988,8 +1138,8 @@ class WeaverChainSagaTest {
             history.add(new ChainLinkAdded(chainId, eventId, outcomeId, index + 1));
         }
         chains.appendAll(chainId, history);
-        sagas.save(
-                new WeaverChainSagaState(chainId, GAME_ID, PLAYER_ID, WeaverChainSagaStatus.OPEN, false, null, null));
+        sagas.save(new WeaverChainSagaState(
+                chainId, GAME_ID, PLAYER_ID, WeaverChainSagaStatus.OPEN, false, null, null, null));
         return chainId;
     }
 
@@ -1000,8 +1150,8 @@ class WeaverChainSagaTest {
                 new WeaverChainStarted(chainId, PLAYER_ID, GAME_ID),
                 new ChainLinkThreaded(chainId, UUID.randomUUID(), UUID.randomUUID(), ERA));
         chains.appendAll(chainId, history);
-        sagas.save(
-                new WeaverChainSagaState(chainId, GAME_ID, PLAYER_ID, WeaverChainSagaStatus.OPEN, false, null, null));
+        sagas.save(new WeaverChainSagaState(
+                chainId, GAME_ID, PLAYER_ID, WeaverChainSagaStatus.OPEN, false, null, null, null));
         return chainId;
     }
 

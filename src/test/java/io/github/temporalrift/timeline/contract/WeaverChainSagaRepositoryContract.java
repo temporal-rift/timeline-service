@@ -62,6 +62,7 @@ public interface WeaverChainSagaRepositoryContract {
             WeaverChainSagaStatus status,
             boolean tapestryProtected,
             Integer tapestryUsedEra) {
-        return new WeaverChainSagaState(chainId, gameId, playerId, status, tapestryProtected, tapestryUsedEra, null);
+        return new WeaverChainSagaState(
+                chainId, gameId, playerId, status, tapestryProtected, tapestryUsedEra, null, null);
     }
 }
