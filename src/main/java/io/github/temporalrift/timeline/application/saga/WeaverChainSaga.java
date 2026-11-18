@@ -81,6 +81,9 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     private final TapestryRulesPort tapestryRules;
     private final Clock clock;
 
+    // The two ExecutionEntropy beans are conditional on opposite values of game.simulation.enabled,
+    // so exactly one exists in any context.
+    @SuppressWarnings("java:S9352")
     WeaverChainSaga(
             WeaverChainRepository chains,
             WeaverChainSagaRepository sagas,
