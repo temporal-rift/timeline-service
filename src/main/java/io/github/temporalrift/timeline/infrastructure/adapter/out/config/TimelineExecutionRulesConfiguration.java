@@ -13,6 +13,7 @@ import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesExc
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRules;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRulesValidator;
 import io.github.temporalrift.timeline.domain.port.out.ForesightRulesPort;
+import io.github.temporalrift.timeline.domain.port.out.ParadoxContestRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxDetectionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityBandRulesPort;
@@ -115,14 +116,22 @@ class TimelineExecutionRulesConfiguration {
     @Bean
     @Primary
     ParadoxDetectionRulesPort executionParadoxDetectionRules(
-            ExecutionRules active, ParadoxDetectionRulesProperties deployment, Validator validator) {
+            ExecutionRules active, ParadoxRulesProperties deployment, Validator validator) {
         return ExecutionRulesBinding.servedFrom(
-                ParadoxDetectionRulesPort.class, active, paradoxDetectionBinding(validator), deployment);
+                ParadoxDetectionRulesPort.class, active, paradoxSwitchesBinding(validator), deployment);
     }
 
     @Bean
-    ExecutionRulesValidator executionParadoxDetectionRulesValidator(Validator validator) {
-        return paradoxDetectionBinding(validator).validator();
+    @Primary
+    ParadoxContestRulesPort executionParadoxContestRules(
+            ExecutionRules active, ParadoxRulesProperties deployment, Validator validator) {
+        return ExecutionRulesBinding.servedFrom(
+                ParadoxContestRulesPort.class, active, paradoxSwitchesBinding(validator), deployment);
+    }
+
+    @Bean
+    ExecutionRulesValidator executionParadoxSwitchesValidator(Validator validator) {
+        return paradoxSwitchesBinding(validator).validator();
     }
 
     @Bean
@@ -155,7 +164,7 @@ class TimelineExecutionRulesConfiguration {
         return new ExecutionRulesBinding<>(ForesightRulesProperties.class, RULES_PREFIX + ".foresight", validator);
     }
 
-    private static ExecutionRulesBinding<ParadoxDetectionRulesProperties> paradoxDetectionBinding(Validator validator) {
-        return new ExecutionRulesBinding<>(ParadoxDetectionRulesProperties.class, RULES_PREFIX + ".paradox", validator);
+    private static ExecutionRulesBinding<ParadoxRulesProperties> paradoxSwitchesBinding(Validator validator) {
+        return new ExecutionRulesBinding<>(ParadoxRulesProperties.class, RULES_PREFIX + ".paradox", validator);
     }
 }

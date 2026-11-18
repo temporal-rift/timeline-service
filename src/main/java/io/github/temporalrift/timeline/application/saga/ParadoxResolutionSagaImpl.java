@@ -38,6 +38,7 @@ import io.github.temporalrift.timeline.domain.port.out.EraPlayersPort;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
+import io.github.temporalrift.timeline.domain.port.out.ParadoxContestRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxDetectionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxResolutionRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
@@ -66,6 +67,7 @@ class ParadoxResolutionSagaImpl {
     private static final String CLOSE_REASON_TIMER_EXPIRED = "TIMER_EXPIRED";
     private static final String CLOSE_REASON_ALL_SUBMITTED = "ALL_SUBMITTED";
     private static final String STABILIZE = "STABILIZE";
+    private static final String DETONATE = "DETONATE";
 
     private final ParadoxResolutionPhaseStateManager stateManager;
     private final FutureEventRepository futureEvents;
@@ -79,6 +81,7 @@ class ParadoxResolutionSagaImpl {
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final SettleCascadeCarryForwardUseCase settleCascades;
     private final ParadoxDetectionRulesPort paradoxRules;
+    private final ParadoxContestRulesPort contestRules;
     private final Clock clock;
     private final ExecutionEntropy entropy;
 
@@ -98,6 +101,7 @@ class ParadoxResolutionSagaImpl {
             WeaverChainSagaUseCase weaverChainSaga,
             SettleCascadeCarryForwardUseCase settleCascades,
             ParadoxDetectionRulesPort paradoxRules,
+            ParadoxContestRulesPort contestRules,
             Clock clock,
             ExecutionEntropy entropy) {
         this.stateManager = stateManager;
@@ -112,6 +116,7 @@ class ParadoxResolutionSagaImpl {
         this.weaverChainSaga = weaverChainSaga;
         this.settleCascades = settleCascades;
         this.paradoxRules = paradoxRules;
+        this.contestRules = contestRules;
         this.clock = clock;
         this.entropy = entropy;
     }
@@ -471,12 +476,28 @@ class ParadoxResolutionSagaImpl {
 
     /**
      * STABILIZE clears every finding without changing weights, so a remaining tie is settled by the ordinary weighted
-     * draw; it has no effect on an event with no drawable weight left (see {@code IMPOSSIBLE_ERASURE}).
+     * draw; it has no effect on an event with no drawable weight left (see {@code IMPOSSIBLE_ERASURE}). While Detonate
+     * contests Stabilize, the event clears only when its distinct stabilizers are at least its distinct detonators, so
+     * the table decides the paradox instead of any single player vetoing the cascade.
      */
-    private static boolean isStabilized(ParadoxResolutionPhase phase, UUID affectedEventId, FutureEvent futureEvent) {
-        return futureEvent.hasDrawableWeight()
-                && phase.submissions().stream()
-                        .anyMatch(s -> STABILIZE.equals(s.cardType()) && affectedEventId.equals(s.targetEventId()));
+    private boolean isStabilized(ParadoxResolutionPhase phase, UUID affectedEventId, FutureEvent futureEvent) {
+        if (!futureEvent.hasDrawableWeight()) {
+            return false;
+        }
+        long stabilizers = distinctPlayers(phase, affectedEventId, STABILIZE);
+        if (stabilizers == 0) {
+            return false;
+        }
+        return !contestRules.detonateContestsStabilize()
+                || stabilizers >= distinctPlayers(phase, affectedEventId, DETONATE);
+    }
+
+    private static long distinctPlayers(ParadoxResolutionPhase phase, UUID affectedEventId, String cardType) {
+        return phase.submissions().stream()
+                .filter(s -> cardType.equals(s.cardType()) && affectedEventId.equals(s.targetEventId()))
+                .map(Submission::playerId)
+                .distinct()
+                .count();
     }
 
     /**
@@ -487,7 +508,7 @@ class ParadoxResolutionSagaImpl {
      */
     private static List<UUID> detonatedByPlayerIds(ParadoxResolutionPhase phase, UUID affectedEventId) {
         return phase.submissions().stream()
-                .filter(s -> "DETONATE".equals(s.cardType()) && affectedEventId.equals(s.targetEventId()))
+                .filter(s -> DETONATE.equals(s.cardType()) && affectedEventId.equals(s.targetEventId()))
                 .map(Submission::playerId)
                 .distinct()
                 .toList();
