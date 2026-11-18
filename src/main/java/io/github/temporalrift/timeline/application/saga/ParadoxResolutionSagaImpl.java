@@ -82,6 +82,9 @@ class ParadoxResolutionSagaImpl {
     private final Clock clock;
     private final ExecutionEntropy entropy;
 
+    // The two ExecutionEntropy beans are conditional on opposite values of game.simulation.enabled,
+    // so exactly one exists in any context.
+    @SuppressWarnings("java:S9352")
     ParadoxResolutionSagaImpl(
             ParadoxResolutionPhaseStateManager stateManager,
             FutureEventRepository futureEvents,
