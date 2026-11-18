@@ -1523,8 +1523,14 @@ class ParadoxResolutionSagaImplTest {
     void handlePlayerSubmitted_stabilizeOutnumberedByDetonate_cascades() {
         var publications = closeWithOneStabilizeAndTwoDetonates(saga);
 
-        assertThat(publications).anyMatch(ParadoxCascaded.class::isInstance);
         assertThat(publications).noneMatch(ParadoxResolved.class::isInstance);
+        assertThat(publications)
+                .filteredOn(ParadoxCascaded.class::isInstance)
+                .singleElement()
+                .satisfies(cascaded -> assertThat(((ParadoxCascaded) cascaded).detonatedByPlayerIds())
+                        .containsExactlyInAnyOrder(FIRST_DETONATOR, SECOND_DETONATOR));
+        then(eraIndex).should().add(CONTESTED_EVENT, GAME_ID, ERA_NUMBER + 1, 0);
+        assertThat(terminalStates(publications)).containsExactly(TerminalResolution.TerminalState.CASCADED);
     }
 
     @Test
@@ -1533,16 +1539,31 @@ class ParadoxResolutionSagaImplTest {
 
         assertThat(publications).noneMatch(ParadoxCascaded.class::isInstance);
         assertThat(publications.getFirst()).isInstanceOf(ParadoxResolved.class);
+        then(eraIndex).should(never()).add(any(), any(), anyInt(), anyInt());
+        assertThat(terminalStates(publications)).containsExactly(TerminalResolution.TerminalState.OUTCOME_APPLIED);
+    }
+
+    private static final UUID CONTESTED_EVENT = UUID.randomUUID();
+    private static final UUID FIRST_DETONATOR = UUID.randomUUID();
+    private static final UUID SECOND_DETONATOR = UUID.randomUUID();
+
+    private static List<TerminalResolution.TerminalState> terminalStates(List<Object> publications) {
+        return publications.stream()
+                .filter(EraResolutionCompleted.class::isInstance)
+                .map(EraResolutionCompleted.class::cast)
+                .flatMap(barrier -> barrier.terminalResolutions().stream())
+                .map(TerminalResolution::terminalState)
+                .toList();
     }
 
     private List<Object> closeWithOneStabilizeAndTwoDetonates(ParadoxResolutionSagaImpl underTest) {
         var paradoxId = UUID.randomUUID();
-        var affectedEventId = UUID.randomUUID();
+        var affectedEventId = CONTESTED_EVENT;
         var outcomeIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
         var futureEvent = deadHeatFutureEvent(affectedEventId, outcomeIds, 20, 40, 40, false);
         var stabilize = new Submission(UUID.randomUUID(), "STABILIZE", CardGrade.I, affectedEventId, null);
-        var firstDetonate = new Submission(UUID.randomUUID(), "DETONATE", CardGrade.I, affectedEventId, null);
-        var secondDetonate = new Submission(UUID.randomUUID(), "DETONATE", CardGrade.I, affectedEventId, null);
+        var firstDetonate = new Submission(FIRST_DETONATOR, "DETONATE", CardGrade.I, affectedEventId, null);
+        var secondDetonate = new Submission(SECOND_DETONATOR, "DETONATE", CardGrade.I, affectedEventId, null);
         var phase = ParadoxResolutionPhase.withKnownRoster(
                 UUID.randomUUID(),
                 GAME_ID,
