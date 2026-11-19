@@ -19,6 +19,7 @@ import io.github.temporalrift.timeline.domain.event.ChainProtectionArmedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainProtectionConsumedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchored;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchoredEvent;
+import io.github.temporalrift.timeline.domain.event.InvalidationCause;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.ThreadRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
@@ -441,7 +442,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                         gameId, eraNumber, saga.chainId(), saga.playerId(), eventId, outcomeId),
                 clock));
         if (absorbs) {
-            clearPendingLink(gameId, eraNumber, saga, chain);
+            clearPendingLink(gameId, eraNumber, saga, chain, InvalidationCause.ANNIHILATE_ABSORBED);
         }
     }
 
@@ -469,7 +470,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         if (pending.outcomeId().equals(winningOutcomeId)) {
             confirmPendingLink(gameId, saga);
         } else {
-            clearPendingLink(gameId, eraNumber, saga, chain);
+            clearPendingLink(gameId, eraNumber, saga, chain, InvalidationCause.RESOLVED_DIFFERENTLY);
         }
     }
 
@@ -511,7 +512,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         }
         if (Integer.valueOf(eraNumber).equals(saga.breakGuardEra())) {
             // Tapestry protection was consumed against this link this era: the paradox stood, but the chain holds.
-            clearPendingLink(gameId, eraNumber, saga, chain);
+            clearPendingLink(gameId, eraNumber, saga, chain, InvalidationCause.CHAIN_CONFLICT_CLEARED);
             return;
         }
         breakChain(saga, gameId, eraNumber, paradoxId, chain);
@@ -579,7 +580,8 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
     }
 
     /** Clears the given saga's chain's pending link, publishing {@code ChainLinkInvalidated} (no penalty). */
-    private void clearPendingLink(UUID gameId, int eraNumber, WeaverChainSagaState saga, WeaverChain chain) {
+    private void clearPendingLink(
+            UUID gameId, int eraNumber, WeaverChainSagaState saga, WeaverChain chain, InvalidationCause cause) {
         var fact = chain.clearPendingLink();
         chains.append(saga.chainId(), fact);
         var current = chains.findById(saga.chainId());
@@ -595,14 +597,15 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
                         saga.playerId(),
                         fact.eventId(),
                         fact.outcomeId(),
-                        current.length()),
+                        current.length(),
+                        cause),
                 clock));
     }
 
     /** Expires a pending prediction and disarms protection armed in its era. */
     private void expirePendingLink(UUID gameId, int eraNumber, WeaverChainSagaState saga, WeaverChain chain) {
         var pendingEra = chain.pendingLink().eraNumber();
-        clearPendingLink(gameId, eraNumber, saga, chain);
+        clearPendingLink(gameId, eraNumber, saga, chain, InvalidationCause.NO_WINNER);
         if (saga.tapestryProtected() && Integer.valueOf(pendingEra).equals(saga.tapestryUsedEra())) {
             sagas.save(new WeaverChainSagaState(
                     saga.chainId(),
@@ -622,7 +625,7 @@ class WeaverChainSaga implements WeaverChainSagaUseCase {
         for (var saga : sagas.findOpenByGame(gameId)) {
             var chain = chains.findById(saga.chainId());
             if (chain.pendingLink() != null) {
-                clearPendingLink(gameId, chain.pendingLink().eraNumber(), saga, chain);
+                clearPendingLink(gameId, chain.pendingLink().eraNumber(), saga, chain, InvalidationCause.GAME_ENDED);
             }
             sagas.save(new WeaverChainSagaState(
                     saga.chainId(),

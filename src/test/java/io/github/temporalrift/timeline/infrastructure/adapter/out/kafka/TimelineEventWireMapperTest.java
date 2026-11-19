@@ -18,6 +18,7 @@ import io.github.temporalrift.timeline.domain.event.ChainProtectionArmedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainProtectionConsumedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchoredEvent;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
+import io.github.temporalrift.timeline.domain.event.InvalidationCause;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.ParadoxCascaded;
 import io.github.temporalrift.timeline.domain.event.ParadoxResolved;
@@ -239,7 +240,14 @@ class TimelineEventWireMapperTest {
         var invalidatedEventId = UUID.randomUUID();
         var invalidatedOutcomeId = UUID.randomUUID();
         var event = new ChainLinkInvalidatedEvent(
-                gameId, 2, chainId, playerId, invalidatedEventId, invalidatedOutcomeId, 1);
+                gameId,
+                2,
+                chainId,
+                playerId,
+                invalidatedEventId,
+                invalidatedOutcomeId,
+                1,
+                InvalidationCause.RESOLVED_DIFFERENTLY);
 
         var wire = mapper.toWire(event);
 
@@ -250,6 +258,7 @@ class TimelineEventWireMapperTest {
         assertThat(wire.invalidatedEventId()).isEqualTo(invalidatedEventId);
         assertThat(wire.invalidatedOutcomeId()).isEqualTo(invalidatedOutcomeId);
         assertThat(wire.chainLength()).isEqualTo(1);
+        assertThat(wire.cause().name()).isEqualTo("RESOLVED_DIFFERENTLY");
     }
 
     @Test
