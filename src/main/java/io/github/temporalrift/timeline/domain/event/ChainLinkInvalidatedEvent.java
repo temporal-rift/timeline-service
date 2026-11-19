@@ -10,4 +10,5 @@ public record ChainLinkInvalidatedEvent(
         UUID playerId,
         UUID invalidatedEventId,
         UUID invalidatedOutcomeId,
-        int chainLength) {}
+        int chainLength,
+        InvalidationCause cause) {}

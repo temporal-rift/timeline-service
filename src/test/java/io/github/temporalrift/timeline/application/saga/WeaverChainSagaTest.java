@@ -42,6 +42,7 @@ import io.github.temporalrift.timeline.domain.event.ChainProtectionArmedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainProtectionConsumedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchoredEvent;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
+import io.github.temporalrift.timeline.domain.event.InvalidationCause;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
 import io.github.temporalrift.timeline.domain.event.SpecialRejectedEvent;
 import io.github.temporalrift.timeline.domain.event.ThreadRejectedEvent;
@@ -343,6 +344,7 @@ class WeaverChainSagaTest {
         assertThat(chain.pendingLink()).isNull();
         var invalidated = published(ChainLinkInvalidatedEvent.class);
         assertThat(invalidated.invalidatedEventId()).isEqualTo(pending.eventId());
+        assertThat(invalidated.cause()).isEqualTo(InvalidationCause.RESOLVED_DIFFERENTLY);
     }
 
     @Test
@@ -373,6 +375,7 @@ class WeaverChainSagaTest {
         assertThat(invalidated.invalidatedEventId()).isEqualTo(eventId);
         assertThat(invalidated.invalidatedOutcomeId()).isEqualTo(outcomeId);
         assertThat(invalidated.chainLength()).isEqualTo(2);
+        assertThat(invalidated.cause()).isEqualTo(InvalidationCause.NO_WINNER);
         publishedNever(ChainLinkAddedEvent.class);
         publishedNever(ChainCompletedEvent.class);
     }
@@ -527,6 +530,7 @@ class WeaverChainSagaTest {
         var invalidated = published(ChainLinkInvalidatedEvent.class);
         assertThat(invalidated.invalidatedOutcomeId()).isEqualTo(pendingOutcome);
         assertThat(invalidated.chainLength()).isEqualTo(2);
+        assertThat(invalidated.cause()).isEqualTo(InvalidationCause.ANNIHILATE_ABSORBED);
         publishedNever(ChainLinkAddedEvent.class);
         publishedNever(ChainCompletedEvent.class);
         assertThat(sagas.findByChainId(chainId).orElseThrow().tapestryProtected())
