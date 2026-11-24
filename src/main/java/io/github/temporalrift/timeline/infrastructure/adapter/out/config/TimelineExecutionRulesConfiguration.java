@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Primary;
 import io.github.temporalrift.timeline.domain.execution.InvalidExecutionRulesException;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRules;
 import io.github.temporalrift.timeline.domain.port.out.ExecutionRulesValidator;
+import io.github.temporalrift.timeline.domain.port.out.FactionBetWindowRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ForesightRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxContestRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ParadoxDetectionRulesPort;
@@ -115,6 +116,19 @@ class TimelineExecutionRulesConfiguration {
 
     @Bean
     @Primary
+    FactionBetWindowRulesPort executionFactionBetWindowRules(
+            ExecutionRules active, FactionBetWindowRulesProperties deployment, Validator validator) {
+        return ExecutionRulesBinding.servedFrom(
+                FactionBetWindowRulesPort.class, active, factionBetWindowBinding(validator), deployment);
+    }
+
+    @Bean
+    ExecutionRulesValidator executionFactionBetWindowRulesValidator(Validator validator) {
+        return factionBetWindowBinding(validator).validator();
+    }
+
+    @Bean
+    @Primary
     ParadoxDetectionRulesPort executionParadoxDetectionRules(
             ExecutionRules active, ParadoxRulesProperties deployment, Validator validator) {
         return ExecutionRulesBinding.servedFrom(
@@ -162,6 +176,10 @@ class TimelineExecutionRulesConfiguration {
 
     private static ExecutionRulesBinding<ForesightRulesProperties> foresightBinding(Validator validator) {
         return new ExecutionRulesBinding<>(ForesightRulesProperties.class, RULES_PREFIX + ".foresight", validator);
+    }
+
+    private static ExecutionRulesBinding<FactionBetWindowRulesProperties> factionBetWindowBinding(Validator validator) {
+        return new ExecutionRulesBinding<>(FactionBetWindowRulesProperties.class, RULES_PREFIX, validator);
     }
 
     private static ExecutionRulesBinding<ParadoxRulesProperties> paradoxSwitchesBinding(Validator validator) {

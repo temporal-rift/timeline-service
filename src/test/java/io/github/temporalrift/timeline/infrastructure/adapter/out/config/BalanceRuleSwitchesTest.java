@@ -65,6 +65,21 @@ class BalanceRuleSwitchesTest {
     }
 
     @Test
+    void betWindowDefaultsToRoundTwoAndRejectsValuesOutsideOneToThree() {
+        var window = new ExecutionRulesBinding<>(FactionBetWindowRulesProperties.class, "game.rules", VALIDATOR);
+        assertThat(window.bind(Map.of()).factionBetLatestRound()).isEqualTo(2);
+        assertThat(window.bind(Map.of("game.rules.faction-bet-latest-round", "3"))
+                        .factionBetLatestRound())
+                .isEqualTo(3);
+        for (var invalid : new String[] {"0", "4"}) {
+            var rules = Map.of("game.rules.faction-bet-latest-round", invalid);
+            assertThatThrownBy(() -> window.bind(rules))
+                    .isInstanceOf(InvalidExecutionRulesException.class)
+                    .hasMessageContaining("game.rules.faction-bet-latest-round");
+        }
+    }
+
+    @Test
     void aContextServesItsOwnWritingCap() {
         var context = new ExecutionRules.Rules("f".repeat(64), Map.of("game.rules.foresight.writings-per-era", "3"));
         ExecutionRules active = () -> Optional.of(context);
