@@ -38,6 +38,7 @@ import io.github.temporalrift.timeline.domain.futureevent.ProbabilityBand;
 import io.github.temporalrift.timeline.domain.futureevent.ProbabilityShift;
 import io.github.temporalrift.timeline.domain.futureevent.SimultaneousShift;
 import io.github.temporalrift.timeline.domain.port.out.CascadeCarryForwardPort;
+import io.github.temporalrift.timeline.domain.port.out.FactionBetWindowRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.ForesightRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventEraIndexPort;
 import io.github.temporalrift.timeline.domain.port.out.FutureEventRepository;
@@ -127,6 +128,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
     private final ProbabilityRulesPort rules;
     private final ProbabilityBandRulesPort bandRules;
     private final ForesightRulesPort foresightRules;
+    private final FactionBetWindowRulesPort factionBetWindow;
     private final TimelineEventPublisher publisher;
     private final WeaverChainSagaUseCase weaverChainSaga;
     private final Clock clock;
@@ -140,6 +142,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
             ProbabilityRulesPort rules,
             ProbabilityBandRulesPort bandRules,
             ForesightRulesPort foresightRules,
+            FactionBetWindowRulesPort factionBetWindow,
             TimelineEventPublisher publisher,
             WeaverChainSagaUseCase weaverChainSaga,
             Clock clock) {
@@ -151,6 +154,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
         this.rules = rules;
         this.bandRules = bandRules;
         this.foresightRules = foresightRules;
+        this.factionBetWindow = factionBetWindow;
         this.publisher = publisher;
         this.weaverChainSaga = weaverChainSaga;
         this.clock = clock;
@@ -440,12 +444,16 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
      * stands, so a later Foresight on an already-written event appends nothing. A Foresight without both a target event
      * and a target outcome writes nothing. Once the era holds the configured number of writings, a further Foresight
      * writes nothing either; only the game's single Prophet writes, so the era's written events are that Prophet's
-     * writings. A Foresight that writes nothing for any reason does not count. The writing is internal state and is
-     * never published.
+     * writings. A Foresight played after the faction-bet window writes nothing, since every faction bet closes then.
+     * A Foresight that writes nothing for any reason does not count. The writing is internal state and is never
+     * published.
      */
     private void applyForesightWriting(
             UUID gameId, int eraNumber, int roundNumber, BufferedAction a, ReplayEvents events) {
         if (a.targetEventId() == null || a.targetOutcomeId() == null) {
+            return;
+        }
+        if (roundNumber > factionBetWindow.factionBetLatestRound()) {
             return;
         }
         var target = events.find(a.targetEventId());

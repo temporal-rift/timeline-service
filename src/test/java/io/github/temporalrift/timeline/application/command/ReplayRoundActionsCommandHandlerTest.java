@@ -109,6 +109,9 @@ class ReplayRoundActionsCommandHandlerTest {
     /** The configured writings per era each test runs under, read when the handler replays. */
     private int writingsPerEra = 1;
 
+    /** The last round a faction bet still takes effect, read when the handler replays. */
+    private int factionBetLatestRound = 2;
+
     private ReplayRoundActionsCommandHandler handler;
 
     @BeforeEach
@@ -124,6 +127,7 @@ class ReplayRoundActionsCommandHandlerTest {
                 rules,
                 bandRules,
                 () -> writingsPerEra,
+                () -> factionBetLatestRound,
                 publisher,
                 weaverChainSaga,
                 clock);
@@ -2413,6 +2417,70 @@ class ReplayRoundActionsCommandHandlerTest {
         handler.replay(GAME_ID, ERA_NUMBER, 3);
 
         assertThat(w.weights()).containsExactly(0, 60, 40);
+    }
+
+    @Test
+    void replay_foresightAfterTheBetWindow_writesNothingAndRoutesErasureProportionally() {
+        var w = writtenOutcomeFixture(50, 30, 20);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        givenRound(
+                3,
+                List.of(
+                        specialAction("FORESIGHT", w.eventId(), w.o1()),
+                        specialAction("ANNIHILATE", w.eventId(), w.o1())));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 3);
+
+        assertThat(w.weights()).containsExactly(0, 60, 40);
+        then(futureEvents).should(never()).append(any(), any(OutcomeWritten.class));
+    }
+
+    @Test
+    void replay_foresightAfterTheBetWindow_doesNotUseUpTheEraAllowance() {
+        var first = writtenOutcomeFixture(50, 30, 20);
+        var second = writtenOutcomeFixture(50, 30, 20);
+        givenEraEvents(first, second);
+        givenRound(3, specialAction("FORESIGHT", first.eventId(), first.o3()));
+        givenRound(2, specialAction("FORESIGHT", second.eventId(), second.o2()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 3);
+        handler.replay(GAME_ID, ERA_NUMBER, 2);
+
+        then(futureEvents).should(never()).append(eq(first.eventId()), any(OutcomeWritten.class));
+        then(futureEvents).should().append(second.eventId(), new OutcomeWritten(second.eventId(), second.o2(), 2));
+    }
+
+    @Test
+    void replay_foresightAfterTheBetWindow_isWrittenWhenTheWindowIsRoundThree() {
+        factionBetLatestRound = 3;
+        var w = writtenOutcomeFixture(50, 30, 20);
+        given(rules.erasedWeightToWrittenOutcome()).willReturn(true);
+        givenRound(
+                3,
+                List.of(
+                        specialAction("FORESIGHT", w.eventId(), w.o3()),
+                        specialAction("ANNIHILATE", w.eventId(), w.o1())));
+
+        handler.replay(GAME_ID, ERA_NUMBER, 3);
+
+        assertThat(w.weights()).containsExactly(0, 30, 70);
+        then(futureEvents).should().append(w.eventId(), new OutcomeWritten(w.eventId(), w.o3(), 3));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1,1,true", "1,2,false", "1,3,false", "2,2,true", "2,3,false", "3,3,true"})
+    void replay_foresightWritesOnlyWithinTheBetWindow(int window, int round, boolean written) {
+        factionBetLatestRound = window;
+        var w = writtenOutcomeFixture(50, 30, 20);
+        givenRound(round, specialAction("FORESIGHT", w.eventId(), w.o3()));
+
+        handler.replay(GAME_ID, ERA_NUMBER, round);
+
+        if (written) {
+            then(futureEvents).should().append(w.eventId(), new OutcomeWritten(w.eventId(), w.o3(), round));
+        } else {
+            then(futureEvents).should(never()).append(any(), any(OutcomeWritten.class));
+        }
     }
 
     @Test
