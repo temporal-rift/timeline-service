@@ -142,10 +142,18 @@ class TimelineRulesPropertiesTest {
     }
 
     @Test
-    void nonPositiveThreadShift_throws() {
-        assertThatThrownBy(() ->
+    void zeroThreadShift_isAccepted() {
+        assertThatCode(() ->
                         new TimelineRulesProperties(PUSH, SUPPRESS, SWING, AMPLIFY, 0, 90, 30, 60, 10, 1.5, 0, true))
-                .isInstanceOf(IllegalArgumentException.class);
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void negativeThreadShift_throwsNamingTheKey() {
+        assertThatThrownBy(() ->
+                        new TimelineRulesProperties(PUSH, SUPPRESS, SWING, AMPLIFY, 0, 90, 30, 60, 10, 1.5, -1, true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("game.rules.probability.thread-shift");
     }
 
     @Test

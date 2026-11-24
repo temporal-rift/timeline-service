@@ -228,10 +228,14 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                     .add(mimicEffect(correlated, rallyDeclaredOutcomes));
         }
         for (var thread : acceptedThreads) {
+            var effect = threadEffect(thread, rallyDeclaredOutcomes);
+            if (effect.isEmpty()) {
+                continue;
+            }
             events.find(thread.targetEventId())
                     .ifPresent(_ -> effectsByEvent
                             .computeIfAbsent(thread.targetEventId(), _ -> new ArrayList<>())
-                            .add(threadEffect(thread, rallyDeclaredOutcomes)));
+                            .add(effect.get()));
         }
         for (var a : sorted) {
             if (!isLiveShifter(a, cancelled)) {
@@ -696,7 +700,7 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                         magnitude));
     }
 
-    /** Every live THREAD the Weaver chain saga accepted; each one's shift joins the simultaneous tier. */
+    /** Every live THREAD the Weaver chain saga accepted; each positive shift joins the simultaneous tier. */
     private List<BufferedAction> resolveAcceptedThreads(
             UUID gameId, int eraNumber, List<BufferedAction> sorted, Set<UUID> cancelled) {
         // Sequential in replay order: playThread changes Weaver chain state, so each call must see the last.
@@ -707,13 +711,20 @@ class ReplayRoundActionsCommandHandler implements ReplayRoundActionsUseCase {
                 .toList();
     }
 
-    /** An accepted THREAD's configured favorable shift, a direct transfer to its named outcome that Rally boosts. */
-    private RoundEffect threadEffect(BufferedAction thread, Set<UUID> rallyDeclaredOutcomes) {
+    /**
+     * An accepted THREAD's configured favorable shift, a direct transfer to its named outcome that Rally boosts.
+     * A zero effective magnitude contributes no shift: the pending link still opens, but nothing joins the
+     * round's simultaneous tier for it.
+     */
+    private Optional<RoundEffect> threadEffect(BufferedAction thread, Set<UUID> rallyDeclaredOutcomes) {
         int magnitude = rallyAdjustedMagnitude(
                 rallyDeclaredOutcomes, ShiftKind.PUSH, thread.targetOutcomeId(), rules.threadShift());
-        return new RoundEffect(
+        if (magnitude == 0) {
+            return Optional.empty();
+        }
+        return Optional.of(new RoundEffect(
                 thread.envelopeEventId(),
-                new SimultaneousShift(new ProbabilityShift.Push(thread.targetOutcomeId()), magnitude));
+                new SimultaneousShift(new ProbabilityShift.Push(thread.targetOutcomeId()), magnitude)));
     }
 
     /**

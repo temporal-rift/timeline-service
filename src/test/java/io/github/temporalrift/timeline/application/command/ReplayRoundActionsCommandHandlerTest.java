@@ -1464,6 +1464,56 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     @Test
+    void replay_zeroThreadShift_stillOpensPendingLinkWithoutMovingProbability() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var weaver = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(weaverChainSaga.playThread(GAME_ID, ERA_NUMBER, weaver, eventId, a))
+                .willReturn(true);
+        given(rules.threadShift()).willReturn(0);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(List.of(specialActionBy(weaver, "THREAD", eventId, a)));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(weaverChainSaga).should().playThread(GAME_ID, ERA_NUMBER, weaver, eventId, a);
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(30);
+        assertThat(probabilityOf(futureEvent, c)).isEqualTo(20);
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
+    void replay_zeroThreadShiftWithRally_staysUnchanged() {
+        var eventId = UUID.randomUUID();
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        var c = UUID.randomUUID();
+        var weaver = UUID.randomUUID();
+        var futureEvent = drafted(eventId, outcome(a, 50), outcome(b, 30), outcome(c, 20));
+        given(futureEvents.findById(eventId)).willReturn(futureEvent);
+        given(weaverChainSaga.playThread(GAME_ID, ERA_NUMBER, weaver, eventId, a))
+                .willReturn(true);
+        given(rules.threadShift()).willReturn(0);
+        given(rules.rallyMultiplier()).willReturn(1.5);
+        given(buffer.findByRound(GAME_ID, ERA_NUMBER, ROUND_NUMBER))
+                .willReturn(
+                        List.of(rally(UUID.randomUUID(), eventId, a), specialActionBy(weaver, "THREAD", eventId, a)));
+
+        handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
+
+        then(weaverChainSaga).should().playThread(GAME_ID, ERA_NUMBER, weaver, eventId, a);
+        assertThat(probabilityOf(futureEvent, a)).isEqualTo(50);
+        assertThat(probabilityOf(futureEvent, b)).isEqualTo(30);
+        assertThat(probabilityOf(futureEvent, c)).isEqualTo(20);
+        then(futureEvents).should(never()).append(any(), any());
+    }
+
+    @Test
     void replay_momentumPrecedesARound1ThreadShift() {
         var eventId = UUID.randomUUID();
         var a = UUID.randomUUID();
