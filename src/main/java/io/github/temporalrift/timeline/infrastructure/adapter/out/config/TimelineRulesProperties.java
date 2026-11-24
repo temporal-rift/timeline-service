@@ -42,7 +42,7 @@ public record TimelineRulesProperties(
         requireAmplifyMultiplier(amplifyMultiplier);
         requireBandThresholds(bandLowMax, bandMediumMax);
         requirePositive(momentumBonus, "momentum-bonus");
-        requirePositive(threadShift, "thread-shift");
+        requireNonNegative(threadShift, "thread-shift");
         requireRallyMultiplier(rallyMultiplier);
         requireNoBoostedMagnitudeOverflow(pushShift, swingShift, amplifyMultiplier, rallyMultiplier);
     }
@@ -103,6 +103,12 @@ public record TimelineRulesProperties(
     private static void requirePositive(int value, String property) {
         if (value <= 0) {
             throw new IllegalArgumentException("game.rules.probability." + property + " must be positive");
+        }
+    }
+
+    private static void requireNonNegative(int value, String property) {
+        if (value < 0) {
+            throw new IllegalArgumentException("game.rules.probability." + property + " must be non-negative");
         }
     }
 

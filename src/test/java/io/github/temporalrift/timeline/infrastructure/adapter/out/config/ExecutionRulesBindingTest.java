@@ -91,6 +91,22 @@ class ExecutionRulesBindingTest {
     }
 
     @Test
+    @DisplayName("a zero thread-shift binds while a negative one names the key")
+    void bind_zeroThreadShift_bindsAndNegativeNamesTheKey() {
+        var zero = flatRules();
+        zero.put("game.rules.probability.thread-shift", "0");
+
+        assertThat(probability.bind(zero).threadShift()).isEqualTo(0);
+
+        var negative = flatRules();
+        negative.put("game.rules.probability.thread-shift", "-1");
+
+        assertThatThrownBy(() -> probability.bind(negative))
+                .isInstanceOf(InvalidExecutionRulesException.class)
+                .hasMessageContaining("game.rules.probability.thread-shift");
+    }
+
+    @Test
     @DisplayName("the required keys are derived from the properties records rather than repeated by hand")
     void requiredKeys_followTheRecordComponents() {
         assertThat(ExecutionRulesBinding.requiredKeys(TimelineRulesProperties.class, "game.rules.probability"))
