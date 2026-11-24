@@ -1,10 +1,10 @@
 package io.github.temporalrift.timeline.domain.futureevent;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
@@ -146,24 +146,21 @@ public final class ParadoxDetector {
         if (eventId == null || chains == null || chains.isEmpty()) {
             return List.of();
         }
-        Set<UUID> annihilatedOutcomeIds = new HashSet<>();
-        for (var outcome : outcomes) {
-            if (outcome.annihilated()) {
-                annihilatedOutcomeIds.add(outcome.outcomeId());
-            }
-        }
-        var paradoxes = new ArrayList<DetectedParadox>();
-        for (var chain : chains) {
-            if (hasAnnihilatedPendingLink(chain, eventId, annihilatedOutcomeIds)) {
-                var pending = chain.pendingLink();
-                paradoxes.add(new DetectedParadox(
-                        ParadoxType.CHAIN_CONFLICT,
-                        List.of(pending.outcomeId()),
-                        "Weaver chain's pending link requires outcome " + pending.outcomeId() + " for event " + eventId
-                                + ", which was annihilated"));
-            }
-        }
-        return paradoxes;
+        Set<UUID> annihilatedOutcomeIds = outcomes.stream()
+                .filter(Outcome::annihilated)
+                .map(Outcome::outcomeId)
+                .collect(Collectors.toSet());
+        return chains.stream()
+                .filter(chain -> hasAnnihilatedPendingLink(chain, eventId, annihilatedOutcomeIds))
+                .map(chain -> {
+                    var pending = chain.pendingLink();
+                    return new DetectedParadox(
+                            ParadoxType.CHAIN_CONFLICT,
+                            List.of(pending.outcomeId()),
+                            "Weaver chain's pending link requires outcome " + pending.outcomeId() + " for event "
+                                    + eventId + ", which was annihilated");
+                })
+                .toList();
     }
 
     private static boolean hasAnnihilatedPendingLink(WeaverChain chain, UUID eventId, Set<UUID> annihilatedOutcomeIds) {
