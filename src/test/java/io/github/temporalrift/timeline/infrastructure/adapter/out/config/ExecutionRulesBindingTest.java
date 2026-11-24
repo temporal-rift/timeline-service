@@ -96,7 +96,7 @@ class ExecutionRulesBindingTest {
         var zero = flatRules();
         zero.put("game.rules.probability.thread-shift", "0");
 
-        assertThat(probability.bind(zero).threadShift()).isEqualTo(0);
+        assertThat(probability.bind(zero).threadShift()).isZero();
 
         var negative = flatRules();
         negative.put("game.rules.probability.thread-shift", "-1");
