@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
+import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActionRoundClosedPayload;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActivistDeclarationMode;
 import io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.ActivistDeclarationRecordedPayload;
@@ -304,8 +305,7 @@ class RoundResolutionGameEventHandler {
      * deserialization) to this service's domain {@link CardGrade} — {@code null} for {@code UNKNOWN} or a missing
      * grade, treated by callers exactly like an unknown {@code cardType}/{@code specialAction}: not buffered.
      */
-    private static CardGrade toGrade(
-            io.github.temporalrift.asyncapi.actionevents.GeneratedChannelContract.CardGrade wireGrade) {
+    private static CardGrade toGrade(GeneratedChannelContract.CardGrade wireGrade) {
         if (wireGrade == null) {
             return null;
         }

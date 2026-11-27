@@ -6,10 +6,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.BDDMockito;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import io.github.temporalrift.timeline.domain.execution.ClockAcknowledgement;
@@ -31,7 +34,7 @@ class SimulationPersistenceAdaptersTest {
         assertThat(decisions.find("CARD_DEAL", "era=1", 0)).isEmpty();
         decisions.save("CARD_DEAL", "era=1", 0, 7L);
 
-        verify(jdbc).sql(org.mockito.ArgumentMatchers.contains("INSERT INTO simulation_entropy_decision"));
+        verify(jdbc).sql(ArgumentMatchers.contains("INSERT INTO simulation_entropy_decision"));
     }
 
     @Test
@@ -45,7 +48,7 @@ class SimulationPersistenceAdaptersTest {
         operations.save(new ClockOperation(
                 new ClockAdvance(operationId, 0, instant), new ClockAcknowledgement(operationId, 1, instant)));
 
-        verify(jdbc).sql(org.mockito.ArgumentMatchers.contains("INSERT INTO simulation_clock_operation"));
+        verify(jdbc).sql(ArgumentMatchers.contains("INSERT INTO simulation_clock_operation"));
     }
 
     @Test
@@ -59,36 +62,36 @@ class SimulationPersistenceAdaptersTest {
         assertThat(executions.insertIfAbsent(execution)).isFalse();
         executions.update(execution);
 
-        verify(jdbc).sql(org.mockito.ArgumentMatchers.contains("UPDATE simulation_execution"));
+        verify(jdbc).sql(ArgumentMatchers.contains("UPDATE simulation_execution"));
     }
 
     @Test
     @DisplayName("the gameplay check looks at every non-control table")
     void gameplay_isCleanChecksGameplayTables() {
-        org.mockito.BDDMockito.given(jdbc.sql(org.mockito.ArgumentMatchers.contains("pg_tables"))
+        BDDMockito.given(jdbc.sql(ArgumentMatchers.contains("pg_tables"))
                         .query(String.class)
                         .list())
-                .willReturn(java.util.List.of("game_membership", "event_store"));
-        org.mockito.BDDMockito.given(jdbc.sql(org.mockito.ArgumentMatchers.contains("SELECT EXISTS"))
+                .willReturn(List.of("game_membership", "event_store"));
+        BDDMockito.given(jdbc.sql(ArgumentMatchers.contains("SELECT EXISTS"))
                         .query(Boolean.class)
                         .single())
                 .willReturn(false);
 
         assertThat(new GameplayDiscardAdapter(jdbc).isClean()).isTrue();
 
-        verify(jdbc).sql(org.mockito.ArgumentMatchers.contains("game_membership"));
+        verify(jdbc).sql(ArgumentMatchers.contains("game_membership"));
     }
 
     @Test
     @DisplayName("the execution probe counts unrelayed outbox records")
     void outbox_countsIncompletePublications() {
-        org.mockito.BDDMockito.given(jdbc.sql(org.mockito.ArgumentMatchers.anyString())
+        BDDMockito.given(jdbc.sql(ArgumentMatchers.anyString())
                         .query(Integer.class)
                         .single())
                 .willReturn(3);
 
         assertThat(new ExecutionProbeAdapter(jdbc).pendingPublications()).isEqualTo(3);
 
-        verify(jdbc).sql(org.mockito.ArgumentMatchers.contains("outbox_events"));
+        verify(jdbc).sql(ArgumentMatchers.contains("outbox_events"));
     }
 }

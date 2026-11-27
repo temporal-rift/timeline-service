@@ -24,7 +24,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
@@ -121,9 +123,7 @@ class RoundResolutionGameEventHandlerTest {
 
     @BeforeEach
     void setUp() {
-        org.mockito.Mockito.lenient()
-                .when(gameScope.admits(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(true);
+        Mockito.lenient().when(gameScope.admits(ArgumentMatchers.any())).thenReturn(true);
         consumer = new RoundResolutionGameEventHandler(
                 buffer,
                 replayRoundActions,

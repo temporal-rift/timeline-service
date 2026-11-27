@@ -64,6 +64,7 @@ import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaState;
 import io.github.temporalrift.timeline.domain.saga.WeaverChainSagaStatus;
 import io.github.temporalrift.timeline.domain.weaverchain.ChainStatus;
 import io.github.temporalrift.timeline.domain.weaverchain.WeaverChain;
+import io.github.temporalrift.timeline.domain.weaverchain.WeaverChainNotFoundException;
 
 @ExtendWith(MockitoExtension.class)
 class WeaverChainSagaTest {
@@ -635,7 +636,7 @@ class WeaverChainSagaTest {
         saga.breakChainOnCascadedParadox(GAME_ID, ERA, pending.eventId(), pending.outcomeId(), paradoxId);
 
         var chain = chains.findById(chainId);
-        assertThat(chain.status()).isEqualTo(io.github.temporalrift.timeline.domain.weaverchain.ChainStatus.BROKEN);
+        assertThat(chain.status()).isEqualTo(ChainStatus.BROKEN);
         assertThat(chain.pendingLink()).isNull();
         var broken = published(ChainBrokenEvent.class);
         assertThat(broken.paradoxId()).isEqualTo(paradoxId);
@@ -673,8 +674,7 @@ class WeaverChainSagaTest {
         saga.breakChainOnCascadedParadox(GAME_ID, ERA + 1, pending.eventId(), pending.outcomeId(), UUID.randomUUID());
 
         assertThat(chains.findById(chainId).pendingLink()).isNull();
-        assertThat(chains.findById(chainId).status())
-                .isEqualTo(io.github.temporalrift.timeline.domain.weaverchain.ChainStatus.ACTIVE);
+        assertThat(chains.findById(chainId).status()).isEqualTo(ChainStatus.ACTIVE);
         published(ChainLinkInvalidatedEvent.class);
         publishedNever(ChainBrokenEvent.class);
     }
@@ -1258,7 +1258,7 @@ class WeaverChainSagaTest {
         public WeaverChain findById(UUID chainId) {
             var history = streams.get(chainId);
             if (history == null || history.isEmpty()) {
-                throw new io.github.temporalrift.timeline.domain.weaverchain.WeaverChainNotFoundException(chainId);
+                throw new WeaverChainNotFoundException(chainId);
             }
             return WeaverChain.replay(chainId, history);
         }

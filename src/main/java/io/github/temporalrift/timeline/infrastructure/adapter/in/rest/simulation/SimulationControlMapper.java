@@ -17,6 +17,7 @@ import io.github.temporalrift.timeline.domain.execution.Seed;
 import io.github.temporalrift.timeline.domain.execution.SimulationSeat;
 import io.github.temporalrift.timeline.domain.execution.SourceWatermark;
 import io.github.temporalrift.timeline.domain.membership.MemberFaction;
+import io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation.v1.model.Faction;
 
 @Mapper(componentModel = "spring")
 interface SimulationControlMapper {
@@ -58,8 +59,7 @@ interface SimulationControlMapper {
     SimulationSeat toDomain(
             io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation.v1.model.SimulationSeat seat);
 
-    default MemberFaction toDomain(
-            io.github.temporalrift.timeline.infrastructure.adapter.in.rest.simulation.v1.model.Faction faction) {
+    default MemberFaction toDomain(Faction faction) {
         return faction == null ? null : MemberFaction.valueOf(faction.getValue());
     }
 

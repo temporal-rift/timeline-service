@@ -14,6 +14,7 @@ import io.github.temporalrift.timeline.domain.event.ChainBrokenEvent;
 import io.github.temporalrift.timeline.domain.event.ChainCompletedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainLinkAddedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidatedEvent;
+import io.github.temporalrift.timeline.domain.event.ChainLinkThreadedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainProtectionArmedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainProtectionConsumedEvent;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchoredEvent;
@@ -152,8 +153,7 @@ class TimelineEventWireMapperTest {
         var playerId = UUID.randomUUID();
         var eventId = UUID.randomUUID();
         var outcomeId = UUID.randomUUID();
-        var event = new io.github.temporalrift.timeline.domain.event.ChainLinkThreadedEvent(
-                gameId, 2, chainId, playerId, eventId, outcomeId);
+        var event = new ChainLinkThreadedEvent(gameId, 2, chainId, playerId, eventId, outcomeId);
 
         var wire = mapper.toWire(event);
 

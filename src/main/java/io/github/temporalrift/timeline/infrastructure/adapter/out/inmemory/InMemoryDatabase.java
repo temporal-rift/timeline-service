@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -139,7 +140,7 @@ public final class InMemoryDatabase {
     /** Whether any table whose name matches holds at least one visible row. */
     public boolean hasRowsOf(Predicate<String> matches) {
         return run(transaction -> {
-            var names = new java.util.TreeSet<String>();
+            var names = new TreeSet<String>();
             commitLock.readLock().lock();
             try {
                 names.addAll(committed.keySet());
@@ -159,7 +160,7 @@ public final class InMemoryDatabase {
      */
     public void deleteAllRowsOf(Predicate<String> matches) {
         run(transaction -> {
-            var names = new java.util.TreeSet<String>();
+            var names = new TreeSet<String>();
             commitLock.readLock().lock();
             try {
                 names.addAll(committed.keySet());

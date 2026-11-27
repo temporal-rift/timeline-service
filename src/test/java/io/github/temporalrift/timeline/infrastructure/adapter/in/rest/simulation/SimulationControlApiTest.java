@@ -18,9 +18,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.BDDMockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -163,7 +165,7 @@ class SimulationControlApiTest {
                         .content(contextBody("42", "PROPHETS")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SIMULATION_CONTROL_FORBIDDEN"))
-                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("42"))));
+                .andExpect(content().string(Matchers.not(Matchers.containsString("42"))));
         mockMvc.perform(get(CHECKPOINT_PATH).with(participantToken()))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SIMULATION_CONTROL_FORBIDDEN"));
@@ -196,8 +198,8 @@ class SimulationControlApiTest {
                 .andExpect(jsonPath("$.revision").value(0))
                 .andExpect(jsonPath("$.state").value("READY"))
                 .andExpect(jsonPath("$.drained").value(true))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"gameId\":null")))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"nextDeadline\":null")))
+                .andExpect(content().string(Matchers.containsString("\"gameId\":null")))
+                .andExpect(content().string(Matchers.containsString("\"nextDeadline\":null")))
                 .andExpect(jsonPath("$.sourceWatermarks[0].nextOffset").value(7));
 
         var captor = ArgumentCaptor.forClass(ExecutionContext.class);
@@ -358,7 +360,7 @@ class SimulationControlApiTest {
     @Test
     @DisplayName("close without an ever-configured or matching case uses the published conflicts")
     void close_conflicts_useThePublishedCodes() throws Exception {
-        org.mockito.BDDMockito.willThrow(new ExecutionNotConfiguredException())
+        BDDMockito.willThrow(new ExecutionNotConfiguredException())
                 .given(closeExecution)
                 .handle(any());
         mockMvc.perform(delete(EXECUTION_PATH)
@@ -367,7 +369,7 @@ class SimulationControlApiTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("EXECUTION_NOT_CONFIGURED"));
 
-        org.mockito.BDDMockito.willThrow(new ExecutionContextConflictException("unrelated"))
+        BDDMockito.willThrow(new ExecutionContextConflictException("unrelated"))
                 .given(closeExecution)
                 .handle(any());
         mockMvc.perform(delete(EXECUTION_PATH)

@@ -10,6 +10,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -72,7 +73,7 @@ class LogicalClockTest {
                 ExecutionContextTestData.RULES_DIGEST,
                 START.plusSeconds(5),
                 ExecutionContextTestData.threeSeats()));
-        var loads = new java.util.concurrent.atomic.AtomicInteger();
+        var loads = new AtomicInteger();
         var loading = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var repository = new ExecutionRepository() {

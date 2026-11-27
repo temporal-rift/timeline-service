@@ -17,7 +17,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.kafka.support.KafkaHeaders;
@@ -44,9 +46,7 @@ class GameEventIngestionTest {
     void setUp() {
         meterRegistry = new SimpleMeterRegistry();
         skipMetrics = new GameEventSkipMetrics(meterRegistry);
-        org.mockito.Mockito.lenient()
-                .when(gameScope.admits(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(true);
+        Mockito.lenient().when(gameScope.admits(ArgumentMatchers.any())).thenReturn(true);
         ingestion = new GameEventIngestion(processedEvents, skipMetrics, gameScope);
     }
 
