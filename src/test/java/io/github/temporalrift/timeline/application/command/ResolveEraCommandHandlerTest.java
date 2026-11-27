@@ -23,12 +23,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import io.github.temporalrift.timeline.application.port.in.OpenParadoxResolutionPhaseUseCase;
 import io.github.temporalrift.timeline.application.port.in.SettleCascadeCarryForwardUseCase;
 import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
+import io.github.temporalrift.timeline.domain.event.ChainLinkThreaded;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
@@ -315,7 +317,7 @@ class ResolveEraCommandHandlerTest {
         // Already known to be carried forward — resolving it again would be wasted work.
         then(futureEvents).should(never()).findById(eventId);
         then(publisher).should(never()).publish(any());
-        then(eraIndex).should(never()).add(any(), any(), org.mockito.ArgumentMatchers.eq(ERA_NUMBER + 1), anyInt());
+        then(eraIndex).should(never()).add(any(), any(), ArgumentMatchers.eq(ERA_NUMBER + 1), anyInt());
         then(weaverChainSaga).should(never()).expireWinnerlessPendingLink(any(), anyInt(), any());
     }
 
@@ -666,8 +668,7 @@ class ResolveEraCommandHandlerTest {
                 chainId,
                 List.of(
                         new WeaverChainStarted(chainId, UUID.randomUUID(), GAME_ID),
-                        new io.github.temporalrift.timeline.domain.event.ChainLinkThreaded(
-                                chainId, eventId, outcomeId, ERA_NUMBER)));
+                        new ChainLinkThreaded(chainId, eventId, outcomeId, ERA_NUMBER)));
     }
 
     /**

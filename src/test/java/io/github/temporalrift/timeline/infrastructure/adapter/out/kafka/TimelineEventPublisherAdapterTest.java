@@ -17,6 +17,7 @@ import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -104,8 +105,7 @@ class TimelineEventPublisherAdapterTest {
         var envelope =
                 TimelineEventEnvelope.create(UUID.randomUUID(), "FutureEvent", UUID.randomUUID(), 1, domain, CLOCK);
 
-        var thrown = org.junit.jupiter.api.Assertions.assertThrows(
-                ConstraintViolationException.class, () -> adapter.publish(envelope));
+        var thrown = Assertions.assertThrows(ConstraintViolationException.class, () -> adapter.publish(envelope));
 
         assertThat(thrown.getMessage()).contains("gameId");
         assertThat(thrown.getMessage()).doesNotContain("terminalResolutions=[]");

@@ -32,6 +32,7 @@ import io.github.temporalrift.timeline.domain.execution.EntropyDerivation;
 import io.github.temporalrift.timeline.domain.execution.EntropyPurpose;
 import io.github.temporalrift.timeline.domain.execution.EntropyVersion;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContext;
+import io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData;
 import io.github.temporalrift.timeline.domain.execution.IdentityKind;
 import io.github.temporalrift.timeline.domain.execution.Seed;
 import io.github.temporalrift.timeline.domain.execution.SimulationSeat;
@@ -61,8 +62,8 @@ class SimulationExecutionIT {
             new Seed(SEED),
             EntropyVersion.SHA256_V1,
             DIGEST,
-            io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData.RULES,
-            io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData.RULES_DIGEST,
+            ExecutionContextTestData.RULES,
+            ExecutionContextTestData.RULES_DIGEST,
             START,
             List.of(
                     new SimulationSeat(0, PLAYER_0, MemberFaction.ERASERS),
@@ -304,8 +305,8 @@ class SimulationExecutionIT {
                         CASE_KEY,
                         SEED,
                         DIGEST,
-                        io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData.RULES.canonicalJson(),
-                        io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData.RULES_DIGEST,
+                        ExecutionContextTestData.RULES.canonicalJson(),
+                        ExecutionContextTestData.RULES_DIGEST,
                         PLAYER_0,
                         PLAYER_1,
                         PLAYER_2);

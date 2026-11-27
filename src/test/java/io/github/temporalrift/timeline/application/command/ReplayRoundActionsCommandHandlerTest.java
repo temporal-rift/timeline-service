@@ -43,6 +43,7 @@ import io.github.temporalrift.timeline.domain.event.AdjustedBandsPublished;
 import io.github.temporalrift.timeline.domain.event.AnnihilationResolved;
 import io.github.temporalrift.timeline.domain.event.CorruptInversionConfirmed;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
+import io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated;
 import io.github.temporalrift.timeline.domain.event.OutcomeWritten;
 import io.github.temporalrift.timeline.domain.event.ProbabilityStateRevealed;
 import io.github.temporalrift.timeline.domain.event.ResolutionFailed;
@@ -2653,7 +2654,7 @@ class ReplayRoundActionsCommandHandlerTest {
     }
 
     private void givenEraEvents(WrittenOutcomeFixture... fixtures) {
-        var indexed = new java.util.ArrayList<FutureEventEraIndexPort.IndexedEventId>();
+        var indexed = new ArrayList<FutureEventEraIndexPort.IndexedEventId>();
         for (int index = 0; index < fixtures.length; index++) {
             indexed.add(new FutureEventEraIndexPort.IndexedEventId(fixtures[index].eventId(), index));
         }
@@ -2838,9 +2839,7 @@ class ReplayRoundActionsCommandHandlerTest {
 
         handler.replay(GAME_ID, ERA_NUMBER, ROUND_NUMBER);
 
-        then(futureEvents)
-                .should()
-                .append(eq(eventId), any(io.github.temporalrift.timeline.domain.event.OutcomeAnnihilated.class));
+        then(futureEvents).should().append(eq(eventId), any(OutcomeAnnihilated.class));
         assertThat(annihilationResolutions())
                 .extracting(AnnihilationResolved::erased, AnnihilationResolved::wasLeading)
                 .containsExactly(tuple(true, true));

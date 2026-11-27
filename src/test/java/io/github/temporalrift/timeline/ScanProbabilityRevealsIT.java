@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -257,8 +258,7 @@ class ScanProbabilityRevealsIT {
             Map<String, Object> revealPayload, UUID outcomeId1, int probability1, UUID outcomeId2, int probability2) {
         var outcomes = (List<Map<String, Object>>) revealPayload.get("outcomes");
         var byId = outcomes.stream()
-                .collect(
-                        java.util.stream.Collectors.toMap(o -> (String) o.get("outcomeId"), o -> o.get("probability")));
+                .collect(Collectors.toMap(o -> (String) o.get("outcomeId"), o -> o.get("probability")));
         assertThat(byId)
                 .containsEntry(outcomeId1.toString(), probability1)
                 .containsEntry(outcomeId2.toString(), probability2);

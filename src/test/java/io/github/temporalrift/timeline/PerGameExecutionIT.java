@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import io.github.temporalrift.timeline.application.port.in.CloseSimulationExecutionUseCase;
 import io.github.temporalrift.timeline.application.port.in.GetSimulationCheckpointUseCase;
 import io.github.temporalrift.timeline.domain.execution.EffectiveRules;
+import io.github.temporalrift.timeline.domain.execution.EntropyVersion;
 import io.github.temporalrift.timeline.domain.execution.Execution;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContext;
 import io.github.temporalrift.timeline.domain.execution.ExecutionContextTestData;
@@ -116,7 +118,7 @@ class PerGameExecutionIT {
                         .content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_EXECUTION_CONTEXT"))
-                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("rulesDigest")));
+                .andExpect(jsonPath("$.detail").value(Matchers.containsString("rulesDigest")));
     }
 
     @Test
@@ -132,8 +134,8 @@ class PerGameExecutionIT {
                         .content(contextBody(context)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_EXECUTION_CONTEXT"))
-                .andExpect(jsonPath("$.detail")
-                        .value(org.hamcrest.Matchers.containsString("game.rules.probability.suppress-shift.I")));
+                .andExpect(
+                        jsonPath("$.detail").value(Matchers.containsString("game.rules.probability.suppress-shift.I")));
     }
 
     @Test
@@ -275,7 +277,7 @@ class PerGameExecutionIT {
         mockMvc.perform(get(CHECKPOINT_PATH).with(controlToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dueTimersPending").value(0))
-                .andExpect(jsonPath("$.nextDeadline").value(org.hamcrest.Matchers.nullValue()));
+                .andExpect(jsonPath("$.nextDeadline").value(Matchers.nullValue()));
     }
 
     @Test
@@ -524,7 +526,7 @@ class PerGameExecutionIT {
         return new ExecutionContext(
                 caseKey,
                 new Seed("42"),
-                io.github.temporalrift.timeline.domain.execution.EntropyVersion.SHA256_V1,
+                EntropyVersion.SHA256_V1,
                 "c".repeat(64),
                 rules,
                 rules.digest(),

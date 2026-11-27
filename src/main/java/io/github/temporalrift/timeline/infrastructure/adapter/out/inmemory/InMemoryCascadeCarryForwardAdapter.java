@@ -1,6 +1,7 @@
 package io.github.temporalrift.timeline.infrastructure.adapter.out.inmemory;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.context.annotation.Profile;
@@ -58,7 +59,7 @@ class InMemoryCascadeCarryForwardAdapter implements CascadeCarryForwardPort {
     @Transactional
     public void deleteByGame(UUID gameId) {
         rows.entries(playerId -> true).stream()
-                .map(java.util.Map.Entry::getKey)
+                .map(Map.Entry::getKey)
                 .filter(key -> key.gameId().equals(gameId))
                 .forEach(rows::remove);
     }

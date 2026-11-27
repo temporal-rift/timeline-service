@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -125,7 +127,7 @@ class InMemoryDatabaseTest {
     @Test
     @DisplayName("after-commit synchronisations run after the commit and not at all after a rollback")
     void afterCommit_runsOnlyOnCommit() {
-        var committedValues = new java.util.ArrayList<java.util.Optional<String>>();
+        var committedValues = new ArrayList<Optional<String>>();
         TransactionSynchronization afterCommit = new TransactionSynchronization() {
             @Override
             public void afterCommit() {
@@ -143,7 +145,7 @@ class InMemoryDatabaseTest {
                 }))
                 .hasMessage("boom");
 
-        assertThat(committedValues).containsExactly(java.util.Optional.of("v"));
+        assertThat(committedValues).containsExactly(Optional.of("v"));
     }
 
     @Test

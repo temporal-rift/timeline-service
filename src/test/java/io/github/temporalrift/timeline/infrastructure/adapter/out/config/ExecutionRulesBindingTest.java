@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -51,8 +52,8 @@ class ExecutionRulesBindingTest {
         private volatile Rules rules;
 
         @Override
-        public java.util.Optional<Rules> current() {
-            return java.util.Optional.ofNullable(rules);
+        public Optional<Rules> current() {
+            return Optional.ofNullable(rules);
         }
     }
 

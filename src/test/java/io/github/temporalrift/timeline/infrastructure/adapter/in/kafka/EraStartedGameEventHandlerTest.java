@@ -14,7 +14,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
@@ -50,9 +52,7 @@ class EraStartedGameEventHandlerTest {
 
     @BeforeEach
     void setUp() {
-        org.mockito.Mockito.lenient()
-                .when(gameScope.admits(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(true);
+        Mockito.lenient().when(gameScope.admits(ArgumentMatchers.any())).thenReturn(true);
         consumer = new EraStartedGameEventHandler(
                 eraPlayers, objectMapper, new GameEventIngestion(processedEvents, skipMetrics, gameScope));
     }

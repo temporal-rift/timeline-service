@@ -7,6 +7,8 @@ import static org.awaitility.Awaitility.await;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,14 +66,14 @@ public interface SimulationRepositoriesContract extends TransactionalContract {
         var configured = Execution.configure(ExecutionContextTestData.context("42"));
         executions().insertIfAbsent(configured);
         var held = holdTransaction(() -> executions().findWithLock());
-        var second = java.util.concurrent.CompletableFuture.supplyAsync(
+        var second = CompletableFuture.supplyAsync(
                 () -> transactions().execute(status -> executions().findWithLock()));
 
         await().during(Duration.ofMillis(300))
                 .atMost(Duration.ofSeconds(5))
                 .untilAsserted(() -> assertThat(second).isNotDone());
         assertThat(held.commit()).contains(configured);
-        assertThat(second.get(30, java.util.concurrent.TimeUnit.SECONDS)).contains(configured);
+        assertThat(second.get(30, TimeUnit.SECONDS)).contains(configured);
     }
 
     @Test
@@ -135,14 +137,14 @@ public interface SimulationRepositoriesContract extends TransactionalContract {
         var configured = Execution.configure(ExecutionContextTestData.context("42"));
         executions().insertIfAbsent(configured);
         var held = holdTransaction(() -> executions().findBoundsForHandling());
-        var close = java.util.concurrent.CompletableFuture.supplyAsync(
+        var close = CompletableFuture.supplyAsync(
                 () -> transactions().execute(status -> executions().findWithLock()));
 
         await().during(Duration.ofMillis(300))
                 .atMost(Duration.ofSeconds(5))
                 .untilAsserted(() -> assertThat(close).isNotDone());
         assertThat(held.commit()).isPresent();
-        assertThat(close.get(30, java.util.concurrent.TimeUnit.SECONDS)).isPresent();
+        assertThat(close.get(30, TimeUnit.SECONDS)).isPresent();
     }
 
     @Test

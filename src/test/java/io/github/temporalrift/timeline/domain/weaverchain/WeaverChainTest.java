@@ -3,6 +3,7 @@ package io.github.temporalrift.timeline.domain.weaverchain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -16,6 +17,7 @@ import io.github.temporalrift.timeline.domain.event.ChainLinkAdded;
 import io.github.temporalrift.timeline.domain.event.ChainLinkInvalidated;
 import io.github.temporalrift.timeline.domain.event.ChainLinkThreaded;
 import io.github.temporalrift.timeline.domain.event.ChainReAnchored;
+import io.github.temporalrift.timeline.domain.event.WeaverChainEvent;
 import io.github.temporalrift.timeline.domain.event.WeaverChainStarted;
 
 class WeaverChainTest {
@@ -106,7 +108,7 @@ class WeaverChainTest {
 
     @Test
     void replay_chainCompletedAtThreeLinks_staysCompletedWhateverTheCurrentLength() {
-        var history = new java.util.ArrayList<>(threeConfirmedLinkHistory());
+        var history = new ArrayList<>(threeConfirmedLinkHistory());
         history.add(new ChainCompleted(CHAIN_ID));
 
         var replayed = WeaverChain.replay(CHAIN_ID, history);
@@ -117,7 +119,7 @@ class WeaverChainTest {
 
     @Test
     void replay_completionWithAPendingLink_throwsIllegalState() {
-        var history = new java.util.ArrayList<>(threeConfirmedLinkHistory());
+        var history = new ArrayList<>(threeConfirmedLinkHistory());
         history.add(new ChainLinkThreaded(CHAIN_ID, UUID.randomUUID(), UUID.randomUUID(), 9));
         history.add(new ChainCompleted(CHAIN_ID));
 
@@ -167,7 +169,7 @@ class WeaverChainTest {
 
     @Test
     void replay_repeatedChainCompleted_isIdempotentEcho() {
-        var history = new java.util.ArrayList<>(threeConfirmedLinkHistory());
+        var history = new ArrayList<>(threeConfirmedLinkHistory());
         history.add(new ChainCompleted(CHAIN_ID));
         history.add(new ChainCompleted(CHAIN_ID));
 
@@ -179,7 +181,7 @@ class WeaverChainTest {
 
     @Test
     void replay_chainBrokenAfterCompleted_throwsIllegalState() {
-        var history = new java.util.ArrayList<>(threeConfirmedLinkHistory());
+        var history = new ArrayList<>(threeConfirmedLinkHistory());
         history.add(new ChainCompleted(CHAIN_ID));
         history.add(new ChainBroken(CHAIN_ID, "reason"));
 
@@ -225,8 +227,8 @@ class WeaverChainTest {
         assertThatThrownBy(() -> WeaverChain.replay(CHAIN_ID, history)).isInstanceOf(IllegalStateException.class);
     }
 
-    private static List<io.github.temporalrift.timeline.domain.event.WeaverChainEvent> threeConfirmedLinkHistory() {
-        var history = new java.util.ArrayList<io.github.temporalrift.timeline.domain.event.WeaverChainEvent>();
+    private static List<WeaverChainEvent> threeConfirmedLinkHistory() {
+        var history = new ArrayList<WeaverChainEvent>();
         history.add(new WeaverChainStarted(CHAIN_ID, PLAYER_ID, GAME_ID));
         for (int era = 1; era <= 3; era++) {
             var eventId = UUID.randomUUID();
@@ -762,8 +764,8 @@ class WeaverChainTest {
     }
 
     /** Rebuilds this chain's fact stream by replaying a fresh chain against the same THREAD/confirm sequence. */
-    private static List<io.github.temporalrift.timeline.domain.event.WeaverChainEvent> streamOf(WeaverChain chain) {
-        var rebuilt = new java.util.ArrayList<io.github.temporalrift.timeline.domain.event.WeaverChainEvent>();
+    private static List<WeaverChainEvent> streamOf(WeaverChain chain) {
+        var rebuilt = new ArrayList<WeaverChainEvent>();
         rebuilt.add(new WeaverChainStarted(chain.chainId(), chain.playerId(), chain.gameId()));
         for (var link : chain.links()) {
             rebuilt.add(new ChainLinkThreaded(chain.chainId(), link.eventId(), link.outcomeId(), link.eraNumber()));

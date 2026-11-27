@@ -18,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 import io.github.temporalrift.timeline.application.port.in.AdvanceSimulationClockUseCase;
@@ -252,7 +253,7 @@ class SimulationControlRestAdapterTest {
                 "INVALID_EXECUTION_CONTEXT");
     }
 
-    private static void assertProblem(org.springframework.http.ProblemDetail problem, HttpStatus status, String code) {
+    private static void assertProblem(ProblemDetail problem, HttpStatus status, String code) {
         assertThat(problem.getStatus()).isEqualTo(status.value());
         assertThat(problem.getProperties()).containsEntry("code", code);
     }

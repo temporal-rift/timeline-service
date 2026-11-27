@@ -30,6 +30,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import io.github.temporalrift.timeline.application.port.in.SettleCascadeCarryForwardUseCase;
+import io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase;
+import io.github.temporalrift.timeline.domain.event.ChainLinkThreaded;
 import io.github.temporalrift.timeline.domain.event.EraResolutionCompleted;
 import io.github.temporalrift.timeline.domain.event.FutureEventDrafted;
 import io.github.temporalrift.timeline.domain.event.OutcomeApplied;
@@ -53,6 +56,8 @@ import io.github.temporalrift.timeline.domain.port.out.ProbabilityRulesPort;
 import io.github.temporalrift.timeline.domain.port.out.StubExecutionEntropy;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventEnvelope;
 import io.github.temporalrift.timeline.domain.port.out.TimelineEventPublisher;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository;
+import io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.PendingParadox;
 import io.github.temporalrift.timeline.domain.saga.ParadoxResolutionPhase.Submission;
@@ -90,16 +95,16 @@ class ParadoxResolutionSagaImplTest {
     ProbabilityRulesPort probabilityRules;
 
     @Mock
-    io.github.temporalrift.timeline.domain.port.out.WeaverChainSagaRepository chainSagas;
+    WeaverChainSagaRepository chainSagas;
 
     @Mock
-    io.github.temporalrift.timeline.domain.port.out.WeaverChainRepository chains;
+    WeaverChainRepository chains;
 
     @Mock
-    io.github.temporalrift.timeline.application.port.in.WeaverChainSagaUseCase weaverChainSaga;
+    WeaverChainSagaUseCase weaverChainSaga;
 
     @Mock
-    io.github.temporalrift.timeline.application.port.in.SettleCascadeCarryForwardUseCase settleCascades;
+    SettleCascadeCarryForwardUseCase settleCascades;
 
     @Mock
     RandomGenerator random;
@@ -1651,7 +1656,6 @@ class ParadoxResolutionSagaImplTest {
                 chainId,
                 List.of(
                         new WeaverChainStarted(chainId, UUID.randomUUID(), GAME_ID),
-                        new io.github.temporalrift.timeline.domain.event.ChainLinkThreaded(
-                                chainId, eventId, outcomeId, ERA_NUMBER)));
+                        new ChainLinkThreaded(chainId, eventId, outcomeId, ERA_NUMBER)));
     }
 }
